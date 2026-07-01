@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版，修复了多窗口连接、剪贴板、Tab 管理等实际问题，便于在 **Cursor 重装** 或 **换机器** 后快速恢复。
 
-当前版本：`2.5.1-ji.2`
+当前版本：`2.5.1-ji.3`
 
 基于上游源码开发：`src/`（TypeScript）+ `static/`（面板 UI）+ `mcp-server/src/`。
 
@@ -81,7 +81,7 @@ node --test tests/panelPaste.test.js tests/panelState.test.js  # 快速单测
 面板顶部状态栏：
 
 ```
-v2.5.1-ji.1   ● Connected :48201 pid=20071   ↻
+v2.5.1-ji.2   ● Connected :48201 pid=20071   ↻
 ```
 
 - **Connected :端口**：当前 WebSocket 连到的 Extension 端口（48200–48300 范围）
@@ -104,6 +104,7 @@ v2.5.1-ji.1   ● Connected :48201 pid=20071   ↻
 | 无法输入 | `focus-webview` 抢焦点 | 移除输入框上的 `focus-webview` 调用 |
 | 截图粘贴无反应 | `electron.clipboard` 在 Extension Host 不可用 | macOS：`pbpaste` + `NSPasteboard`（osascript JXA） |
 | 链接粘贴两遍 | WS + 原生 paste 竞态 | `shouldBlockDuplicatePaste`；文本仅 keydown→WS 单路径 |
+| Reload 后假连接 / 彻底断开 | Webview 缓存旧端口；注册表 stale PID | `syncServer` 刷新 HTML；`/health` 校验；MCP 3 次重试发现 |
 
 ---
 
@@ -176,6 +177,7 @@ node --test tests/*.test.js
 | 现象 | 检查 |
 |------|------|
 | 面板 Disconnected | 点击 ↻ 或 Reload Window；查 `extension.log` 是否有 `server started` |
+| 面板 Connected 但对话报未连接 | 多窗口端口错乱或 stale registry | 点击 ↻；查 `mcp-server.log` 的 `discover:` 行 |
 | Agent 无反馈进面板 | 查 `mcp-server.log` 是否 `Feedback via extension port=...`；确认 `project_directory` 与当前工作区一致 |
 | 复制无效 | 日志搜 `clipboard-write ok` |
 | 截图粘贴失败 | 日志搜 `clipboard-paste ok image=true`；仅 macOS 支持 Extension 读图 |

@@ -32,6 +32,7 @@ if (fs.existsSync(stateSrc)) {
         html = html.replace('<script>', '<script>\n// -- panelState.js (inlined) --\n' + stateJs + '\n// -- end panelState.js --\n');
         console.log('[generate-webview] Inlined panelState.js into panel.html (fallback)');
     }
+    fs.copyFileSync(stateSrc, path.join(outDir, 'panelState.js'));
 }
 
 fs.writeFileSync(dest, html, 'utf8');

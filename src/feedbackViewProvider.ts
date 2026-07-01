@@ -71,6 +71,13 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    /** Refresh webview HTML and push current extension port after reload / port change. */
+    syncServer(port: number): void {
+        if (!this._view) return;
+        this._view.webview.html = this._getHtml();
+        this._view.webview.postMessage({ type: 'server-info', port });
+    }
+
     private _setupMessageHandler(view: vscode.WebviewView): void {
         view.webview.onDidReceiveMessage((message: Record<string, unknown>) => {
             switch (message.type) {

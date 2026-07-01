@@ -1,18 +1,27 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import * as net from 'node:net';
+import * as http from 'node:http';
 import * as crypto from 'node:crypto';
+import {
+    type ServerData,
+    type HealthData,
+    isProcessAlive,
+    normalizeProjectPath,
+    pickServerForProject,
+    projectPathMatches,
+} from './serverDiscoveryCore.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
 const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
 
-export interface ServerData {
-    port: number;
-    pid: number;
-    projectPath: string;
-    version: string;
-}
+export type { ServerData, HealthData };
+export {
+    normalizeProjectPath,
+    isProcessAlive,
+    pickServerForProject,
+    resolveWsUrl,
+} from './serverDiscoveryCore.js';
 
 function readJSON<T>(filePath: string): T | null {
     try {
@@ -32,33 +41,93 @@ function listJSONFiles(dir: string): string[] {
     }
 }
 
-function isPortOpen(port: number, host = '127.0.0.1'): Promise<boolean> {
-    return new Promise((resolve) => {
-        const sock = new net.Socket();
-        sock.setTimeout(1000);
-        sock.once('connect', () => { sock.destroy(); resolve(true); });
-        sock.once('error', () => { sock.destroy(); resolve(false); });
-        sock.once('timeout', () => { sock.destroy(); resolve(false); });
-        sock.connect(port, host);
-    });
+function deleteRegistryFile(filePath: string): void {
+    try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch { /* ignore */ }
 }
 
 function projectHash(dir: string): string {
-    const normalized = path.normalize(dir).replace(/\/+$/, '');
+    const normalized = normalizeProjectPath(dir);
     return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
-export async function findExtensionServer(projectDirectory?: string): Promise<ServerData | null> {
-    if (projectDirectory) {
-        const hash = projectHash(projectDirectory);
-        const s = readJSON<ServerData>(path.join(SERVERS_DIR, `${hash}.json`));
-        if (s && await isPortOpen(s.port)) return s;
+export async function fetchHealth(port: number): Promise<HealthData | null> {
+    return new Promise((resolve) => {
+        const req = http.get(`http://127.0.0.1:${port}/health`, { timeout: 1500 }, (res) => {
+            let body = '';
+            res.on('data', (chunk) => { body += chunk; });
+            res.on('end', () => {
+                try {
+                    const data = JSON.parse(body) as HealthData;
+                    resolve(data?.ok ? data : null);
+                } catch {
+                    resolve(null);
+                }
+            });
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => {
+            req.destroy();
+            resolve(null);
+        });
+    });
+}
+
+export async function findExtensionServer(
+    projectDirectory?: string,
+    log: (msg: string) => void = () => {}
+): Promise<ServerData | null> {
+    const want = projectDirectory ? normalizeProjectPath(projectDirectory) : undefined;
+    if (want) {
+        log(`feedback_request start project=${want} trace=${process.env.CURSOR_TRACE_ID || ''}`);
     }
 
-    const alive: ServerData[] = [];
+    const candidates: ServerData[] = [];
+
     for (const f of listJSONFiles(SERVERS_DIR)) {
-        const s = readJSON<ServerData>(path.join(SERVERS_DIR, f));
-        if (s && await isPortOpen(s.port)) alive.push(s);
+        const filePath = path.join(SERVERS_DIR, f);
+        const entry = readJSON<ServerData>(filePath);
+        if (!entry?.port) continue;
+
+        if (!isProcessAlive(entry.pid)) {
+            log(`discover: skip port=${entry.port} source=${f} reason=dead_pid pid=${entry.pid}`);
+            deleteRegistryFile(filePath);
+            continue;
+        }
+
+        const health = await fetchHealth(entry.port);
+        if (!health) {
+            log(`discover: skip port=${entry.port} source=${f} reason=health_fail`);
+            continue;
+        }
+
+        if (health.pid !== entry.pid) {
+            log(
+                `discover: stale registry port=${entry.port} reg_pid=${entry.pid} `
+                + `health_pid=${health.pid} source=${f}`
+            );
+            deleteRegistryFile(filePath);
+            entry.pid = health.pid;
+        }
+
+        if (want && !projectPathMatches(entry.projectPath, want)) {
+            log(`discover: skip port=${entry.port} source=${f} reason=project_mismatch want=${want}`);
+            continue;
+        }
+
+        candidates.push(entry);
+        log(`discover: accept port=${entry.port} pid=${entry.pid} source=${f}`);
     }
-    return alive.length === 1 ? alive[0] : null;
+
+    const picked = pickServerForProject(candidates, projectDirectory);
+    if (picked) {
+        log(
+            `feedback_request candidates=${picked.port}:${picked.pid}`
+            + `(${projectDirectory ? projectHash(projectDirectory) + '.json' : 'auto'})`
+        );
+    } else if (want) {
+        log(`feedback_request candidates=none want=${want}`);
+    }
+    return picked;
 }

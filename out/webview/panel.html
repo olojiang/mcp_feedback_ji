@@ -1032,6 +1032,15 @@ body{
       return false
     }
 
+    static resolveWsUrl(currentUrl, serverPort) {
+      if (!serverPort) return currentUrl
+      var match = currentUrl.match(/^(ws:\/\/127\.0\.0\.1:)(\d+)(.*)$/)
+      if (!match) return 'ws://127.0.0.1:' + serverPort
+      var currentPort = parseInt(match[2], 10)
+      if (currentPort === serverPort) return currentUrl
+      return match[1] + serverPort + (match[3] || '')
+    }
+
     static getAtQuery(text, cursorPos) {
       var before = text.slice(0, cursorPos)
       var match = before.match(/@([^\s@]*)$/)
@@ -1058,6 +1067,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     var state = new PS.PanelState();
     var vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
+    var wsUrl = SERVER_URL;
 
     var messagesEl = document.getElementById('messages');
     var sessionTabsEl = document.getElementById('sessionTabs');
@@ -1092,7 +1102,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     function getWsPort() {
         try {
-            var m = SERVER_URL.match(/:(\d+)/);
+            var m = wsUrl.match(/:(\d+)/);
             return m ? parseInt(m[1], 10) : 0;
         } catch (_e) { return 0; }
     }
@@ -1104,11 +1114,23 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     function setWsStatus(s, detail) {
         wsStatusEl.dataset.state = s;
-        wsStatusLabel.textContent = detail || ({ connected: 'Connected', connecting: 'Connecting...', disconnected: 'Disconnected' }[s] || s);
+        var defaults = {
+            connected: 'Connected',
+            connecting: 'Connecting...',
+            disconnected: 'Disconnected — click ↻ or Reload Window',
+        };
+        wsStatusLabel.textContent = detail || defaults[s] || s;
     }
 
     function applyConnectionInfo(msg) {
         if (!msg || !msg.port) return;
+        var nextUrl = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
+        if (nextUrl !== wsUrl) {
+            console.warn('mcp-feedback ws port drift:', getWsPort(), '->', msg.port);
+            wsUrl = nextUrl;
+            forceReconnect();
+            return;
+        }
         wsPortEl.textContent = ':' + msg.port;
         var label = 'Connected :' + msg.port;
         if (msg.pid) label += ' pid=' + msg.pid;
@@ -1820,7 +1842,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
         if (ws && ws.readyState === WebSocket.OPEN) return;
         setWsStatus('connecting');
         try {
-            ws = new WebSocket(SERVER_URL);
+            ws = new WebSocket(wsUrl);
             ws.onopen = function () {
                 reconnectAttempts = 0;
                 var port = getWsPort();
@@ -1909,6 +1931,12 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
             ws = null; reconnectAttempts = 0;
             setWsStatus('connecting', 'Reconnecting...');
             connect();
+        } else if (msg.type === 'server-info' && msg.port) {
+            var synced = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
+            if (synced !== wsUrl) {
+                wsUrl = synced;
+                forceReconnect();
+            }
         } else if (msg.type === 'focus-input') {
             inputEl.focus();
         } else if (msg.type === 'clipboard-paste-result') {

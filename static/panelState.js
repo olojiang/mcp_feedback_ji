@@ -596,6 +596,15 @@
       return false
     }
 
+    static resolveWsUrl(currentUrl, serverPort) {
+      if (!serverPort) return currentUrl
+      var match = currentUrl.match(/^(ws:\/\/127\.0\.0\.1:)(\d+)(.*)$/)
+      if (!match) return 'ws://127.0.0.1:' + serverPort
+      var currentPort = parseInt(match[2], 10)
+      if (currentPort === serverPort) return currentUrl
+      return match[1] + serverPort + (match[3] || '')
+    }
+
     static getAtQuery(text, cursorPos) {
       var before = text.slice(0, cursorPos)
       var match = before.match(/@([^\s@]*)$/)

@@ -19118,7 +19118,7 @@ var WsHub = class {
       onGetState: (targetWs) => this._sendState(targetWs),
       onClipboardWrite: (targetWs, msg2) => {
         const text = msg2.text || "";
-        vscode.env.clipboard.writeText(text).then(() => {
+        void Promise.resolve(vscode.env.clipboard.writeText(text)).then(() => {
           wsLog(`clipboard-write ok len=${text.length}`);
           this._send(targetWs, { type: "clipboard_write_ok", length: text.length });
         }).catch((err) => {
@@ -19272,6 +19272,12 @@ var FeedbackViewProvider = class {
     if (this._view) {
       this._view.webview.postMessage({ type: "reconnect" });
     }
+  }
+  /** Refresh webview HTML and push current extension port after reload / port change. */
+  syncServer(port) {
+    if (!this._view) return;
+    this._view.webview.html = this._getHtml();
+    this._view.webview.postMessage({ type: "server-info", port });
   }
   _setupMessageHandler(view) {
     view.webview.onDidReceiveMessage((message) => {
@@ -19483,7 +19489,7 @@ async function activate(context) {
     const newPort = await wsServer.start();
     port = newPort;
     bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(context.extensionPath, newPort));
-    bottomProvider.recreate();
+    bottomProvider.syncServer(newPort);
     return newPort;
   };
   bottomProvider.onForceReset(forceResetCallback);
@@ -19542,8 +19548,15 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
     } catch {
     }
   };
+  const syncWebview = () => {
+    bottomProvider.syncServer(port);
+    bottomProvider.reconnect();
+  };
   for (const delay of [1500, 3e3, 5e3]) {
     setTimeout(activatePanel, delay);
+  }
+  for (const delay of [0, 500, 1500, 3e3]) {
+    setTimeout(syncWebview, delay);
   }
 }
 function deactivate() {

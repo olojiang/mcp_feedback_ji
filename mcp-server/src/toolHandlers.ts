@@ -2,7 +2,7 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { findExtensionServer } from './serverDiscovery.js';
+import { findExtensionServer, type ServerData } from './serverDiscovery.js';
 import { connectToExtension, requestFeedback } from './extensionClient.js';
 import { browserFallback } from './browserFallback.js';
 import { runPostFeedbackHooks } from './postFeedbackHooks.js';
@@ -48,7 +48,7 @@ function feedbackSuffix(): string {
 type ToolContent = Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
 
 interface ToolHandlerDeps {
-    findExtensionServer: typeof findExtensionServer;
+    findExtensionServer: (projectDirectory?: string, log?: (msg: string) => void) => Promise<ServerData | null>;
     connectToExtension: typeof connectToExtension;
     requestFeedback: typeof requestFeedback;
     browserFallback: typeof browserFallback;
@@ -122,35 +122,55 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
         const { project_directory } = parsed;
 
         try {
-            const extensionServer = await deps.findExtensionServer(project_directory);
+            const log = (msg: string) => deps.log(msg);
+            let extensionServer = await deps.findExtensionServer(project_directory, log);
+            const maxAttempts = 3;
 
-            if (extensionServer) {
-                const ws = await deps.connectToExtension(extensionServer.port);
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                if (!extensionServer) break;
+
                 try {
-                    const result = await deps.requestFeedback(ws, summary, project_directory);
-                    const content: ToolContent = [
-                        { type: 'text', text: result.feedback + feedbackSuffix() },
-                    ];
-                    if (result.images) {
-                        for (const img of result.images) {
-                            content.push({
-                                type: 'image',
-                                data: img,
-                                mimeType: 'image/png',
-                            });
+                    const ws = await deps.connectToExtension(extensionServer.port);
+                    try {
+                        const result = await deps.requestFeedback(ws, summary, project_directory);
+                        deps.log(
+                            `[MCP Feedback] Feedback via extension port=${extensionServer.port} `
+                            + `pid=${extensionServer.pid}`
+                        );
+                        const content: ToolContent = [
+                            { type: 'text', text: result.feedback + feedbackSuffix() },
+                        ];
+                        if (result.images) {
+                            for (const img of result.images) {
+                                content.push({
+                                    type: 'image',
+                                    data: img,
+                                    mimeType: 'image/png',
+                                });
+                            }
                         }
+                        runPostFeedbackHooks({ summary, feedback: result.feedback });
+                        return { content };
+                    } finally {
+                        ws.close();
                     }
-                    runPostFeedbackHooks({ summary, feedback: result.feedback });
-                    return { content };
-                } finally {
-                    ws.close();
+                } catch (err) {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    deps.log(
+                        `[MCP Feedback] Extension port=${extensionServer.port} `
+                        + `pid=${extensionServer.pid} attempt ${attempt}/${maxAttempts} failed: ${errMsg}`
+                    );
+                    extensionServer = await deps.findExtensionServer(project_directory, log);
                 }
             }
 
             if (process.env.MCP_FEEDBACK_BROWSER_FALLBACK !== '1') {
-                deps.log('[MCP Feedback] No extension found (browser fallback disabled)');
+                deps.log('[MCP Feedback] Extension unavailable, browser fallback disabled');
                 return {
-                    content: [{ type: 'text', text: 'Error: MCP Feedback extension not connected. Open bottom panel and Reload Window.' }],
+                    content: [{
+                        type: 'text',
+                        text: 'Error: MCP Feedback extension not connected. Open bottom panel, click ↻ to reconnect, or Reload Window.',
+                    }],
                     isError: true,
                 };
             }

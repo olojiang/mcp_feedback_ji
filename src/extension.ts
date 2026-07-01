@@ -118,7 +118,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const newPort = await wsServer.start();
         port = newPort;
         bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(context.extensionPath, newPort));
-        bottomProvider.recreate();
+        bottomProvider.syncServer(newPort);
         return newPort;
     };
     bottomProvider.onForceReset(forceResetCallback);
@@ -179,8 +179,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await vscode.commands.executeCommand('mcp-feedback-enhanced.feedbackPanelBottom.focus');
         } catch { /* commands may not be ready yet */ }
     };
+    const syncWebview = () => {
+        bottomProvider.syncServer(port);
+        bottomProvider.reconnect();
+    };
     for (const delay of [1500, 3000, 5000]) {
         setTimeout(activatePanel, delay);
+    }
+    for (const delay of [0, 500, 1500, 3000]) {
+        setTimeout(syncWebview, delay);
     }
 }
 
