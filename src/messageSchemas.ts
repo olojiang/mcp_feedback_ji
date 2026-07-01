@@ -24,6 +24,7 @@ export const FeedbackResponseSchema = z.object({
     type: z.literal('feedback_response'),
     feedback: z.string(),
     images: z.array(z.string()).optional(),
+    session_id: z.string().optional(),
 });
 
 export const QueuePendingSchema = z.object({
@@ -41,11 +42,14 @@ export const DismissFeedbackSchema = z.object({
 export const SessionUpdatedOutSchema = z.object({
     type: z.literal('session_updated'),
     summary: z.string(),
+    session_id: z.string().optional(),
+    session_label: z.string().optional(),
 });
 
 export const FeedbackSubmittedOutSchema = z.object({
     type: z.literal('feedback_submitted'),
     feedback: z.string().optional(),
+    session_id: z.string().optional(),
 });
 
 export const PendingDeliveredOutSchema = z.object({

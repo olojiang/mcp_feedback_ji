@@ -5,8 +5,8 @@ interface FeedbackFlowDeps {
     feedback: FeedbackManager;
     appendReminder: (feedback: string) => string;
     addMessage: (msg: ConversationMessage) => void;
-    broadcastSessionUpdated: (summary: string) => void;
-    broadcastFeedbackSubmitted: (feedback?: string) => void;
+    broadcastSessionUpdated: (summary: string, sessionId?: string) => void;
+    broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
     sendResult: (ws: WebSocket, result: {
@@ -32,6 +32,7 @@ export declare class FeedbackFlow {
     handleFeedbackResponse(res: {
         feedback: string;
         images?: string[];
+        session_id?: string;
     }): void;
     handleDismiss(): void;
 }

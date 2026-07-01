@@ -18,19 +18,31 @@ export interface ResolvedFeedback extends FeedbackResult {
 }
 
 interface PendingFeedback {
+    sessionId: string;
     mcpClient: WebSocket;
     projectDir?: string;
+    summary: string;
     resolve: (result: ResolvedFeedback) => void;
     reject: (error: Error) => void;
+}
+
+function newSessionId(): string {
+    return `fb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export class FeedbackManager {
     private queue: PendingFeedback[] = [];
 
-    enqueue(mcpClient: WebSocket, projectDir?: string): Promise<ResolvedFeedback> {
-        return new Promise<ResolvedFeedback>((resolve, reject) => {
-            this.queue.push({ mcpClient, projectDir, resolve, reject });
+    enqueue(
+        mcpClient: WebSocket,
+        projectDir?: string,
+        summary = '',
+    ): { sessionId: string; promise: Promise<ResolvedFeedback> } {
+        const sessionId = newSessionId();
+        const promise = new Promise<ResolvedFeedback>((resolve, reject) => {
+            this.queue.push({ sessionId, mcpClient, projectDir, summary, resolve, reject });
         });
+        return { sessionId, promise };
     }
 
     resolveFirst(result: FeedbackResult): boolean {
@@ -40,16 +52,28 @@ export class FeedbackManager {
         return true;
     }
 
-    updateTransport(newWs: WebSocket, projectDir?: string): boolean {
-        if (!projectDir) return false;
-        let updated = false;
+    resolveBySessionId(sessionId: string, result: FeedbackResult): boolean {
+        const idx = this.queue.findIndex((entry) => entry.sessionId === sessionId);
+        if (idx < 0) return false;
+        const entry = this.queue.splice(idx, 1)[0];
+        entry.resolve({ ...result, transport: entry.mcpClient });
+        return true;
+    }
+
+    updateTransport(
+        newWs: WebSocket,
+        projectDir?: string,
+        summary?: string,
+    ): { updated: boolean; sessionId?: string } {
+        if (!projectDir) return { updated: false };
         for (const entry of this.queue) {
             if (entry.projectDir && entry.projectDir === projectDir) {
                 entry.mcpClient = newWs;
-                updated = true;
+                if (summary) entry.summary = summary;
+                return { updated: true, sessionId: entry.sessionId };
             }
         }
-        return updated;
+        return { updated: false };
     }
 
     hasPending(): boolean {

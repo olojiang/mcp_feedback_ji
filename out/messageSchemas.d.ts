@@ -19,6 +19,7 @@ export declare const FeedbackResponseSchema: z.ZodObject<{
     type: z.ZodLiteral<"feedback_response">;
     feedback: z.ZodString;
     images: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    session_id: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const QueuePendingSchema: z.ZodObject<{
     type: z.ZodLiteral<"queue-pending">;
@@ -31,10 +32,13 @@ export declare const DismissFeedbackSchema: z.ZodObject<{
 export declare const SessionUpdatedOutSchema: z.ZodObject<{
     type: z.ZodLiteral<"session_updated">;
     summary: z.ZodString;
+    session_id: z.ZodOptional<z.ZodString>;
+    session_label: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const FeedbackSubmittedOutSchema: z.ZodObject<{
     type: z.ZodLiteral<"feedback_submitted">;
     feedback: z.ZodOptional<z.ZodString>;
+    session_id: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const PendingDeliveredOutSchema: z.ZodObject<{
     type: z.ZodLiteral<"pending_delivered">;

@@ -75,7 +75,6 @@ class FeedbackViewProvider {
         this._setupMessageHandler(webviewView);
         webviewView.webview.html = this._injectWebviewResources(webviewView);
         this._setupHotReload(webviewView);
-        this._connectBridge(webviewView);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 this._connectBridge(webviewView);
@@ -113,9 +112,13 @@ class FeedbackViewProvider {
     }
     _injectWebviewResources(view) {
         let html = this._getHtml();
-        const erudaUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'static', 'vendor', 'eruda.js'));
-        const panelStateUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelState.js'));
-        const erudaPanelUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'erudaPanel.js'));
+        const cacheKey = encodeURIComponent(this._getVersion());
+        const erudaUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'static', 'vendor', 'eruda.js')
+            .with({ query: `v=${cacheKey}` }));
+        const panelStateUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelState.js')
+            .with({ query: `v=${cacheKey}` }));
+        const erudaPanelUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'erudaPanel.js')
+            .with({ query: `v=${cacheKey}` }));
         const cspSource = view.webview.cspSource;
         html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
         html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
@@ -177,7 +180,7 @@ class FeedbackViewProvider {
                     this._pushServerInfo(view);
                     break;
                 case 'webview-ready':
-                    this._pushServerInfo(view);
+                    this._connectBridge(view);
                     break;
                 case 'hub-connect':
                     this._connectBridge(view);
@@ -297,7 +300,7 @@ class FeedbackViewProvider {
             }
             this._fileWatcher = fs.watch(htmlDir, () => {
                 if (view.visible) {
-                    view.webview.html = this._getHtml();
+                    view.webview.html = this._injectWebviewResources(view);
                 }
             });
         }

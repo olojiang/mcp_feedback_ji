@@ -61,10 +61,21 @@ function resolveNodeBin(): string {
     return 'node';
 }
 
+/** Read package.json version from disk — Cursor caches context.extension.packageJSON until full app restart. */
+function readExtensionVersion(extensionPath: string): string {
+    try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(extensionPath, 'package.json'), 'utf-8')) as { version?: string };
+        return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+    } catch {
+        return '0.0.0';
+    }
+}
+
 function _loadWebviewHtml(extensionPath: string, serverPort: number, version: string): string {
+    // Prefer compiled output so panel.html stays aligned with out/webview/*.js after deploy.
     const candidates = [
-        path.join(extensionPath, 'static', 'panel.html'),
         path.join(extensionPath, 'out', 'webview', 'panel.html'),
+        path.join(extensionPath, 'static', 'panel.html'),
     ];
     let html = '';
     for (const p of candidates) {
@@ -82,7 +93,9 @@ function _loadWebviewHtml(extensionPath: string, serverPort: number, version: st
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     // Avoid console.log during activation — it opens the Output panel and steals focus
 
-    const pkgVersion = (context.extension.packageJSON as { version?: string })?.version ?? '0.0.0';
+    const extensionPath = context.extensionPath;
+    const getVersion = () => readExtensionVersion(extensionPath);
+    const pkgVersion = getVersion();
     wsServer = new FeedbackWSServer(pkgVersion);
     wsServer.setWorkspaces(getWorkspaces());
 
@@ -110,15 +123,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.showWarningMessage(`MCP Feedback error: ${reason}`);
     });
 
-    const getHtml = () => _loadWebviewHtml(context.extensionPath, port, pkgVersion);
-    bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion, () => wsServer, context.extensionUri);
+    const getHtml = () => _loadWebviewHtml(extensionPath, port, getVersion());
+    bottomProvider = new FeedbackViewProvider(getHtml, () => port, getVersion, () => wsServer, context.extensionUri);
 
     const forceResetCallback = async (): Promise<number> => {
         await wsServer.stop();
         wsServer.setWorkspaces(getWorkspaces());
         const newPort = await wsServer.start();
         port = newPort;
-        bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(context.extensionPath, newPort, pkgVersion));
+        bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(extensionPath, newPort, getVersion()));
         bottomProvider.syncServer(newPort);
         return newPort;
     };
@@ -166,7 +179,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
     );
 
-    ensureMcpConfig(context.extensionPath);
+    ensureMcpConfig(extensionPath);
     deployCursorHooks(context.extensionPath);
     deployCursorRules();
     migratePendingFiles();
@@ -201,7 +214,7 @@ export function deactivate(): void {
 }
 
 function _openEditorPanel(context: vscode.ExtensionContext, port: number): void {
-    const version = (context.extension.packageJSON as { version?: string })?.version ?? '0.0.0';
+    const version = readExtensionVersion(context.extensionPath);
     const panel = vscode.window.createWebviewPanel(
         'mcp-feedback-editor',
         'MCP Feedback',
@@ -217,6 +230,7 @@ function _openEditorPanel(context: vscode.ExtensionContext, port: number): void 
 
 function ensureMcpConfig(extensionPath: string): void {
     try {
+        const version = readExtensionVersion(extensionPath);
         const mcpConfigPath = path.join(os.homedir(), '.cursor', 'mcp.json');
         let config: Record<string, unknown> = {};
 
@@ -228,16 +242,20 @@ function ensureMcpConfig(extensionPath: string): void {
         const localServerPath = path.join(extensionPath, 'mcp-server', 'dist', 'index.js');
         const expectedCommand = resolveNodeBin();
         const expectedArgs = [localServerPath];
+        const expectedEnv = { MCP_FEEDBACK_VERSION: version };
 
         const existing = mcpServers['mcp-feedback-enhanced'] as Record<string, unknown> | undefined;
+        const existingEnv = (existing?.env || {}) as Record<string, string>;
         if (existing?.command === expectedCommand &&
-            JSON.stringify(existing?.args) === JSON.stringify(expectedArgs)) {
+            JSON.stringify(existing?.args) === JSON.stringify(expectedArgs) &&
+            existingEnv.MCP_FEEDBACK_VERSION === version) {
             return;
         }
 
         mcpServers['mcp-feedback-enhanced'] = {
             command: expectedCommand,
             args: expectedArgs,
+            env: expectedEnv,
         };
         delete mcpServers['mcp-feedback-v2'];
         config.mcpServers = mcpServers;

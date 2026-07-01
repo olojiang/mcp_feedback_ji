@@ -82,11 +82,19 @@ export class WsHub {
             feedback: this.feedback,
             appendReminder: (feedback) => feedback,
             addMessage: (msg) => this._addMessage(msg),
-            broadcastSessionUpdated: (summary) => {
-                this._broadcastToWebviews({ type: 'session_updated', summary });
+            broadcastSessionUpdated: (summary, sessionId) => {
+                this._broadcastToWebviews({
+                    type: 'session_updated',
+                    summary,
+                    ...(sessionId ? { session_id: sessionId } : {}),
+                });
             },
-            broadcastFeedbackSubmitted: (feedback) => {
-                this._broadcastToWebviews({ type: 'feedback_submitted', feedback });
+            broadcastFeedbackSubmitted: (feedback, sessionId) => {
+                this._broadcastToWebviews({
+                    type: 'feedback_submitted',
+                    feedback,
+                    ...(sessionId ? { session_id: sessionId } : {}),
+                });
             },
             clearPending: () => {
                 this.pending.clear();
@@ -342,7 +350,7 @@ export class WsHub {
         this.feedbackFlow.handleFeedbackRequest(mcpWs, req);
     }
 
-    private _handleFeedbackResponse(res: { feedback: string; images?: string[] }): void {
+    private _handleFeedbackResponse(res: { feedback: string; images?: string[]; session_id?: string }): void {
         this.feedbackFlow.handleFeedbackResponse(res);
     }
 

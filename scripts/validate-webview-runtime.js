@@ -285,6 +285,25 @@ for (const id of criticalIds) {
     }
 }
 
+if (mockWindow._erudaInited) {
+    console.log('  OK  eruda initialized at page load');
+    if (mockWindow._erudaInitOpts && !mockWindow._erudaInitOpts.inline) {
+        console.log('  OK  eruda.init uses floating entry button (no inline)');
+    } else if (mockWindow._erudaInitOpts && mockWindow._erudaInitOpts.inline === true) {
+        console.error('  FAIL eruda.init should not use inline mode');
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL eruda was not initialized at page load');
+    hadError = true;
+}
+if (mockWindow._erudaShown) {
+    console.error('  FAIL eruda should not be shown until user clicks entry button');
+    hadError = true;
+} else {
+    console.log('  OK  eruda not auto-shown after page load');
+}
+
 if (listeners.debugBtn && listeners.debugBtn.click) {
     try {
         listeners.debugBtn.click();
@@ -300,29 +319,21 @@ if (listeners.debugBtn && listeners.debugBtn.click) {
 
 const lastMsg = mockWindow._lastPostMessage;
 console.log('\nLast postMessage:', lastMsg ? JSON.stringify(lastMsg) : '(none)');
-if (lastMsg && lastMsg.type === 'hub-connect') {
+if (lastMsg && lastMsg.type === 'webview-ready') {
+    console.log('  OK  webview-ready posted after init');
+} else if (lastMsg && lastMsg.type === 'request-debug') {
+    console.log('  OK  DBG panel requested debug report (eruda independent)');
+} else if (lastMsg && lastMsg.type === 'hub-connect') {
     console.log('  OK  bootstrapConnection sent hub-connect');
 } else {
-    console.log('  WARN  Expected hub-connect as last postMessage');
+    console.log('  WARN  Expected webview-ready or request-debug as last postMessage');
 }
 
-if (mockWindow._erudaInited) {
-    console.log('  OK  eruda initialized after DBG open');
-    if (mockWindow._erudaInitOpts && mockWindow._erudaInitOpts.inline === true) {
-        console.log('  OK  eruda.init inline=true');
-    } else {
-        console.error('  FAIL eruda.init missing inline:true');
-        hadError = true;
-    }
-} else {
-    console.error('  FAIL eruda was not initialized after DBG open');
-    hadError = true;
-}
 if (mockWindow._erudaShown) {
-    console.log('  OK  eruda.show called when DBG opened');
-} else {
-    console.error('  FAIL eruda.show not called when DBG opened');
+    console.error('  FAIL eruda.show should not be called from DBG');
     hadError = true;
+} else {
+    console.log('  OK  DBG click did not call eruda.show');
 }
 
 console.log('');

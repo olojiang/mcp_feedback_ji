@@ -6,8 +6,8 @@ interface FeedbackFlowDeps {
     feedback: FeedbackManager;
     appendReminder: (feedback: string) => string;
     addMessage: (msg: ConversationMessage) => void;
-    broadcastSessionUpdated: (summary: string) => void;
-    broadcastFeedbackSubmitted: (feedback?: string) => void;
+    broadcastSessionUpdated: (summary: string, sessionId?: string) => void;
+    broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
     sendResult: (ws: WebSocket, result: { feedback: string; images?: string[] }) => void;
@@ -40,8 +40,21 @@ export class FeedbackFlow {
     handleFeedbackRequest(mcpWs: WebSocket, req: { summary: string; project_directory?: string }): void {
         this.deps.log(`feedbackRequest: summary=${req.summary.slice(0, 60)}`);
 
-        if (this.deps.feedback.updateTransport(mcpWs, req.project_directory)) {
-            this.deps.log('feedbackRequest: updated transport for existing session');
+        const transport = this.deps.feedback.updateTransport(
+            mcpWs,
+            req.project_directory,
+            req.summary,
+        );
+        if (transport.updated) {
+            this.deps.log(
+                `feedbackRequest: updated transport session=${transport.sessionId ?? 'unknown'}`,
+            );
+            this.deps.addMessage({
+                role: 'ai',
+                content: req.summary,
+                timestamp: new Date().toISOString(),
+            });
+            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
             return;
         }
 
@@ -51,8 +64,12 @@ export class FeedbackFlow {
             timestamp: new Date().toISOString(),
         });
 
-        const promise = this.deps.feedback.enqueue(mcpWs, req.project_directory);
-        this.deps.broadcastSessionUpdated(req.summary);
+        const { sessionId, promise } = this.deps.feedback.enqueue(
+            mcpWs,
+            req.project_directory,
+            req.summary,
+        );
+        this.deps.broadcastSessionUpdated(req.summary, sessionId);
         this.deps.onFeedbackRequested?.();
 
         promise.then((resolved) => {
@@ -68,7 +85,7 @@ export class FeedbackFlow {
         });
     }
 
-    handleFeedbackResponse(res: { feedback: string; images?: string[] }): void {
+    handleFeedbackResponse(res: { feedback: string; images?: string[]; session_id?: string }): void {
         this.deps.log(`feedbackResponse: feedback=${res.feedback.slice(0, 60)}`);
 
         this.deps.addMessage({
@@ -79,16 +96,19 @@ export class FeedbackFlow {
         });
 
         this.deps.clearPending();
-        const resolved = this.deps.feedback.resolveFirst({
+        const payload = {
             feedback: this.deps.appendReminder(res.feedback),
             images: res.images ?? undefined,
-        });
+        };
+        const resolved = res.session_id
+            ? this.deps.feedback.resolveBySessionId(res.session_id, payload)
+            : this.deps.feedback.resolveFirst(payload);
         if (!resolved) {
             this.deps.log('feedbackResponse: no pending session, routing to pending queue');
             this.deps.queueAsPending(res.feedback, res.images);
             return;
         }
-        this.deps.broadcastFeedbackSubmitted(res.feedback);
+        this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }
 

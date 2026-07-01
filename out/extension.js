@@ -3823,14 +3823,19 @@ function cleanupStaleServers() {
 }
 
 // src/server/feedbackManager.ts
+function newSessionId() {
+  return `fb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 var FeedbackManager = class {
   constructor() {
     this.queue = [];
   }
-  enqueue(mcpClient, projectDir) {
-    return new Promise((resolve, reject) => {
-      this.queue.push({ mcpClient, projectDir, resolve, reject });
+  enqueue(mcpClient, projectDir, summary = "") {
+    const sessionId = newSessionId();
+    const promise2 = new Promise((resolve, reject) => {
+      this.queue.push({ sessionId, mcpClient, projectDir, summary, resolve, reject });
     });
+    return { sessionId, promise: promise2 };
   }
   resolveFirst(result) {
     const entry = this.queue.shift();
@@ -3838,16 +3843,23 @@ var FeedbackManager = class {
     entry.resolve({ ...result, transport: entry.mcpClient });
     return true;
   }
-  updateTransport(newWs, projectDir) {
-    if (!projectDir) return false;
-    let updated = false;
+  resolveBySessionId(sessionId, result) {
+    const idx = this.queue.findIndex((entry2) => entry2.sessionId === sessionId);
+    if (idx < 0) return false;
+    const entry = this.queue.splice(idx, 1)[0];
+    entry.resolve({ ...result, transport: entry.mcpClient });
+    return true;
+  }
+  updateTransport(newWs, projectDir, summary) {
+    if (!projectDir) return { updated: false };
     for (const entry of this.queue) {
       if (entry.projectDir && entry.projectDir === projectDir) {
         entry.mcpClient = newWs;
-        updated = true;
+        if (summary) entry.summary = summary;
+        return { updated: true, sessionId: entry.sessionId };
       }
     }
-    return updated;
+    return { updated: false };
   }
   hasPending() {
     return this.queue.length > 0;
@@ -4069,8 +4081,21 @@ var FeedbackFlow = class {
   }
   handleFeedbackRequest(mcpWs, req) {
     this.deps.log(`feedbackRequest: summary=${req.summary.slice(0, 60)}`);
-    if (this.deps.feedback.updateTransport(mcpWs, req.project_directory)) {
-      this.deps.log("feedbackRequest: updated transport for existing session");
+    const transport = this.deps.feedback.updateTransport(
+      mcpWs,
+      req.project_directory,
+      req.summary
+    );
+    if (transport.updated) {
+      this.deps.log(
+        `feedbackRequest: updated transport session=${transport.sessionId ?? "unknown"}`
+      );
+      this.deps.addMessage({
+        role: "ai",
+        content: req.summary,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
       return;
     }
     this.deps.addMessage({
@@ -4078,8 +4103,12 @@ var FeedbackFlow = class {
       content: req.summary,
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     });
-    const promise2 = this.deps.feedback.enqueue(mcpWs, req.project_directory);
-    this.deps.broadcastSessionUpdated(req.summary);
+    const { sessionId, promise: promise2 } = this.deps.feedback.enqueue(
+      mcpWs,
+      req.project_directory,
+      req.summary
+    );
+    this.deps.broadcastSessionUpdated(req.summary, sessionId);
     this.deps.onFeedbackRequested?.();
     promise2.then((resolved) => {
       this.deps.sendResult(resolved.transport, {
@@ -4102,16 +4131,17 @@ var FeedbackFlow = class {
       images: res.images
     });
     this.deps.clearPending();
-    const resolved = this.deps.feedback.resolveFirst({
+    const payload = {
       feedback: this.deps.appendReminder(res.feedback),
       images: res.images ?? void 0
-    });
+    };
+    const resolved = res.session_id ? this.deps.feedback.resolveBySessionId(res.session_id, payload) : this.deps.feedback.resolveFirst(payload);
     if (!resolved) {
       this.deps.log("feedbackResponse: no pending session, routing to pending queue");
       this.deps.queueAsPending(res.feedback, res.images);
       return;
     }
-    this.deps.broadcastFeedbackSubmitted(res.feedback);
+    this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
     this.deps.onFeedbackResolved?.();
   }
   handleDismiss() {
@@ -18687,7 +18717,8 @@ var FeedbackRequestSchema = external_exports.object({
 var FeedbackResponseSchema = external_exports.object({
   type: external_exports.literal("feedback_response"),
   feedback: external_exports.string(),
-  images: external_exports.array(external_exports.string()).optional()
+  images: external_exports.array(external_exports.string()).optional(),
+  session_id: external_exports.string().optional()
 });
 var QueuePendingSchema = external_exports.object({
   type: external_exports.literal("queue-pending"),
@@ -18699,11 +18730,14 @@ var DismissFeedbackSchema = external_exports.object({
 });
 var SessionUpdatedOutSchema = external_exports.object({
   type: external_exports.literal("session_updated"),
-  summary: external_exports.string()
+  summary: external_exports.string(),
+  session_id: external_exports.string().optional(),
+  session_label: external_exports.string().optional()
 });
 var FeedbackSubmittedOutSchema = external_exports.object({
   type: external_exports.literal("feedback_submitted"),
-  feedback: external_exports.string().optional()
+  feedback: external_exports.string().optional(),
+  session_id: external_exports.string().optional()
 });
 var PendingDeliveredOutSchema = external_exports.object({
   type: external_exports.literal("pending_delivered"),
@@ -18992,11 +19026,19 @@ var WsHub = class {
       feedback: this.feedback,
       appendReminder: (feedback) => feedback,
       addMessage: (msg) => this._addMessage(msg),
-      broadcastSessionUpdated: (summary) => {
-        this._broadcastToWebviews({ type: "session_updated", summary });
+      broadcastSessionUpdated: (summary, sessionId) => {
+        this._broadcastToWebviews({
+          type: "session_updated",
+          summary,
+          ...sessionId ? { session_id: sessionId } : {}
+        });
       },
-      broadcastFeedbackSubmitted: (feedback) => {
-        this._broadcastToWebviews({ type: "feedback_submitted", feedback });
+      broadcastFeedbackSubmitted: (feedback, sessionId) => {
+        this._broadcastToWebviews({
+          type: "feedback_submitted",
+          feedback,
+          ...sessionId ? { session_id: sessionId } : {}
+        });
       },
       clearPending: () => {
         this.pending.clear();
@@ -19327,7 +19369,6 @@ var FeedbackViewProvider = class {
     this._setupMessageHandler(webviewView);
     webviewView.webview.html = this._injectWebviewResources(webviewView);
     this._setupHotReload(webviewView);
-    this._connectBridge(webviewView);
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         this._connectBridge(webviewView);
@@ -19364,14 +19405,15 @@ var FeedbackViewProvider = class {
   }
   _injectWebviewResources(view) {
     let html = this._getHtml();
+    const cacheKey = encodeURIComponent(this._getVersion());
     const erudaUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "static", "vendor", "eruda.js")
+      vscode2.Uri.joinPath(this._extensionUri, "static", "vendor", "eruda.js").with({ query: `v=${cacheKey}` })
     );
     const panelStateUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelState.js")
+      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelState.js").with({ query: `v=${cacheKey}` })
     );
     const erudaPanelUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "erudaPanel.js")
+      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "erudaPanel.js").with({ query: `v=${cacheKey}` })
     );
     const cspSource = view.webview.cspSource;
     html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
@@ -19433,7 +19475,7 @@ var FeedbackViewProvider = class {
           this._pushServerInfo(view);
           break;
         case "webview-ready":
-          this._pushServerInfo(view);
+          this._connectBridge(view);
           break;
         case "hub-connect":
           this._connectBridge(view);
@@ -19556,7 +19598,7 @@ var FeedbackViewProvider = class {
       }
       this._fileWatcher = fs4.watch(htmlDir, () => {
         if (view.visible) {
-          view.webview.html = this._getHtml();
+          view.webview.html = this._injectWebviewResources(view);
         }
       });
     } catch {
@@ -19612,10 +19654,18 @@ function resolveNodeBin() {
   }
   return "node";
 }
+function readExtensionVersion(extensionPath) {
+  try {
+    const pkg = JSON.parse(fs5.readFileSync(path5.join(extensionPath, "package.json"), "utf-8"));
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path5.join(extensionPath, "static", "panel.html"),
-    path5.join(extensionPath, "out", "webview", "panel.html")
+    path5.join(extensionPath, "out", "webview", "panel.html"),
+    path5.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
@@ -19633,7 +19683,9 @@ function _loadWebviewHtml(extensionPath, serverPort, version2) {
   return html;
 }
 async function activate(context) {
-  const pkgVersion = context.extension.packageJSON?.version ?? "0.0.0";
+  const extensionPath = context.extensionPath;
+  const getVersion = () => readExtensionVersion(extensionPath);
+  const pkgVersion = getVersion();
   wsServer = new WsHub(pkgVersion);
   wsServer.setWorkspaces(getWorkspaces());
   let port;
@@ -19657,14 +19709,14 @@ async function activate(context) {
   wsServer.onFeedbackError((reason) => {
     vscode3.window.showWarningMessage(`MCP Feedback error: ${reason}`);
   });
-  const getHtml = () => _loadWebviewHtml(context.extensionPath, port, pkgVersion);
-  bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion, () => wsServer, context.extensionUri);
+  const getHtml = () => _loadWebviewHtml(extensionPath, port, getVersion());
+  bottomProvider = new FeedbackViewProvider(getHtml, () => port, getVersion, () => wsServer, context.extensionUri);
   const forceResetCallback = async () => {
     await wsServer.stop();
     wsServer.setWorkspaces(getWorkspaces());
     const newPort = await wsServer.start();
     port = newPort;
-    bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(context.extensionPath, newPort, pkgVersion));
+    bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(extensionPath, newPort, getVersion()));
     bottomProvider.syncServer(newPort);
     return newPort;
   };
@@ -19712,7 +19764,7 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
       wsServer.refreshServerRegistration();
     })
   );
-  ensureMcpConfig(context.extensionPath);
+  ensureMcpConfig(extensionPath);
   deployCursorHooks(context.extensionPath);
   deployCursorRules();
   migratePendingFiles();
@@ -19745,7 +19797,7 @@ function deactivate() {
   wsServer?.stop();
 }
 function _openEditorPanel(context, port) {
-  const version2 = context.extension.packageJSON?.version ?? "0.0.0";
+  const version2 = readExtensionVersion(context.extensionPath);
   const panel = vscode3.window.createWebviewPanel(
     "mcp-feedback-editor",
     "MCP Feedback",
@@ -19760,6 +19812,7 @@ function _openEditorPanel(context, port) {
 }
 function ensureMcpConfig(extensionPath) {
   try {
+    const version2 = readExtensionVersion(extensionPath);
     const mcpConfigPath = path5.join(os5.homedir(), ".cursor", "mcp.json");
     let config2 = {};
     if (fs5.existsSync(mcpConfigPath)) {
@@ -19769,13 +19822,16 @@ function ensureMcpConfig(extensionPath) {
     const localServerPath = path5.join(extensionPath, "mcp-server", "dist", "index.js");
     const expectedCommand = resolveNodeBin();
     const expectedArgs = [localServerPath];
+    const expectedEnv = { MCP_FEEDBACK_VERSION: version2 };
     const existing = mcpServers["mcp-feedback-enhanced"];
-    if (existing?.command === expectedCommand && JSON.stringify(existing?.args) === JSON.stringify(expectedArgs)) {
+    const existingEnv = existing?.env || {};
+    if (existing?.command === expectedCommand && JSON.stringify(existing?.args) === JSON.stringify(expectedArgs) && existingEnv.MCP_FEEDBACK_VERSION === version2) {
       return;
     }
     mcpServers["mcp-feedback-enhanced"] = {
       command: expectedCommand,
-      args: expectedArgs
+      args: expectedArgs,
+      env: expectedEnv
     };
     delete mcpServers["mcp-feedback-v2"];
     config2.mcpServers = mcpServers;

@@ -67,8 +67,6 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._injectWebviewResources(webviewView);
         this._setupHotReload(webviewView);
 
-        this._connectBridge(webviewView);
-
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 this._connectBridge(webviewView);
@@ -111,14 +109,18 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     private _injectWebviewResources(view: vscode.WebviewView): string {
         let html = this._getHtml();
+        const cacheKey = encodeURIComponent(this._getVersion());
         const erudaUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'static', 'vendor', 'eruda.js')
+                .with({ query: `v=${cacheKey}` })
         );
         const panelStateUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelState.js')
+                .with({ query: `v=${cacheKey}` })
         );
         const erudaPanelUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'erudaPanel.js')
+                .with({ query: `v=${cacheKey}` })
         );
         const cspSource = view.webview.cspSource;
         html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
@@ -188,7 +190,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'webview-ready':
-                    this._pushServerInfo(view);
+                    this._connectBridge(view);
                     break;
 
                 case 'hub-connect':
@@ -331,7 +333,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
             this._fileWatcher = fs.watch(htmlDir, () => {
                 if (view.visible) {
-                    view.webview.html = this._getHtml();
+                    view.webview.html = this._injectWebviewResources(view);
                 }
             });
         } catch { /* dev-only, ignore errors */ }

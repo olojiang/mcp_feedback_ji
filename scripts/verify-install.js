@@ -41,8 +41,8 @@ function check(name, fn) {
 
 function loadWebviewHtml(extensionPath, serverPort, version) {
     const candidates = [
-        path.join(extensionPath, 'static', 'panel.html'),
         path.join(extensionPath, 'out', 'webview', 'panel.html'),
+        path.join(extensionPath, 'static', 'panel.html'),
     ];
     let html = '';
     for (const p of candidates) {

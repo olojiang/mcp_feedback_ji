@@ -13,6 +13,7 @@ export interface MessageRouterDeps {
     onFeedbackResponse: (res: {
         feedback: string;
         images?: string[];
+        session_id?: string;
     }) => void;
     onQueuePending: (qp: {
         comments: string[];

@@ -22,6 +22,7 @@ exports.FeedbackResponseSchema = zod_1.z.object({
     type: zod_1.z.literal('feedback_response'),
     feedback: zod_1.z.string(),
     images: zod_1.z.array(zod_1.z.string()).optional(),
+    session_id: zod_1.z.string().optional(),
 });
 exports.QueuePendingSchema = zod_1.z.object({
     type: zod_1.z.literal('queue-pending'),
@@ -35,10 +36,13 @@ exports.DismissFeedbackSchema = zod_1.z.object({
 exports.SessionUpdatedOutSchema = zod_1.z.object({
     type: zod_1.z.literal('session_updated'),
     summary: zod_1.z.string(),
+    session_id: zod_1.z.string().optional(),
+    session_label: zod_1.z.string().optional(),
 });
 exports.FeedbackSubmittedOutSchema = zod_1.z.object({
     type: zod_1.z.literal('feedback_submitted'),
     feedback: zod_1.z.string().optional(),
+    session_id: zod_1.z.string().optional(),
 });
 exports.PendingDeliveredOutSchema = zod_1.z.object({
     type: zod_1.z.literal('pending_delivered'),

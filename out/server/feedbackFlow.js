@@ -16,8 +16,15 @@ class FeedbackFlow {
     }
     handleFeedbackRequest(mcpWs, req) {
         this.deps.log(`feedbackRequest: summary=${req.summary.slice(0, 60)}`);
-        if (this.deps.feedback.updateTransport(mcpWs, req.project_directory)) {
-            this.deps.log('feedbackRequest: updated transport for existing session');
+        const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
+        if (transport.updated) {
+            this.deps.log(`feedbackRequest: updated transport session=${transport.sessionId ?? 'unknown'}`);
+            this.deps.addMessage({
+                role: 'ai',
+                content: req.summary,
+                timestamp: new Date().toISOString(),
+            });
+            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
             return;
         }
         this.deps.addMessage({
@@ -25,8 +32,8 @@ class FeedbackFlow {
             content: req.summary,
             timestamp: new Date().toISOString(),
         });
-        const promise = this.deps.feedback.enqueue(mcpWs, req.project_directory);
-        this.deps.broadcastSessionUpdated(req.summary);
+        const { sessionId, promise } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary);
+        this.deps.broadcastSessionUpdated(req.summary, sessionId);
         this.deps.onFeedbackRequested?.();
         promise.then((resolved) => {
             this.deps.sendResult(resolved.transport, {
@@ -49,16 +56,19 @@ class FeedbackFlow {
             images: res.images,
         });
         this.deps.clearPending();
-        const resolved = this.deps.feedback.resolveFirst({
+        const payload = {
             feedback: this.deps.appendReminder(res.feedback),
             images: res.images ?? undefined,
-        });
+        };
+        const resolved = res.session_id
+            ? this.deps.feedback.resolveBySessionId(res.session_id, payload)
+            : this.deps.feedback.resolveFirst(payload);
         if (!resolved) {
             this.deps.log('feedbackResponse: no pending session, routing to pending queue');
             this.deps.queueAsPending(res.feedback, res.images);
             return;
         }
-        this.deps.broadcastFeedbackSubmitted(res.feedback);
+        this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }
     handleDismiss() {
