@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src data: blob:;">
 <title>MCP Feedback Enhanced</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1041,6 +1042,14 @@ body{
       return match[1] + serverPort + (match[3] || '')
     }
 
+    static isValidWsUrl(url) {
+      return /^ws:\/\/127\.0\.0\.1:\d+$/.test(url || '')
+    }
+
+    static healthPortRange() {
+      return { start: 48200, end: 48300 }
+    }
+
     static getAtQuery(text, cursorPos) {
       var before = text.slice(0, cursorPos)
       var match = before.match(/@([^\s@]*)$/)
@@ -1840,6 +1849,11 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     function connect() {
         if (ws && ws.readyState === WebSocket.OPEN) return;
+        if (!PS.PanelState.isValidWsUrl(wsUrl)) {
+            setWsStatus('connecting', 'Waiting for server port...');
+            if (vscode) vscode.postMessage({ type: 'get-server-info' });
+            return;
+        }
         setWsStatus('connecting');
         try {
             ws = new WebSocket(wsUrl);
@@ -1907,12 +1921,38 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
                 scheduleReconnect();
             };
             ws.onerror = function () {
+                console.warn('mcp-feedback ws error url=' + wsUrl);
                 setWsStatus('disconnected');
             };
         } catch (err) {
+            console.warn('mcp-feedback ws connect failed url=' + wsUrl, err);
             setWsStatus('disconnected');
             scheduleReconnect();
         }
+    }
+
+    function discoverPortViaHealth() {
+        var range = PS.PanelState.healthPortRange();
+        setWsStatus('connecting', 'Discovering server...');
+        var chain = Promise.resolve();
+        for (var p = range.start; p <= range.end; p++) {
+            (function (port) {
+                chain = chain.then(function () {
+                    if (window.__mcpBootstrapped && ws && ws.readyState === WebSocket.OPEN) return;
+                    return fetch('http://127.0.0.1:' + port + '/health')
+                        .then(function (r) { return r.json(); })
+                        .then(function (j) {
+                            if (j && j.ok && j.port) applyServerInfo(j);
+                        })
+                        .catch(function () { /* try next port */ });
+                });
+            })(p);
+        }
+        chain.then(function () {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                setWsStatus('disconnected', 'No server found — click ↻ or Reload Window');
+            }
+        });
     }
 
     function scheduleReconnect() {
@@ -1944,15 +1984,21 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     function bootstrapConnection() {
         if (vscode) {
+            vscode.postMessage({ type: 'webview-ready' });
             vscode.postMessage({ type: 'get-server-info' });
             setTimeout(function () {
-                if (!window.__mcpBootstrapped) {
+                if (window.__mcpBootstrapped) return;
+                if (PS.PanelState.isValidWsUrl(wsUrl)) {
                     window.__mcpBootstrapped = true;
                     connect();
+                } else {
+                    discoverPortViaHealth();
                 }
-            }, 800);
-        } else {
+            }, 1200);
+        } else if (PS.PanelState.isValidWsUrl(wsUrl)) {
             connect();
+        } else {
+            discoverPortViaHealth();
         }
     }
 

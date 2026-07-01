@@ -2,7 +2,7 @@
 	"name": "mcp-feedback-enhanced",
 	"displayName": "MCP Feedback Enhanced",
 	"description": "Interactive feedback collection for AI assistants with multi-session tabs (Hunter fork)",
-	"version": "2.5.1-ji.4",
+	"version": "2.5.1-ji.5",
 	"publisher": "mcp-feedback",
 	"license": "MIT",
 	"repository": {
@@ -79,7 +79,8 @@
 	"scripts": {
 		"vscode:prepublish": "cd mcp-server && npm run build && cd .. && node scripts/generate-webview.js --prod && node scripts/validate-build.js && npm run esbuild-base -- --minify && npm run verify",
 		"compile": "cd mcp-server && npm run build && cd .. && tsc -p ./ && node scripts/generate-webview.js && node scripts/validate-build.js && npm run esbuild && npm run verify",
-		"verify": "node -e \"const h=require('fs').readFileSync('out/webview/panel.html','utf8');const e=require('fs').readFileSync('out/extension.js','utf8');const checks=[];if(!h.includes('{{SERVER_URL}}'))checks.push('Missing SERVER_URL placeholder');if(!h.includes('{{VERSION}}'))checks.push('Missing VERSION placeholder');if(!e.includes('get-server-info'))checks.push('Missing get-server-info handler');if(!e.includes('panel.html'))checks.push('Missing panel.html reference');if(checks.length){console.error('ERRORS:',checks.join(', '));process.exit(1)}console.log('Verify OK')\"",
+		"verify": "node -e \"const h=require('fs').readFileSync('out/webview/panel.html','utf8');const e=require('fs').readFileSync('out/extension.js','utf8');const checks=[];if(!h.includes('{{SERVER_URL}}'))checks.push('Missing SERVER_URL placeholder');if(!h.includes('{{VERSION}}'))checks.push('Missing VERSION placeholder');if(!h.includes('connect-src ws://127.0.0.1'))checks.push('Missing CSP connect-src');if(!e.includes('get-server-info'))checks.push('Missing get-server-info handler');if(!e.includes('webview-ready'))checks.push('Missing webview-ready handler');if(!e.includes('panel.html'))checks.push('Missing panel.html reference');if(checks.length){console.error('ERRORS:',checks.join(', '));process.exit(1)}console.log('Verify OK')\"",
+		"verify:install": "node scripts/verify-install.js --full",
 		"esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
 		"esbuild": "npm run esbuild-base -- --sourcemap",
 		"esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",

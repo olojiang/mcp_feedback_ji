@@ -49,10 +49,9 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             enableScripts: true,
         };
 
-        webviewView.webview.html = this._getHtml();
         this._setupMessageHandler(webviewView);
+        webviewView.webview.html = this._getHtml();
         this._setupHotReload(webviewView);
-        this._pushServerInfo(webviewView);
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
@@ -105,6 +104,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         view.webview.onDidReceiveMessage((message: Record<string, unknown>) => {
             switch (message.type) {
                 case 'get-server-info':
+                case 'webview-ready':
                     this._pushServerInfo(view);
                     break;
 

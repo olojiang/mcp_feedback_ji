@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版，修复了多窗口连接、剪贴板、Tab 管理等实际问题，便于在 **Cursor 重装** 或 **换机器** 后快速恢复。
 
-当前版本：`2.5.1-ji.4`
+当前版本：`2.5.1-ji.5`
 
 基于上游源码开发：`src/`（TypeScript）+ `static/`（面板 UI）+ `mcp-server/src/`。
 
@@ -33,11 +33,12 @@ chmod +x install.sh
 git clone https://github.com/olojiang/mcp_feedback_ji.git
 cd mcp_feedback_ji
 npm install
-cd mcp-server && npm install && cd ..
-npm run compile          # 构建
-./install.sh --link      # 符号链接到 Cursor 扩展目录
-node --test tests/panelPaste.test.js tests/panelState.test.js  # 快速单测
+npm run compile
+npm run verify:install    # 不 Reload 即可验证编译产物
+./install.sh              # 自动 verify → 安装 → 再 verify
 ```
+
+`verify-install.js` 会检查：版本号、CSP、HTML 占位符注入、单测、已运行 Extension 的 `/health` + WebSocket（无需 Cursor Reload）。
 
 ---
 

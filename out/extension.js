@@ -19252,10 +19252,9 @@ var FeedbackViewProvider = class {
     webviewView.webview.options = {
       enableScripts: true
     };
-    webviewView.webview.html = this._getHtml();
     this._setupMessageHandler(webviewView);
+    webviewView.webview.html = this._getHtml();
     this._setupHotReload(webviewView);
-    this._pushServerInfo(webviewView);
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         this._pushServerInfo(webviewView);
@@ -19300,6 +19299,7 @@ var FeedbackViewProvider = class {
     view.webview.onDidReceiveMessage((message) => {
       switch (message.type) {
         case "get-server-info":
+        case "webview-ready":
           this._pushServerInfo(view);
           break;
         case "feedback-submitted":

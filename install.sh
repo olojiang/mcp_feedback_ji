@@ -38,6 +38,8 @@ fi
 if [[ -f "${ROOT}/package.json" && -d "${ROOT}/src" ]]; then
   echo "Building from source..."
   (cd "${ROOT}" && npm install && npm run compile)
+  echo "Verifying build (no Reload needed)..."
+  (cd "${ROOT}" && node scripts/verify-install.js --full)
 fi
 
 mkdir -p "${HOME}/.cursor/extensions"
@@ -83,6 +85,9 @@ print(f"Updated {path}")
 PY
 
 INSTALLED_VER="$(node -e "console.log(require('${CURSOR_EXT}/package.json').version)")"
+echo ""
+echo "Verifying installed copy..."
+node "${ROOT}/scripts/verify-install.js" --installed --full
 echo ""
 echo "Installed version: ${INSTALLED_VER}"
 echo ""

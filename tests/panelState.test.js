@@ -103,14 +103,20 @@ describe('PanelState multi-session', () => {
     assert.deepEqual(state.sessionOrder, ['d'])
   })
 
-  it('resolveWsUrl updates port after extension restart', () => {
-    assert.equal(
-      PanelState.resolveWsUrl('ws://127.0.0.1:48203', 48201),
-      'ws://127.0.0.1:48201'
-    )
-    assert.equal(
-      PanelState.resolveWsUrl('ws://127.0.0.1:48201', 48201),
-      'ws://127.0.0.1:48201'
-    )
-  })
+    it('resolveWsUrl updates port after extension restart', () => {
+        assert.equal(
+            PanelState.resolveWsUrl('ws://127.0.0.1:48203', 48201),
+            'ws://127.0.0.1:48201'
+        )
+        assert.equal(
+            PanelState.resolveWsUrl('ws://127.0.0.1:48201', 48201),
+            'ws://127.0.0.1:48201'
+        )
+    })
+
+    it('isValidWsUrl rejects unreplaced placeholders', () => {
+        assert.equal(PanelState.isValidWsUrl('ws://127.0.0.1:48201'), true)
+        assert.equal(PanelState.isValidWsUrl('{{SERVER_URL}}'), false)
+        assert.equal(PanelState.isValidWsUrl(''), false)
+    })
 })
