@@ -278,13 +278,15 @@ export class WsHub {
             onGetState: (targetWs) => this._sendState(targetWs),
             onClipboardWrite: (targetWs, msg) => {
                 const text = msg.text || '';
-                vscode.env.clipboard.writeText(text).then(() => {
-                    wsLog(`clipboard-write ok len=${text.length}`);
-                    this._send(targetWs, { type: 'clipboard_write_ok', length: text.length });
-                }).catch((err) => {
-                    wsLog(`clipboard-write err ${err}`);
-                    this._send(targetWs, { type: 'clipboard_write_err', error: String(err) });
-                });
+                void Promise.resolve(vscode.env.clipboard.writeText(text))
+                    .then(() => {
+                        wsLog(`clipboard-write ok len=${text.length}`);
+                        this._send(targetWs, { type: 'clipboard_write_ok', length: text.length });
+                    })
+                    .catch((err: unknown) => {
+                        wsLog(`clipboard-write err ${err}`);
+                        this._send(targetWs, { type: 'clipboard_write_err', error: String(err) });
+                    });
             },
             onClipboardPaste: async (targetWs, msg) => {
                 const image = await readClipboardImageBase64();
