@@ -26,6 +26,9 @@
   --glow-purple:rgba(124,58,237,0.4);
   --glow-green:rgba(16,185,129,0.4);
   --surface:rgba(255,255,255,0.03);
+  --code-bg:var(--vscode-textCodeBlock-background,var(--input-bg));
+  --code-fg:var(--vscode-textPreformat-foreground,var(--vscode-textLink-foreground,var(--fg)));
+  --code-border:var(--vscode-textBlockQuote-border,var(--border));
 }
 html,body{height:100%;overflow:hidden}
 body{
@@ -99,25 +102,27 @@ body{
 .message .content h2,.message .content h3,.message .content h4{margin:10px 0 4px;font-weight:700;line-height:1.35}
 .message .content h2{font-size:15px}
 .message .content h3{font-size:14px}
-.message .content h4{font-size:13px;color:var(--fg-dim)}
+.msg-row.ai .message .content{color:var(--fg)}
+.message .content h2,.message .content h3{color:var(--fg)}
+.message .content h4{font-size:13px;color:var(--fg);opacity:.85}
 .message .content ul{margin:4px 0;padding-left:1.25em;list-style:disc}
 .message .content li{margin:2px 0;line-height:1.45}
-.message .content code{
-  background:rgba(13,17,23,0.75);color:#79c0ff;
-  border:1px solid rgba(124,58,237,0.35);
+.message .content :not(pre)>code{
+  background:var(--code-bg);color:var(--code-fg);
+  border:1px solid var(--code-border);
   padding:2px 6px;border-radius:4px;font-size:12px;
   font-family:var(--vscode-editor-font-family,'SF Mono','Cascadia Code',monospace);
+  box-decoration-break:clone;-webkit-box-decoration-break:clone;
 }
-.message .content strong{color:#f0f6fc;font-weight:700}
-.message .content em{color:#c9d1d9}
+.message .content strong{color:var(--fg);font-weight:700}
+.message .content em{color:var(--fg-dim);font-style:italic}
 .message .content pre{
-  background:rgba(13,17,23,0.92);padding:10px;border-radius:8px;
-  overflow-x:auto;margin:6px 0;border:1px solid rgba(124,58,237,0.3);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);
+  background:var(--code-bg);padding:10px;border-radius:8px;
+  overflow-x:auto;margin:6px 0;border:1px solid var(--code-border);
 }
 .message .content pre code{
   background:transparent;padding:0;border:none;border-radius:0;
-  display:block;white-space:pre-wrap;color:#e6edf3;font-size:12px;line-height:1.5;
+  display:block;white-space:pre-wrap;color:var(--code-fg);font-size:12px;line-height:1.5;
 }
 .empty-state{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
