@@ -18846,6 +18846,50 @@ function decodeWsMessage(raw) {
   return JSON.parse(payload);
 }
 
+// src/server/webviewBridge.ts
+function createWebviewBridge(postToPanel) {
+  const listeners = /* @__PURE__ */ new Map();
+  let readyState = import_websocket.default.OPEN;
+  const emit = (event, arg) => {
+    for (const fn of listeners.get(event) || []) fn(arg);
+  };
+  const socket = {
+    get readyState() {
+      return readyState;
+    },
+    send(data) {
+      if (readyState !== import_websocket.default.OPEN) return;
+      try {
+        postToPanel(JSON.parse(data.toString()));
+      } catch {
+      }
+    },
+    close() {
+      if (readyState === import_websocket.default.CLOSED) return;
+      readyState = import_websocket.default.CLOSED;
+      emit("close");
+    },
+    on(event, fn) {
+      const list = listeners.get(event) || [];
+      list.push(fn);
+      listeners.set(event, list);
+      return socket;
+    },
+    ping() {
+    }
+  };
+  return {
+    socket,
+    deliver(raw) {
+      emit("message", raw);
+    },
+    dispose() {
+      socket.close();
+      listeners.clear();
+    }
+  };
+}
+
 // src/utils/clipboardImage.ts
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
@@ -19009,6 +19053,13 @@ var WsHub = class {
   refreshServerRegistration() {
     this._registerServer();
   }
+  /** In-process bridge for Cursor webview (avoids unreliable ws:// from webview sandbox). */
+  attachWebview(postToPanel) {
+    const bridge = createWebviewBridge(postToPanel);
+    this._bindClient(bridge.socket);
+    wsLog("client registered: type=webview (bridge)");
+    return bridge;
+  }
   // ── Lifecycle ───────────────────────────────────────────
   async start() {
     this._cleanup();
@@ -19084,6 +19135,9 @@ var WsHub = class {
   }
   // ── Connection Handling ─────────────────────────────────
   _handleConnection(ws) {
+    this._bindClient(ws);
+  }
+  _bindClient(ws) {
     const client = this.clients.add(ws);
     this._send(ws, {
       type: "connection_established",
@@ -19235,11 +19289,13 @@ var vscode2 = __toESM(require("vscode"));
 var fs4 = __toESM(require("fs"));
 var path4 = __toESM(require("path"));
 var FeedbackViewProvider = class {
-  constructor(getHtml, getPort, getVersion) {
+  constructor(getHtml, getPort, getVersion, getHub) {
     this._view = null;
+    this._bridge = null;
     this._getHtml = getHtml;
     this._getPort = getPort;
     this._getVersion = getVersion;
+    this._getHub = getHub;
   }
   updateHtmlGetter(getHtml) {
     this._getHtml = getHtml;
@@ -19257,11 +19313,14 @@ var FeedbackViewProvider = class {
     this._setupHotReload(webviewView);
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
-        this._pushServerInfo(webviewView);
+        this._connectBridge(webviewView);
       }
     });
+    this._connectBridge(webviewView);
     webviewView.onDidDispose(() => {
       this._view = null;
+      this._bridge?.dispose();
+      this._bridge = null;
       this._stopHotReload();
     });
   }
@@ -19277,30 +19336,46 @@ var FeedbackViewProvider = class {
   }
   reconnect() {
     if (this._view) {
-      this._view.webview.postMessage({ type: "reconnect" });
+      this._connectBridge(this._view);
     }
   }
-  /** Refresh webview HTML and push current extension port after reload / port change. */
+  /** Refresh webview HTML and re-attach in-process bridge. */
   syncServer(_port) {
     if (!this._view) return;
     this._view.webview.html = this._getHtml();
     setTimeout(() => {
-      if (this._view) this._pushServerInfo(this._view);
+      if (this._view) this._connectBridge(this._view);
     }, 50);
   }
-  _pushServerInfo(view) {
-    view.webview.postMessage({
-      type: "server-info",
-      port: this._getPort(),
-      version: this._getVersion()
+  _connectBridge(view) {
+    const hub = this._getHub();
+    if (!hub) return;
+    this._bridge?.dispose();
+    this._bridge = hub.attachWebview((msg) => {
+      view.webview.postMessage({ type: "hub-message", data: msg });
     });
+    view.webview.postMessage({
+      type: "bridge-connected",
+      port: this._getPort(),
+      version: this._getVersion(),
+      pid: process.pid
+    });
+  }
+  _pushServerInfo(view) {
+    this._connectBridge(view);
   }
   _setupMessageHandler(view) {
     view.webview.onDidReceiveMessage((message) => {
       switch (message.type) {
         case "get-server-info":
         case "webview-ready":
-          this._pushServerInfo(view);
+        case "hub-connect":
+          this._connectBridge(view);
+          break;
+        case "hub-message":
+          if (this._bridge && message.data) {
+            this._bridge.deliver(JSON.stringify(message.data));
+          }
           break;
         case "feedback-submitted":
           vscode2.window.setStatusBarMessage("Feedback submitted!", 1500);
@@ -19503,7 +19578,7 @@ async function activate(context) {
     vscode3.window.showWarningMessage(`MCP Feedback error: ${reason}`);
   });
   const getHtml = () => _loadWebviewHtml(context.extensionPath, port, pkgVersion);
-  bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion);
+  bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion, () => wsServer);
   const forceResetCallback = async () => {
     await wsServer.stop();
     wsServer.setWorkspaces(getWorkspaces());

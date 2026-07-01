@@ -57,6 +57,7 @@ const connectionHandlers_1 = require("./connectionHandlers");
 const portFinder_1 = require("./portFinder");
 const routeAdapter_1 = require("./routeAdapter");
 const wsMessageCodec_1 = require("./wsMessageCodec");
+const webviewBridge_1 = require("./webviewBridge");
 const clipboardImage_1 = require("../utils/clipboardImage");
 const vscode = __importStar(require("vscode"));
 const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
@@ -161,6 +162,13 @@ class WsHub {
     refreshServerRegistration() {
         this._registerServer();
     }
+    /** In-process bridge for Cursor webview (avoids unreliable ws:// from webview sandbox). */
+    attachWebview(postToPanel) {
+        const bridge = (0, webviewBridge_1.createWebviewBridge)(postToPanel);
+        this._bindClient(bridge.socket);
+        wsLog('client registered: type=webview (bridge)');
+        return bridge;
+    }
     // ── Lifecycle ───────────────────────────────────────────
     async start() {
         this._cleanup();
@@ -237,6 +245,9 @@ class WsHub {
     }
     // ── Connection Handling ─────────────────────────────────
     _handleConnection(ws) {
+        this._bindClient(ws);
+    }
+    _bindClient(ws) {
         const client = this.clients.add(ws);
         this._send(ws, {
             type: 'connection_established',

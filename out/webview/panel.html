@@ -1077,6 +1077,25 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     var state = new PS.PanelState();
     var vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
     var wsUrl = SERVER_URL;
+    var useBridge = !!vscode;
+    var bridgeReady = false;
+    var bridgeRegistered = false;
+
+    function transportReady() {
+        if (useBridge) return bridgeReady;
+        return ws && ws.readyState === WebSocket.OPEN;
+    }
+
+    function transportSend(obj) {
+        if (useBridge) {
+            if (!bridgeReady) return;
+            vscode.postMessage({ type: 'hub-message', data: obj });
+            return;
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(obj));
+        }
+    }
 
     var messagesEl = document.getElementById('messages');
     var sessionTabsEl = document.getElementById('sessionTabs');
@@ -1147,6 +1166,13 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     }
 
     function forceReconnect() {
+        bridgeReady = false;
+        bridgeRegistered = false;
+        if (useBridge) {
+            setWsStatus('connecting', 'Reconnecting...');
+            vscode.postMessage({ type: 'hub-connect' });
+            return;
+        }
         if (ws) { try { ws.close(); } catch (_e) { /* ignore */ } }
         ws = null; reconnectAttempts = 0;
         setWsStatus('connecting', 'Reconnecting...');
@@ -1167,8 +1193,8 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
             var cmd = cmds[i];
             switch (cmd.type) {
                 case 'ws_send':
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify(cmd.message));
+                    if (transportReady()) {
+                        transportSend(cmd.message);
                     }
                     break;
                 case 'render':
@@ -1479,7 +1505,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     // ── Image Handling ──────────────────────────────────
 
     function extensionClipboardReady() {
-        return ws && ws.readyState === WebSocket.OPEN;
+        return transportReady();
     }
 
     function extractImagesFromClipboard(clipboardData) {
@@ -1530,7 +1556,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
         if (!text) return;
         if (extensionClipboardReady()) {
             window.__mcpPendingCopyText = text;
-            ws.send(JSON.stringify({ type: 'clipboard_write', text: text }));
+            transportSend({ type: 'clipboard_write', text: text });
             return;
         }
         if (vscode) {
@@ -1549,12 +1575,12 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     var pasteRequestId = 0;
     function requestClipboardPaste() {
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (transportReady()) {
             var rid = 'paste-' + (++pasteRequestId);
             window.__mcpPendingPasteId = rid;
             window.__mcpWsPastePending = true;
             window.__mcpWsPasteAt = Date.now();
-            ws.send(JSON.stringify({ type: 'clipboard_paste', request_id: rid }));
+            transportSend({ type: 'clipboard_paste', request_id: rid });
             return;
         }
         if (!vscode) return;
@@ -1845,13 +1871,96 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
         }
     });
 
-    // ── WebSocket ────────────────────────────────────────
+    // ── Transport (bridge primary, WebSocket fallback) ───
+
+    function handleProtocolMessage(msg) {
+        if (!msg || !msg.type) return;
+        if (msg.type === 'connection_established') {
+            if (useBridge) {
+                onBridgeConnected(msg);
+            } else {
+                applyConnectionInfo(msg);
+                if (msg.version) {
+                    var vl = document.getElementById('versionLabel');
+                    if (vl) vl.textContent = 'v' + msg.version;
+                }
+            }
+            return;
+        }
+        exec(state.handleMessage(msg));
+        if (msg.type === 'clipboard_write_ok') {
+            window.__mcpPendingCopyText = null;
+            showToast('Copied');
+        } else if (msg.type === 'clipboard_write_err') {
+            var pendingCopy = window.__mcpPendingCopyText || '';
+            window.__mcpPendingCopyText = null;
+            console.warn('mcp-feedback clipboard-write err:', msg.error || 'unknown');
+            if (pendingCopy && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(pendingCopy).then(function () {
+                    showToast('Copied');
+                }).catch(function () {
+                    showToast('Copy failed');
+                });
+            } else {
+                showToast('Copy failed');
+            }
+        } else if (msg.type === 'clipboard_paste_result' && msg.request_id === window.__mcpPendingPasteId) {
+            window.__mcpPendingPasteId = null;
+            window.__mcpWsPastePending = false;
+            window.__mcpWsPasteAt = 0;
+            if (msg.image) {
+                addImage(msg.image);
+                showToast('Pasted');
+            } else if (msg.text) {
+                insertAtCursor(msg.text);
+                showToast('Pasted');
+            } else {
+                readImagesFromNavigatorClipboard().then(function (blobs) {
+                    if (!blobs.length) {
+                        console.warn('mcp-feedback clipboard-paste: no image or text');
+                        return;
+                    }
+                    return Promise.all(blobs.map(pasteImageSource)).then(function () {
+                        showToast('Pasted');
+                    });
+                }).catch(function (err) {
+                    console.warn('mcp-feedback clipboard-paste fallback failed:', err && err.message ? err.message : err);
+                });
+            }
+        }
+    }
+
+    function onBridgeConnected(msg) {
+        bridgeReady = true;
+        window.__mcpBootstrapped = true;
+        reconnectAttempts = 0;
+        if (msg.version) {
+            var vl = document.getElementById('versionLabel');
+            if (vl) vl.textContent = 'v' + msg.version;
+        }
+        if (msg.port) {
+            wsUrl = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
+            wsPortEl.textContent = ':' + msg.port;
+            var label = 'Connected :' + msg.port;
+            if (msg.pid) label += ' pid=' + msg.pid;
+            setWsStatus('connected', label);
+        }
+        if (!bridgeRegistered) {
+            bridgeRegistered = true;
+            transportSend({ type: 'register', clientType: 'webview' });
+        }
+    }
 
     function connect() {
+        if (useBridge) {
+            if (bridgeReady) return;
+            setWsStatus('connecting');
+            vscode.postMessage({ type: 'hub-connect' });
+            return;
+        }
         if (ws && ws.readyState === WebSocket.OPEN) return;
         if (!PS.PanelState.isValidWsUrl(wsUrl)) {
             setWsStatus('connecting', 'Waiting for server port...');
-            if (vscode) vscode.postMessage({ type: 'get-server-info' });
             return;
         }
         setWsStatus('connecting');
@@ -1861,62 +1970,15 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
                 reconnectAttempts = 0;
                 var port = getWsPort();
                 setWsStatus('connected', port ? 'Connected :' + port : 'Connected');
-                ws.send(JSON.stringify({ type: 'register', clientType: 'webview' }));
+                transportSend({ type: 'register', clientType: 'webview' });
             };
             ws.onmessage = function (e) {
                 try {
-                    var msg = JSON.parse(e.data);
-                    if (msg.type === 'connection_established') {
-                        applyConnectionInfo(msg);
-                        if (msg.version) {
-                            var vl = document.getElementById('versionLabel');
-                            if (vl) vl.textContent = 'v' + msg.version;
-                        }
-                    }
-                    exec(state.handleMessage(msg));
-                    if (msg.type === 'clipboard_write_ok') {
-                        window.__mcpPendingCopyText = null;
-                        showToast('Copied');
-                    } else if (msg.type === 'clipboard_write_err') {
-                        var pendingCopy = window.__mcpPendingCopyText || '';
-                        window.__mcpPendingCopyText = null;
-                        console.warn('mcp-feedback clipboard-write err:', msg.error || 'unknown');
-                        if (pendingCopy && navigator.clipboard && navigator.clipboard.writeText) {
-                            navigator.clipboard.writeText(pendingCopy).then(function () {
-                                showToast('Copied');
-                            }).catch(function () {
-                                showToast('Copy failed');
-                            });
-                        } else {
-                            showToast('Copy failed');
-                        }
-                    } else if (msg.type === 'clipboard_paste_result' && msg.request_id === window.__mcpPendingPasteId) {
-                        window.__mcpPendingPasteId = null;
-                        window.__mcpWsPastePending = false;
-                        window.__mcpWsPasteAt = 0;
-                        if (msg.image) {
-                            addImage(msg.image);
-                            showToast('Pasted');
-                        } else if (msg.text) {
-                            insertAtCursor(msg.text);
-                            showToast('Pasted');
-                        } else {
-                            readImagesFromNavigatorClipboard().then(function (blobs) {
-                                if (!blobs.length) {
-                                    console.warn('mcp-feedback clipboard-paste: no image or text');
-                                    return;
-                                }
-                                return Promise.all(blobs.map(pasteImageSource)).then(function () {
-                                    showToast('Pasted');
-                                });
-                            }).catch(function (err) {
-                                console.warn('mcp-feedback clipboard-paste fallback failed:', err && err.message ? err.message : err);
-                            });
-                        }
-                    }
+                    handleProtocolMessage(JSON.parse(e.data));
                 } catch (err) { console.error(err); }
             };
             ws.onclose = function () {
+                bridgeReady = false;
                 setWsStatus('disconnected');
                 scheduleReconnect();
             };
@@ -1931,31 +1993,11 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
         }
     }
 
-    function discoverPortViaHealth() {
-        var range = PS.PanelState.healthPortRange();
-        setWsStatus('connecting', 'Discovering server...');
-        var chain = Promise.resolve();
-        for (var p = range.start; p <= range.end; p++) {
-            (function (port) {
-                chain = chain.then(function () {
-                    if (window.__mcpBootstrapped && ws && ws.readyState === WebSocket.OPEN) return;
-                    return fetch('http://127.0.0.1:' + port + '/health')
-                        .then(function (r) { return r.json(); })
-                        .then(function (j) {
-                            if (j && j.ok && j.port) applyServerInfo(j);
-                        })
-                        .catch(function () { /* try next port */ });
-                });
-            })(p);
-        }
-        chain.then(function () {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                setWsStatus('disconnected', 'No server found — click ↻ or Reload Window');
-            }
-        });
-    }
-
     function scheduleReconnect() {
+        if (useBridge) {
+            setTimeout(function () { connect(); }, 1000);
+            return;
+        }
         var delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
         reconnectAttempts++;
         setWsStatus('connecting', 'Retry #' + reconnectAttempts + ' (' + (delay / 1000).toFixed(0) + 's)');
@@ -1964,53 +2006,37 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     function applyServerInfo(msg) {
         if (!msg || !msg.port) return;
+        if (useBridge) {
+            onBridgeConnected(msg);
+            return;
+        }
         if (msg.version) {
             var vl = document.getElementById('versionLabel');
             if (vl) vl.textContent = 'v' + msg.version;
         }
         var synced = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
-        var needsReconnect = synced !== wsUrl
-            || !ws
-            || ws.readyState === WebSocket.CLOSED
-            || ws.readyState === WebSocket.CLOSING;
         wsUrl = synced;
         window.__mcpBootstrapped = true;
-        if (needsReconnect) {
-            forceReconnect();
-        } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
             connect();
         }
     }
 
     function bootstrapConnection() {
-        if (vscode) {
-            vscode.postMessage({ type: 'webview-ready' });
-            vscode.postMessage({ type: 'get-server-info' });
-            setTimeout(function () {
-                if (window.__mcpBootstrapped) return;
-                if (PS.PanelState.isValidWsUrl(wsUrl)) {
-                    window.__mcpBootstrapped = true;
-                    connect();
-                } else {
-                    discoverPortViaHealth();
-                }
-            }, 1200);
-        } else if (PS.PanelState.isValidWsUrl(wsUrl)) {
-            connect();
-        } else {
-            discoverPortViaHealth();
-        }
+        connect();
     }
 
     // ── Extension Messages ──────────────────────────────
 
     window.addEventListener('message', function (event) {
         var msg = event.data;
-        if (msg.type === 'reconnect') {
-            if (ws) { try { ws.close(); } catch (e) { /* ignore */ } }
-            ws = null; reconnectAttempts = 0;
-            setWsStatus('connecting', 'Reconnecting...');
-            connect();
+        if (msg.type === 'reconnect' || msg.type === 'hub-connect') {
+            bridgeReady = false;
+            forceReconnect();
+        } else if (msg.type === 'bridge-connected') {
+            onBridgeConnected(msg);
+        } else if (msg.type === 'hub-message') {
+            handleProtocolMessage(msg.data);
         } else if (msg.type === 'server-info') {
             applyServerInfo(msg);
         } else if (msg.type === 'focus-input') {
@@ -2029,7 +2055,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     // ── Heartbeat ───────────────────────────────────────
 
     setInterval(function () {
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+        if (transportReady()) transportSend({ type: 'ping' });
     }, 30000);
 
     // ── Init ────────────────────────────────────────────

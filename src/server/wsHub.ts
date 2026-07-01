@@ -32,6 +32,7 @@ import { bindClientConnectionHandlers } from './connectionHandlers';
 import { findAvailablePort } from './portFinder';
 import { dispatchRouteMessage } from './routeAdapter';
 import { decodeWsMessage } from './wsMessageCodec';
+import { createWebviewBridge, type WebviewBridge } from './webviewBridge';
 import { readClipboardImageBase64 } from '../utils/clipboardImage';
 import * as vscode from 'vscode';
 
@@ -153,6 +154,14 @@ export class WsHub {
         this._registerServer();
     }
 
+    /** In-process bridge for Cursor webview (avoids unreliable ws:// from webview sandbox). */
+    attachWebview(postToPanel: (msg: Record<string, unknown>) => void): WebviewBridge {
+        const bridge = createWebviewBridge(postToPanel);
+        this._bindClient(bridge.socket);
+        wsLog('client registered: type=webview (bridge)');
+        return bridge;
+    }
+
     // ── Lifecycle ───────────────────────────────────────────
 
     async start(): Promise<number> {
@@ -242,6 +251,10 @@ export class WsHub {
     // ── Connection Handling ─────────────────────────────────
 
     private _handleConnection(ws: WebSocket): void {
+        this._bindClient(ws);
+    }
+
+    private _bindClient(ws: WebSocket): void {
         const client = this.clients.add(ws);
 
         this._send(ws, {

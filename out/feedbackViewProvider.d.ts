@@ -8,25 +8,30 @@
  * - Panel focus and input focus
  */
 import * as vscode from 'vscode';
+import type { FeedbackWSServer } from './wsServer';
 type HtmlGetter = () => string;
 type PortGetter = () => number;
 type VersionGetter = () => string;
+type HubGetter = () => FeedbackWSServer | undefined;
 export declare class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _view;
     private _getHtml;
     private _getPort;
     private _getVersion;
+    private _getHub;
+    private _bridge;
     private _forceResetCallback?;
     private _fileWatcher?;
-    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter);
+    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter, getHub: HubGetter);
     updateHtmlGetter(getHtml: HtmlGetter): void;
     onForceReset(callback: () => Promise<number>): void;
     resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void;
     recreate(): void;
     focusInput(): void;
     reconnect(): void;
-    /** Refresh webview HTML and push current extension port after reload / port change. */
+    /** Refresh webview HTML and re-attach in-process bridge. */
     syncServer(_port: number): void;
+    private _connectBridge;
     private _pushServerInfo;
     private _setupMessageHandler;
     private _handleAtSearch;

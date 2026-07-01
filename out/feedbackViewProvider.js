@@ -47,11 +47,13 @@ const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 class FeedbackViewProvider {
-    constructor(getHtml, getPort, getVersion) {
+    constructor(getHtml, getPort, getVersion, getHub) {
         this._view = null;
+        this._bridge = null;
         this._getHtml = getHtml;
         this._getPort = getPort;
         this._getVersion = getVersion;
+        this._getHub = getHub;
     }
     updateHtmlGetter(getHtml) {
         this._getHtml = getHtml;
@@ -69,11 +71,14 @@ class FeedbackViewProvider {
         this._setupHotReload(webviewView);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                this._pushServerInfo(webviewView);
+                this._connectBridge(webviewView);
             }
         });
+        this._connectBridge(webviewView);
         webviewView.onDidDispose(() => {
             this._view = null;
+            this._bridge?.dispose();
+            this._bridge = null;
             this._stopHotReload();
         });
     }
@@ -89,32 +94,49 @@ class FeedbackViewProvider {
     }
     reconnect() {
         if (this._view) {
-            this._view.webview.postMessage({ type: 'reconnect' });
+            this._connectBridge(this._view);
         }
     }
-    /** Refresh webview HTML and push current extension port after reload / port change. */
+    /** Refresh webview HTML and re-attach in-process bridge. */
     syncServer(_port) {
         if (!this._view)
             return;
         this._view.webview.html = this._getHtml();
         setTimeout(() => {
             if (this._view)
-                this._pushServerInfo(this._view);
+                this._connectBridge(this._view);
         }, 50);
     }
-    _pushServerInfo(view) {
+    _connectBridge(view) {
+        const hub = this._getHub();
+        if (!hub)
+            return;
+        this._bridge?.dispose();
+        this._bridge = hub.attachWebview((msg) => {
+            view.webview.postMessage({ type: 'hub-message', data: msg });
+        });
         view.webview.postMessage({
-            type: 'server-info',
+            type: 'bridge-connected',
             port: this._getPort(),
             version: this._getVersion(),
+            pid: process.pid,
         });
+    }
+    _pushServerInfo(view) {
+        this._connectBridge(view);
     }
     _setupMessageHandler(view) {
         view.webview.onDidReceiveMessage((message) => {
             switch (message.type) {
                 case 'get-server-info':
                 case 'webview-ready':
-                    this._pushServerInfo(view);
+                case 'hub-connect':
+                    this._connectBridge(view);
+                    break;
+                case 'hub-message':
+                    if (this._bridge && message.data) {
+                        this._bridge.deliver(JSON.stringify(message.data));
+                    }
                     break;
                 case 'feedback-submitted':
                     vscode.window.setStatusBarMessage('Feedback submitted!', 1500);

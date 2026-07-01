@@ -12,22 +12,29 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type { FeedbackWSServer } from './wsServer';
+import type { WebviewBridge } from './server/webviewBridge';
+
 type HtmlGetter = () => string;
 type PortGetter = () => number;
 type VersionGetter = () => string;
+type HubGetter = () => FeedbackWSServer | undefined;
 
 export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _view: vscode.WebviewView | null = null;
     private _getHtml: HtmlGetter;
     private _getPort: PortGetter;
     private _getVersion: VersionGetter;
+    private _getHub: HubGetter;
+    private _bridge: WebviewBridge | null = null;
     private _forceResetCallback?: () => Promise<number>;
     private _fileWatcher?: fs.FSWatcher;
 
-    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter) {
+    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter, getHub: HubGetter) {
         this._getHtml = getHtml;
         this._getPort = getPort;
         this._getVersion = getVersion;
+        this._getHub = getHub;
     }
 
     updateHtmlGetter(getHtml: HtmlGetter): void {
@@ -55,12 +62,16 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                this._pushServerInfo(webviewView);
+                this._connectBridge(webviewView);
             }
         });
 
+        this._connectBridge(webviewView);
+
         webviewView.onDidDispose(() => {
             this._view = null;
+            this._bridge?.dispose();
+            this._bridge = null;
             this._stopHotReload();
         });
     }
@@ -79,25 +90,37 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     reconnect(): void {
         if (this._view) {
-            this._view.webview.postMessage({ type: 'reconnect' });
+            this._connectBridge(this._view);
         }
     }
 
-    /** Refresh webview HTML and push current extension port after reload / port change. */
+    /** Refresh webview HTML and re-attach in-process bridge. */
     syncServer(_port: number): void {
         if (!this._view) return;
         this._view.webview.html = this._getHtml();
         setTimeout(() => {
-            if (this._view) this._pushServerInfo(this._view);
+            if (this._view) this._connectBridge(this._view);
         }, 50);
     }
 
-    private _pushServerInfo(view: vscode.WebviewView): void {
+    private _connectBridge(view: vscode.WebviewView): void {
+        const hub = this._getHub();
+        if (!hub) return;
+
+        this._bridge?.dispose();
+        this._bridge = hub.attachWebview((msg) => {
+            view.webview.postMessage({ type: 'hub-message', data: msg });
+        });
         view.webview.postMessage({
-            type: 'server-info',
+            type: 'bridge-connected',
             port: this._getPort(),
             version: this._getVersion(),
+            pid: process.pid,
         });
+    }
+
+    private _pushServerInfo(view: vscode.WebviewView): void {
+        this._connectBridge(view);
     }
 
     private _setupMessageHandler(view: vscode.WebviewView): void {
@@ -105,7 +128,14 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             switch (message.type) {
                 case 'get-server-info':
                 case 'webview-ready':
-                    this._pushServerInfo(view);
+                case 'hub-connect':
+                    this._connectBridge(view);
+                    break;
+
+                case 'hub-message':
+                    if (this._bridge && message.data) {
+                        this._bridge.deliver(JSON.stringify(message.data));
+                    }
                     break;
 
                 case 'feedback-submitted':

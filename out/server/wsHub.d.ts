@@ -5,6 +5,7 @@
  * with fallback to project hash or auto-generated key.
  * Sessions survive transport disconnection for reconnection.
  */
+import { type WebviewBridge } from './webviewBridge';
 export declare class WsHub {
     private server;
     private wss;
@@ -29,6 +30,8 @@ export declare class WsHub {
     };
     hasPendingRequests(): boolean;
     refreshServerRegistration(): void;
+    /** In-process bridge for Cursor webview (avoids unreliable ws:// from webview sandbox). */
+    attachWebview(postToPanel: (msg: Record<string, unknown>) => void): WebviewBridge;
     start(): Promise<number>;
     stop(): Promise<void>;
     private _cleanup;
@@ -38,6 +41,7 @@ export declare class WsHub {
     private _handleHttpRequest;
     private _registerServer;
     private _handleConnection;
+    private _bindClient;
     private _routeMessage;
     private _handleFeedbackRequest;
     private _handleFeedbackResponse;
