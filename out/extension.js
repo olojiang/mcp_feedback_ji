@@ -3717,8 +3717,8 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
-var fs5 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var fs6 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
 var os5 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
@@ -4961,10 +4961,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path6) {
-  if (!path6)
+function getElementAtPath(obj, path7) {
+  if (!path7)
     return obj;
-  return path6.reduce((acc, key) => acc?.[key], obj);
+  return path7.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5373,11 +5373,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path6, issues) {
+function prefixIssues(path7, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path6);
+    iss.path.unshift(path7);
     return iss;
   });
 }
@@ -5524,16 +5524,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path6 = []) => {
+  const processError = (error52, path7 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path6, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path7, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else {
-        const fullpath = [...path6, ...issue2.path];
+        const fullpath = [...path7, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -5560,17 +5560,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path6 = []) => {
+  const processError = (error52, path7 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path6, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path7, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
       } else {
-        const fullpath = [...path6, ...issue2.path];
+        const fullpath = [...path7, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -5602,8 +5602,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path6 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path6) {
+  const path7 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path7) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -18295,13 +18295,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path6 = ref.slice(1).split("/").filter(Boolean);
-  if (path6.length === 0) {
+  const path7 = ref.slice(1).split("/").filter(Boolean);
+  if (path7.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path6[0] === defsKey) {
-    const key = path6[1];
+  if (path7[0] === defsKey) {
+    const key = path7[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -19621,6 +19621,20 @@ var FeedbackViewProvider = class {
   }
 };
 
+// src/extensionVersion.ts
+var fs5 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
+function readExtensionVersion(extensionPath) {
+  try {
+    const pkg = JSON.parse(
+      fs5.readFileSync(path5.join(extensionPath, "package.json"), "utf-8")
+    );
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 // src/extension.ts
 var wsServer;
 var bottomProvider;
@@ -19663,23 +19677,15 @@ function resolveNodeBin() {
   }
   return "node";
 }
-function readExtensionVersion(extensionPath) {
-  try {
-    const pkg = JSON.parse(fs5.readFileSync(path5.join(extensionPath, "package.json"), "utf-8"));
-    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path5.join(extensionPath, "out", "webview", "panel.html"),
-    path5.join(extensionPath, "static", "panel.html")
+    path6.join(extensionPath, "out", "webview", "panel.html"),
+    path6.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
-    if (fs5.existsSync(p)) {
-      html = fs5.readFileSync(p, "utf-8");
+    if (fs6.existsSync(p)) {
+      html = fs6.readFileSync(p, "utf-8");
       break;
     }
   }
@@ -19814,7 +19820,7 @@ function _openEditorPanel(context, port) {
     {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode3.Uri.file(path5.join(context.extensionPath, "out"))]
+      localResourceRoots: [vscode3.Uri.file(path6.join(context.extensionPath, "out"))]
     }
   );
   panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
@@ -19822,13 +19828,13 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path5.join(os5.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path6.join(os5.homedir(), ".cursor", "mcp.json");
     let config2 = {};
-    if (fs5.existsSync(mcpConfigPath)) {
-      config2 = JSON.parse(fs5.readFileSync(mcpConfigPath, "utf-8"));
+    if (fs6.existsSync(mcpConfigPath)) {
+      config2 = JSON.parse(fs6.readFileSync(mcpConfigPath, "utf-8"));
     }
     const mcpServers = config2.mcpServers || {};
-    const localServerPath = path5.join(extensionPath, "mcp-server", "dist", "index.js");
+    const localServerPath = path6.join(extensionPath, "mcp-server", "dist", "index.js");
     const expectedCommand = resolveNodeBin();
     const expectedArgs = [localServerPath];
     const expectedEnv = { MCP_FEEDBACK_VERSION: version2 };
@@ -19844,35 +19850,35 @@ function ensureMcpConfig(extensionPath) {
     };
     delete mcpServers["mcp-feedback-v2"];
     config2.mcpServers = mcpServers;
-    fs5.mkdirSync(path5.dirname(mcpConfigPath), { recursive: true });
-    fs5.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
+    fs6.mkdirSync(path6.dirname(mcpConfigPath), { recursive: true });
+    fs6.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to update MCP config:", e);
   }
 }
 function deployCursorHooks(extensionPath) {
   try {
-    const hooksSourceDir = path5.join(extensionPath, "scripts", "hooks");
-    const targetDir = path5.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
-    fs5.mkdirSync(targetDir, { recursive: true });
+    const hooksSourceDir = path6.join(extensionPath, "scripts", "hooks");
+    const targetDir = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    fs6.mkdirSync(targetDir, { recursive: true });
     const hookFiles = ["hook-utils.js", "consume-pending.js"];
     for (const file2 of hookFiles) {
-      const src = path5.join(hooksSourceDir, file2);
-      if (fs5.existsSync(src)) {
-        fs5.copyFileSync(src, path5.join(targetDir, file2));
+      const src = path6.join(hooksSourceDir, file2);
+      if (fs6.existsSync(src)) {
+        fs6.copyFileSync(src, path6.join(targetDir, file2));
       }
     }
     for (const old of ["check-pending.js", "agent-stop.js", "session-start.js", "enforce-feedback.js", "track-feedback.js", "compact-flag.js"]) {
       try {
-        fs5.unlinkSync(path5.join(targetDir, old));
+        fs6.unlinkSync(path6.join(targetDir, old));
       } catch {
       }
     }
-    const preToolUseHook = path5.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path5.join(os5.homedir(), ".cursor", "hooks.json");
+    const preToolUseHook = path6.join(targetDir, "consume-pending.js");
+    const hooksConfigPath = path6.join(os5.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
-    if (fs5.existsSync(hooksConfigPath)) {
-      hooksConfig = JSON.parse(fs5.readFileSync(hooksConfigPath, "utf-8"));
+    if (fs6.existsSync(hooksConfigPath)) {
+      hooksConfig = JSON.parse(fs6.readFileSync(hooksConfigPath, "utf-8"));
     }
     if (!hooksConfig.version) {
       hooksConfig.version = 1;
@@ -19908,8 +19914,8 @@ function deployCursorHooks(extensionPath) {
       }
     }
     hooksConfig.hooks = hooks;
-    fs5.mkdirSync(path5.dirname(hooksConfigPath), { recursive: true });
-    fs5.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
+    fs6.mkdirSync(path6.dirname(hooksConfigPath), { recursive: true });
+    fs6.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
   }
@@ -19944,23 +19950,23 @@ var RULES_CONTENT = [
 ].join("\n");
 function deployCursorRules() {
   try {
-    const rulesDir = path5.join(os5.homedir(), ".cursor", "rules");
-    const ruleFile = path5.join(rulesDir, "mcp-feedback-enhanced.mdc");
-    fs5.mkdirSync(rulesDir, { recursive: true });
+    const rulesDir = path6.join(os5.homedir(), ".cursor", "rules");
+    const ruleFile = path6.join(rulesDir, "mcp-feedback-enhanced.mdc");
+    fs6.mkdirSync(rulesDir, { recursive: true });
     let needsWrite = true;
-    if (fs5.existsSync(ruleFile)) {
-      const existing = fs5.readFileSync(ruleFile, "utf-8");
+    if (fs6.existsSync(ruleFile)) {
+      const existing = fs6.readFileSync(ruleFile, "utf-8");
       if (existing === RULES_CONTENT) {
         needsWrite = false;
       }
     }
     if (needsWrite) {
-      fs5.writeFileSync(ruleFile, RULES_CONTENT);
+      fs6.writeFileSync(ruleFile, RULES_CONTENT);
     }
     for (const ws of getWorkspaces()) {
-      const wsRuleFile = path5.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
+      const wsRuleFile = path6.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
       try {
-        fs5.unlinkSync(wsRuleFile);
+        fs6.unlinkSync(wsRuleFile);
       } catch {
       }
     }
@@ -19970,21 +19976,21 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path5.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
-    if (!fs5.existsSync(pendingDir)) return;
-    const files = fs5.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
+    const pendingDir = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    if (!fs6.existsSync(pendingDir)) return;
+    const files = fs6.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) {
-      fs5.rmdirSync(pendingDir);
+      fs6.rmdirSync(pendingDir);
       return;
     }
     for (const f of files) {
       try {
-        fs5.unlinkSync(path5.join(pendingDir, f));
+        fs6.unlinkSync(path6.join(pendingDir, f));
       } catch {
       }
     }
     try {
-      fs5.rmdirSync(pendingDir);
+      fs6.rmdirSync(pendingDir);
     } catch {
     }
   } catch {

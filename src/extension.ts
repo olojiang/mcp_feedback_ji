@@ -16,6 +16,7 @@ import * as os from 'os';
 import { exec, execSync } from 'child_process';
 import { FeedbackWSServer } from './wsServer';
 import { FeedbackViewProvider } from './feedbackViewProvider';
+import { readExtensionVersion } from './extensionVersion';
 
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
@@ -59,16 +60,6 @@ function resolveNodeBin(): string {
         }
     } catch { /* fall through */ }
     return 'node';
-}
-
-/** Read package.json version from disk — Cursor caches context.extension.packageJSON until full app restart. */
-function readExtensionVersion(extensionPath: string): string {
-    try {
-        const pkg = JSON.parse(fs.readFileSync(path.join(extensionPath, 'package.json'), 'utf-8')) as { version?: string };
-        return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
-    } catch {
-        return '0.0.0';
-    }
 }
 
 function _loadWebviewHtml(extensionPath: string, serverPort: number, version: string): string {

@@ -553,7 +553,7 @@
           return `<code>${body}</code>`
         })
         t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        t = t.replace(/\*(.+?)\*/g, '<em>$1</em>')
+        t = t.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
         return t
       }
 

@@ -35,4 +35,23 @@ describe('PanelState.md', () => {
     assert.match(html, /<code>hash<\/code>/)
     assert.equal((html.match(/<code>/g) || []).length, 1)
   })
+
+  it('drops whitespace-only inline backticks', () => {
+    const html = PanelState.md('before ` ` after `x`')
+    assert.ok(!html.includes('<code> </code>'))
+    assert.match(html, /<code>x<\/code>/)
+  })
+
+  it('escapes HTML in inline code and preserves bold', () => {
+    const html = PanelState.md('**warn** and `<tag>`')
+    assert.match(html, /<strong>warn<\/strong>/)
+    assert.match(html, /<code>&lt;tag&gt;<\/code>/)
+    assert.ok(!html.includes('<tag>'))
+  })
+
+  it('renders italic without breaking bold', () => {
+    const html = PanelState.md('**bold** and *italic*')
+    assert.match(html, /<strong>bold<\/strong>/)
+    assert.match(html, /<em>italic<\/em>/)
+  })
 })
