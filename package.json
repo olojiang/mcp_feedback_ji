@@ -1,0 +1,111 @@
+{
+	"name": "mcp-feedback-enhanced",
+	"displayName": "MCP Feedback Enhanced",
+	"description": "Interactive feedback collection for AI assistants with multi-session tabs (Hunter fork)",
+	"version": "2.5.1-ji.1",
+	"publisher": "mcp-feedback",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode"
+	},
+	"homepage": "https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode#readme",
+	"bugs": {
+		"url": "https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode/issues"
+	},
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Other",
+		"Machine Learning"
+	],
+	"keywords": [
+		"mcp",
+		"feedback",
+		"ai",
+		"cursor",
+		"copilot"
+	],
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"viewsContainers": {
+			"panel": [
+				{
+					"id": "mcp-feedback-enhanced-bottom",
+					"title": "MCP Feedback Enhanced",
+					"icon": "resources/icon.svg"
+				}
+			]
+		},
+		"views": {
+			"mcp-feedback-enhanced-bottom": [
+				{
+					"type": "webview",
+					"id": "mcp-feedback-enhanced.feedbackPanelBottom",
+					"name": "MCP Feedback Enhanced",
+					"visibility": "visible"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "mcp-feedback-enhanced.openInEditor",
+				"title": "MCP Feedback Enhanced: Open in Editor (Tab)",
+				"icon": "$(window)"
+			},
+			{
+				"command": "mcp-feedback-enhanced.openInBottom",
+				"title": "MCP Feedback Enhanced: Open in Bottom Panel",
+				"icon": "$(panel)"
+			},
+			{
+				"command": "mcp-feedback-enhanced.reconnect",
+				"title": "MCP Feedback Enhanced: Reconnect to Server"
+			},
+			{
+				"command": "mcp-feedback-enhanced.forceReset",
+				"title": "MCP Feedback Enhanced: Force Reset (Restart Server)"
+			},
+			{
+				"command": "mcp-feedback-enhanced.showStatus",
+				"title": "MCP Feedback Enhanced: Show Status"
+			}
+		]
+	},
+	"scripts": {
+		"vscode:prepublish": "cd mcp-server && npm run build && cd .. && node scripts/generate-webview.js --prod && node scripts/validate-build.js && npm run esbuild-base -- --minify && npm run verify",
+		"compile": "cd mcp-server && npm run build && cd .. && tsc -p ./ && node scripts/generate-webview.js && node scripts/validate-build.js && npm run esbuild && npm run verify",
+		"verify": "node -e \"const h=require('fs').readFileSync('out/webview/panel.html','utf8');const e=require('fs').readFileSync('out/extension.js','utf8');const checks=[];if(!h.includes('{{SERVER_URL}}'))checks.push('Missing SERVER_URL placeholder');if(!e.includes('retainContextWhenHidden:!0')&&!e.includes('retainContextWhenHidden: true'))checks.push('retainContextWhenHidden should be true');if(!e.includes('panel.html'))checks.push('Missing panel.html reference');if(checks.length){console.error('ERRORS:',checks.join(', '));process.exit(1)}console.log('Verify OK')\"",
+		"esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+		"esbuild": "npm run esbuild-base -- --sourcemap",
+		"esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
+		"watch": "tsc -watch -p ./",
+		"pretest": "npm run compile",
+		"test": "node --test --test-concurrency=1 tests/*.test.js",
+		"test:fast": "node --test --test-concurrency=1 tests/hooks.test.js tests/ws-server.test.js tests/panelState.test.js tests/panelState.model.test.js tests/contracts.test.js tests/scenarios.test.js",
+		"test:ui": "node --test --test-concurrency=1 tests/ui.test.js",
+		"lint": "eslint src --ext ts",
+		"package": "vsce package --no-dependencies"
+	},
+	"dependencies": {
+		"ws": "^8.19.0"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.58.2",
+		"@types/node": "^20.10.0",
+		"@types/vscode": "^1.85.0",
+		"@types/ws": "^8.5.10",
+		"@typescript-eslint/eslint-plugin": "^6.13.0",
+		"@typescript-eslint/parser": "^6.13.0",
+		"@vscode/vsce": "^2.22.0",
+		"esbuild": "^0.27.2",
+		"eslint": "^8.54.0",
+		"fast-check": "^4.6.0",
+		"typescript": "^5.3.0",
+		"zod": "^4.3.6"
+	}
+}
