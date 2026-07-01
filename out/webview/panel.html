@@ -95,8 +95,16 @@ body{
 .msg-row.ai .message .header .role{color:#a78bfa}
 .msg-row.user .message .header .role{color:#6ee7b7}
 .message .content{word-break:break-word;user-select:text;-webkit-user-select:text}
+.message .content p{margin:4px 0}
+.message .content h2,.message .content h3,.message .content h4{margin:10px 0 4px;font-weight:700;line-height:1.35}
+.message .content h2{font-size:15px}
+.message .content h3{font-size:14px}
+.message .content h4{font-size:13px;color:var(--fg-dim)}
+.message .content ul{margin:4px 0;padding-left:1.25em;list-style:disc}
+.message .content li{margin:2px 0;line-height:1.45}
 .message .content code{background:rgba(110,118,129,0.15);padding:2px 5px;border-radius:4px;font-size:12px;font-family:inherit}
-.message .content pre{background:rgba(0,0,0,0.3);padding:10px;border-radius:8px;overflow-x:auto;margin:8px 0;border:1px solid var(--border)}
+.message .content pre{background:rgba(0,0,0,0.3);padding:10px;border-radius:8px;overflow-x:auto;margin:6px 0;border:1px solid var(--border)}
+.message .content pre code{background:transparent;padding:0;border-radius:0;display:block;white-space:pre-wrap}
 .empty-state{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   height:100%;color:var(--fg-dim);text-align:center;padding:32px;gap:12px;

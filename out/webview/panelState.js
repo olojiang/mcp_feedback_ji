@@ -535,19 +535,92 @@
 
     static md(text) {
       if (!text) return ''
-      return text
+
+      const codeBlocks = []
+
+      const escapeHtml = (s) => String(s)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+
+      const inlineMd = (s) => escapeHtml(s)
         .replace(/`([^`]+)`/g, '<code>$1</code>')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-        .replace(/^- (.+)$/gm, '\u2022 $1<br>')
-        .replace(/\n/g, '<br>')
+
+      let src = String(text)
+      src = src.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code) => {
+        const trimmed = String(code).replace(/^\n+|\n+$/g, '')
+        const idx = codeBlocks.length
+        codeBlocks.push(`<pre><code>${escapeHtml(trimmed)}</code></pre>`)
+        return `\x00CODE${idx}\x00`
+      })
+
+      const lines = src.split('\n')
+      const out = []
+      let listItems = []
+      let paraLines = []
+
+      const flushList = () => {
+        if (!listItems.length) return
+        out.push(`<ul>${listItems.map((li) => `<li>${inlineMd(li)}</li>`).join('')}</ul>`)
+        listItems = []
+      }
+
+      const flushPara = () => {
+        if (!paraLines.length) return
+        out.push(`<p>${inlineMd(paraLines.join(' '))}</p>`)
+        paraLines = []
+      }
+
+      const flushBlocks = () => {
+        flushPara()
+        flushList()
+      }
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim()
+        const codeMatch = line.match(/^\x00CODE(\d+)\x00$/)
+        if (codeMatch) {
+          flushBlocks()
+          out.push(codeBlocks[Number(codeMatch[1])])
+          continue
+        }
+        if (line.includes('\x00CODE')) {
+          flushBlocks()
+          out.push(inlineMd(rawLine))
+          continue
+        }
+        if (!line) {
+          flushBlocks()
+          continue
+        }
+        if (/^- (.+)$/.test(line)) {
+          flushPara()
+          listItems.push(line.replace(/^- /, ''))
+          continue
+        }
+        flushList()
+        if (/^### (.+)$/.test(line)) {
+          flushPara()
+          out.push(`<h4>${escapeHtml(line.slice(4))}</h4>`)
+          continue
+        }
+        if (/^## (.+)$/.test(line)) {
+          flushPara()
+          out.push(`<h3>${escapeHtml(line.slice(3))}</h3>`)
+          continue
+        }
+        if (/^# (.+)$/.test(line)) {
+          flushPara()
+          out.push(`<h2>${escapeHtml(line.slice(2))}</h2>`)
+          continue
+        }
+        paraLines.push(line)
+      }
+      flushBlocks()
+
+      return out.join('')
     }
 
     /** Convert rendered message HTML to plain text for clipboard (testable). */
@@ -555,13 +628,16 @@
       if (!html) return ''
       return String(html)
         .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<li>/gi, '- ')
+        .replace(/<\/ul>/gi, '\n')
         .replace(/<\/h[1-6]>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
         .replace(/<\/pre>/gi, '\n')
         .replace(/<[^>]+>/g, '')
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
-        .replace(/\u2022 /g, '- ')
         .replace(/\n{3,}/g, '\n\n')
         .trim()
     }

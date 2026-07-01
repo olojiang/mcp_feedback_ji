@@ -195,7 +195,7 @@ class WsHub {
         await this._startServer();
         this._registerServer();
         this._startHeartbeat();
-        wsLog(`server started: port=${this.port} pid=${process.pid} ws=${JSON.stringify(this.workspaces)}`);
+        wsLog(`server started: port=${this.port} pid=${process.pid} version=${this.version} ws=${JSON.stringify(this.workspaces)}`);
         return this.port;
     }
     async stop() {

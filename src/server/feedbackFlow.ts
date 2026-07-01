@@ -38,7 +38,9 @@ export class FeedbackFlow {
     }
 
     handleFeedbackRequest(mcpWs: WebSocket, req: { summary: string; project_directory?: string }): void {
-        this.deps.log(`feedbackRequest: summary=${req.summary.slice(0, 60)}`);
+        this.deps.log(
+            `feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`,
+        );
 
         const transport = this.deps.feedback.updateTransport(
             mcpWs,
@@ -47,7 +49,7 @@ export class FeedbackFlow {
         );
         if (transport.updated) {
             this.deps.log(
-                `feedbackRequest: updated transport session=${transport.sessionId ?? 'unknown'}`,
+                `feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`,
             );
             this.deps.addMessage({
                 role: 'ai',
@@ -69,6 +71,7 @@ export class FeedbackFlow {
             req.project_directory,
             req.summary,
         );
+        this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
         this.deps.broadcastSessionUpdated(req.summary, sessionId);
         this.deps.onFeedbackRequested?.();
 
@@ -86,7 +89,9 @@ export class FeedbackFlow {
     }
 
     handleFeedbackResponse(res: { feedback: string; images?: string[]; session_id?: string }): void {
-        this.deps.log(`feedbackResponse: feedback=${res.feedback.slice(0, 60)}`);
+        this.deps.log(
+            `feedbackResponse: session=${res.session_id ?? '(first)'} feedback=${res.feedback.slice(0, 80)}`,
+        );
 
         this.deps.addMessage({
             role: 'user',

@@ -4080,7 +4080,9 @@ var FeedbackFlow = class {
     this.deps.onFeedbackError = cb;
   }
   handleFeedbackRequest(mcpWs, req) {
-    this.deps.log(`feedbackRequest: summary=${req.summary.slice(0, 60)}`);
+    this.deps.log(
+      `feedbackRequest: project=${req.project_directory ?? "(none)"} summary=${req.summary.slice(0, 80)}`
+    );
     const transport = this.deps.feedback.updateTransport(
       mcpWs,
       req.project_directory,
@@ -4088,7 +4090,7 @@ var FeedbackFlow = class {
     );
     if (transport.updated) {
       this.deps.log(
-        `feedbackRequest: updated transport session=${transport.sessionId ?? "unknown"}`
+        `feedbackRequest: transport updated session=${transport.sessionId ?? "unknown"}`
       );
       this.deps.addMessage({
         role: "ai",
@@ -4108,6 +4110,7 @@ var FeedbackFlow = class {
       req.project_directory,
       req.summary
     );
+    this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
     this.deps.broadcastSessionUpdated(req.summary, sessionId);
     this.deps.onFeedbackRequested?.();
     promise2.then((resolved) => {
@@ -4123,7 +4126,9 @@ var FeedbackFlow = class {
     });
   }
   handleFeedbackResponse(res) {
-    this.deps.log(`feedbackResponse: feedback=${res.feedback.slice(0, 60)}`);
+    this.deps.log(
+      `feedbackResponse: session=${res.session_id ?? "(first)"} feedback=${res.feedback.slice(0, 80)}`
+    );
     this.deps.addMessage({
       role: "user",
       content: res.feedback,
@@ -19120,7 +19125,7 @@ var WsHub = class {
     await this._startServer();
     this._registerServer();
     this._startHeartbeat();
-    wsLog(`server started: port=${this.port} pid=${process.pid} ws=${JSON.stringify(this.workspaces)}`);
+    wsLog(`server started: port=${this.port} pid=${process.pid} version=${this.version} ws=${JSON.stringify(this.workspaces)}`);
     return this.port;
   }
   async stop() {

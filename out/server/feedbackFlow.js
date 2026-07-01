@@ -15,10 +15,10 @@ class FeedbackFlow {
         this.deps.onFeedbackError = cb;
     }
     handleFeedbackRequest(mcpWs, req) {
-        this.deps.log(`feedbackRequest: summary=${req.summary.slice(0, 60)}`);
+        this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
         if (transport.updated) {
-            this.deps.log(`feedbackRequest: updated transport session=${transport.sessionId ?? 'unknown'}`);
+            this.deps.log(`feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`);
             this.deps.addMessage({
                 role: 'ai',
                 content: req.summary,
@@ -33,6 +33,7 @@ class FeedbackFlow {
             timestamp: new Date().toISOString(),
         });
         const { sessionId, promise } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary);
+        this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
         this.deps.broadcastSessionUpdated(req.summary, sessionId);
         this.deps.onFeedbackRequested?.();
         promise.then((resolved) => {
@@ -48,7 +49,7 @@ class FeedbackFlow {
         });
     }
     handleFeedbackResponse(res) {
-        this.deps.log(`feedbackResponse: feedback=${res.feedback.slice(0, 60)}`);
+        this.deps.log(`feedbackResponse: session=${res.session_id ?? '(first)'} feedback=${res.feedback.slice(0, 80)}`);
         this.deps.addMessage({
             role: 'user',
             content: res.feedback,
