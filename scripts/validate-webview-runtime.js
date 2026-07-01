@@ -23,15 +23,20 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{ERUDA_URI\}\}/g, 'https://mock/eruda.js')
     .replace(/\{\{ERUDA_PANEL_URI\}\}/g, 'https://mock/erudaPanel.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
+    .replace(/\{\{THEMECONTRAST_URI\}\}/g, 'https://mock/themeContrast.js')
     .replace(/\{\{CSP_SOURCE\}\}/g, 'https://mock');
 
 const panelStateFile = path.join(__dirname, '..', 'out', 'webview', 'panelState.js');
 const erudaPanelFile = path.join(__dirname, '..', 'out', 'webview', 'erudaPanel.js');
+const themeContrastFile = path.join(__dirname, '..', 'out', 'webview', 'themeContrast.js');
 const panelStateCode = fs.existsSync(panelStateFile)
     ? fs.readFileSync(panelStateFile, 'utf-8')
     : null;
 const erudaPanelCode = fs.existsSync(erudaPanelFile)
     ? fs.readFileSync(erudaPanelFile, 'utf-8')
+    : null;
+const themeContrastCode = fs.existsSync(themeContrastFile)
+    ? fs.readFileSync(themeContrastFile, 'utf-8')
     : null;
 
 const scripts = [];
@@ -247,6 +252,25 @@ if (erudaPanelCode) {
     }
 } else {
     console.error('  FAIL External erudaPanel.js not found');
+    hadError = true;
+}
+
+if (themeContrastCode) {
+    try {
+        vm.runInContext(themeContrastCode, ctx, { filename: 'themeContrast.js', timeout: 5000 });
+        console.log('  OK  External themeContrast.js loaded');
+        if (ctx.window.McpThemeContrast && ctx.window.McpThemeContrast.applyMcpTheme) {
+            console.log('  OK  McpThemeContrast.applyMcpTheme is available');
+        } else {
+            console.error('  FAIL McpThemeContrast not set after loading');
+            hadError = true;
+        }
+    } catch (err) {
+        console.error(`  FAIL External themeContrast.js: ${err.message}`);
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL External themeContrast.js not found');
     hadError = true;
 }
 

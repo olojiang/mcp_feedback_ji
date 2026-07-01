@@ -34,6 +34,12 @@ if (fs.existsSync(erudaPanelSrc)) {
     console.log('[generate-webview] Copied erudaPanel.js to out/webview/ (loaded as external resource)');
 }
 
+const themeContrastSrc = path.join(__dirname, '..', 'static', 'themeContrast.js');
+if (fs.existsSync(themeContrastSrc)) {
+    fs.copyFileSync(themeContrastSrc, path.join(outDir, 'themeContrast.js'));
+    console.log('[generate-webview] Copied themeContrast.js to out/webview/ (loaded as external resource)');
+}
+
 fs.writeFileSync(dest, html, 'utf8');
 console.log('[generate-webview] Generated out/webview/panel.html');
 

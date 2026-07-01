@@ -26,9 +26,49 @@
   --glow-purple:rgba(124,58,237,0.4);
   --glow-green:rgba(16,185,129,0.4);
   --surface:rgba(255,255,255,0.03);
-  --code-bg:var(--vscode-textCodeBlock-background,var(--input-bg));
-  --code-fg:var(--vscode-textPreformat-foreground,var(--vscode-textLink-foreground,var(--fg)));
-  --code-border:var(--vscode-textBlockQuote-border,var(--border));
+}
+/* Markdown contrast tokens — fixed pairs per detected editor theme (see themeContrast.js) */
+:root[data-mcp-theme="dark"]{
+  --md-fg:#e6edf3;
+  --md-muted:#8b949e;
+  --md-strong:#f0f6fc;
+  --md-code-bg:#21262d;
+  --md-code-fg:#79c0ff;
+  --md-code-border:#388bfd66;
+  --md-pre-bg:#0d1117;
+  --md-pre-fg:#e6edf3;
+  --md-pre-border:#388bfd55;
+  --md-heading:#f0f6fc;
+  --ai-bubble-bg:rgba(124,58,237,0.16);
+  --user-bubble-bg:rgba(16,185,129,0.14);
+}
+:root[data-mcp-theme="light"]{
+  --md-fg:#1f2328;
+  --md-muted:#59636e;
+  --md-strong:#1f2328;
+  --md-code-bg:#ddf4ff;
+  --md-code-fg:#0550ae;
+  --md-code-border:#54aeff66;
+  --md-pre-bg:#f6f8fa;
+  --md-pre-fg:#1f2328;
+  --md-pre-border:#d1d9e0;
+  --md-heading:#1f2328;
+  --ai-bubble-bg:rgba(124,58,237,0.10);
+  --user-bubble-bg:rgba(16,185,129,0.10);
+}
+:root:not([data-mcp-theme]){
+  --md-fg:var(--fg);
+  --md-muted:var(--fg-dim);
+  --md-strong:var(--fg);
+  --md-code-bg:#21262d;
+  --md-code-fg:#79c0ff;
+  --md-code-border:#388bfd66;
+  --md-pre-bg:#0d1117;
+  --md-pre-fg:#e6edf3;
+  --md-pre-border:#388bfd55;
+  --md-heading:var(--fg);
+  --ai-bubble-bg:var(--ai-bubble);
+  --user-bubble-bg:var(--user-bubble);
 }
 html,body{height:100%;overflow:hidden}
 body{
@@ -66,12 +106,12 @@ body{
 }
 .message:hover{transform:scale(1.005)}
 .msg-row.ai .message{
-  background:var(--ai-bubble);
+  background:var(--ai-bubble-bg);
   border:1px solid rgba(124,58,237,0.15);
   border-top-left-radius:4px;
 }
 .msg-row.user .message{
-  background:var(--user-bubble);
+  background:var(--user-bubble-bg);
   border:1px solid rgba(16,185,129,0.15);
   border-top-right-radius:4px;
 }
@@ -97,32 +137,32 @@ body{
 .message .header .role{font-weight:700;text-transform:uppercase;letter-spacing:.5px}
 .msg-row.ai .message .header .role{color:#a78bfa}
 .msg-row.user .message .header .role{color:#6ee7b7}
-.message .content{word-break:break-word;user-select:text;-webkit-user-select:text}
-.message .content p{margin:4px 0}
-.message .content h2,.message .content h3,.message .content h4{margin:10px 0 4px;font-weight:700;line-height:1.35}
+.message .content{color:var(--md-fg)}
+.message .content p{margin:4px 0;color:var(--md-fg)}
+.message .content h2,.message .content h3,.message .content h4{
+  margin:10px 0 4px;font-weight:700;line-height:1.35;color:var(--md-heading);
+}
 .message .content h2{font-size:15px}
 .message .content h3{font-size:14px}
-.msg-row.ai .message .content{color:var(--fg)}
-.message .content h2,.message .content h3{color:var(--fg)}
-.message .content h4{font-size:13px;color:var(--fg);opacity:.85}
-.message .content ul{margin:4px 0;padding-left:1.25em;list-style:disc}
-.message .content li{margin:2px 0;line-height:1.45}
+.message .content h4{font-size:13px;color:var(--md-muted)}
+.message .content ul{margin:4px 0;padding-left:1.25em;list-style:disc;color:var(--md-fg)}
+.message .content li{margin:2px 0;line-height:1.45;color:var(--md-fg)}
 .message .content :not(pre)>code{
-  background:var(--code-bg);color:var(--code-fg);
-  border:1px solid var(--code-border);
-  padding:2px 6px;border-radius:4px;font-size:12px;
+  background:var(--md-code-bg);color:var(--md-code-fg);
+  border:1px solid var(--md-code-border);
+  padding:2px 6px;border-radius:4px;font-size:12px;font-weight:500;
   font-family:var(--vscode-editor-font-family,'SF Mono','Cascadia Code',monospace);
   box-decoration-break:clone;-webkit-box-decoration-break:clone;
 }
-.message .content strong{color:var(--fg);font-weight:700}
-.message .content em{color:var(--fg-dim);font-style:italic}
+.message .content strong{color:var(--md-strong);font-weight:700}
+.message .content em{color:var(--md-muted);font-style:italic}
 .message .content pre{
-  background:var(--code-bg);padding:10px;border-radius:8px;
-  overflow-x:auto;margin:6px 0;border:1px solid var(--code-border);
+  background:var(--md-pre-bg);padding:10px;border-radius:8px;
+  overflow-x:auto;margin:6px 0;border:1px solid var(--md-pre-border);
 }
 .message .content pre code{
   background:transparent;padding:0;border:none;border-radius:0;
-  display:block;white-space:pre-wrap;color:var(--code-fg);font-size:12px;line-height:1.5;
+  display:block;white-space:pre-wrap;color:var(--md-pre-fg);font-size:12px;line-height:1.5;
 }
 .empty-state{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -446,6 +486,10 @@ body{
 }
 .clipboard-toast.visible{opacity:1}
 </style>
+<script src="{{THEMECONTRAST_URI}}"></script>
+<script>
+if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
+</script>
 </head>
 <body>
 
@@ -1753,6 +1797,7 @@ window.onerror = function (msg, src, line, col, err) {
 
     // ── Init ────────────────────────────────────────────
 
+    if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
     bootstrapErudaPanel();
     loadState();
     if (state.getActiveSession() && state.getActiveSession().inputDraft) {

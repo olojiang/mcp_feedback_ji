@@ -19420,10 +19420,14 @@ var FeedbackViewProvider = class {
     const erudaPanelUri = view.webview.asWebviewUri(
       vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "erudaPanel.js").with({ query: `v=${cacheKey}` })
     );
+    const themeContrastUri = view.webview.asWebviewUri(
+      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "themeContrast.js").with({ query: `v=${cacheKey}` })
+    );
     const cspSource = view.webview.cspSource;
     html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
     html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
+    html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
     html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
     return html;
   }
