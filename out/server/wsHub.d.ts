@@ -28,6 +28,7 @@ export declare class WsHub {
         webviews: number;
         mcpServers: number;
     };
+    getDebugInfo(): Record<string, unknown>;
     hasPendingRequests(): boolean;
     refreshServerRegistration(): void;
     /** In-process bridge for Cursor webview (avoids unreliable ws:// from webview sandbox). */

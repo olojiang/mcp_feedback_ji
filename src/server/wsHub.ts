@@ -146,6 +146,17 @@ export class WsHub {
         return this.clients.counts();
     }
 
+    getDebugInfo(): Record<string, unknown> {
+        return {
+            hubPort: this.port,
+            hubVersion: this.version,
+            workspaces: this.workspaces,
+            clients: this.clients.counts(),
+            hasPending: this.feedback.hasPending(),
+            serverListening: this.server !== null,
+        };
+    }
+
     hasPendingRequests(): boolean {
         return this.feedback.hasPending();
     }

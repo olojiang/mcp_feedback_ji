@@ -156,6 +156,16 @@ class WsHub {
     getConnectedClients() {
         return this.clients.counts();
     }
+    getDebugInfo() {
+        return {
+            hubPort: this.port,
+            hubVersion: this.version,
+            workspaces: this.workspaces,
+            clients: this.clients.counts(),
+            hasPending: this.feedback.hasPending(),
+            serverListening: this.server !== null,
+        };
+    }
     hasPendingRequests() {
         return this.feedback.hasPending();
     }

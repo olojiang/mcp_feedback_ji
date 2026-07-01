@@ -111,7 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
 
     const getHtml = () => _loadWebviewHtml(context.extensionPath, port, pkgVersion);
-    bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion, () => wsServer);
+    bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion, () => wsServer, context.extensionUri);
 
     const forceResetCallback = async (): Promise<number> => {
         await wsServer.stop();

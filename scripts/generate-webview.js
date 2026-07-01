@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Copies static/panel.html to out/webview/panel.html with panelState.js inlined.
- * The placeholder `/* PANELSTATE_PLACEHOLDER *​/` in panel.html is replaced
+ * The PANELSTATE_PLACEHOLDER comment in panel.html is replaced
  * with the contents of static/panelState.js.
+ * Also copies vendor files (e.g. eruda.js) to out/webview/vendor/.
  */
 
 const fs = require('fs');
@@ -23,17 +24,19 @@ fs.mkdirSync(outDir, { recursive: true });
 let html = fs.readFileSync(htmlSrc, 'utf8');
 
 if (fs.existsSync(stateSrc)) {
-    const stateJs = fs.readFileSync(stateSrc, 'utf8');
-    const placeholder = '/* PANELSTATE_PLACEHOLDER */';
-    if (html.includes(placeholder)) {
-        html = html.replace(placeholder, stateJs);
-        console.log('[generate-webview] Inlined panelState.js into panel.html via placeholder');
-    } else {
-        html = html.replace('<script>', '<script>\n// -- panelState.js (inlined) --\n' + stateJs + '\n// -- end panelState.js --\n');
-        console.log('[generate-webview] Inlined panelState.js into panel.html (fallback)');
-    }
     fs.copyFileSync(stateSrc, path.join(outDir, 'panelState.js'));
+    console.log('[generate-webview] Copied panelState.js to out/webview/ (loaded as external resource)');
 }
 
 fs.writeFileSync(dest, html, 'utf8');
 console.log('[generate-webview] Generated out/webview/panel.html');
+
+const vendorSrc = path.join(__dirname, '..', 'static', 'vendor');
+const vendorDest = path.join(outDir, 'vendor');
+if (fs.existsSync(vendorSrc)) {
+    fs.mkdirSync(vendorDest, { recursive: true });
+    for (const file of fs.readdirSync(vendorSrc)) {
+        fs.copyFileSync(path.join(vendorSrc, file), path.join(vendorDest, file));
+    }
+    console.log('[generate-webview] Copied vendor files to out/webview/vendor/');
+}

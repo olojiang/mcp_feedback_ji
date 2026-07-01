@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src data: blob:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' {{CSP_SOURCE}}; style-src 'unsafe-inline' {{CSP_SOURCE}}; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src data: blob: {{CSP_SOURCE}}; font-src {{CSP_SOURCE}};">
 <title>MCP Feedback Enhanced</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -254,6 +254,49 @@ body{
   font-size:12px;margin-top:4px;transition:all .2s;
 }
 .settings-panel input[type="text"]:focus{border-color:var(--btn-bg);outline:none;box-shadow:0 0 0 2px rgba(124,58,237,0.12)}
+.debug-toggle{flex-shrink:0}
+.debug-toggle button{
+  background:var(--surface);border:1px solid var(--border);color:var(--fg-dim);
+  cursor:pointer;font-size:10px;font-weight:700;padding:3px 7px;letter-spacing:.5px;
+  transition:all .2s;border-radius:6px;
+}
+.debug-toggle button:hover,.debug-toggle button.active{
+  color:#fbbf24;border-color:rgba(251,191,36,0.5);
+  background:rgba(251,191,36,0.1);
+  box-shadow:0 0 8px rgba(251,191,36,0.15);
+}
+.debug-panel{
+  display:none;margin:6px 10px;padding:0;
+  border:1px solid rgba(251,191,36,0.35);border-radius:12px;overflow:hidden;
+  background:var(--input-bg);
+  box-shadow:0 4px 20px rgba(0,0,0,0.3),0 0 1px rgba(251,191,36,0.3);
+  max-height:42vh;
+}
+.debug-panel.visible{display:flex;flex-direction:column;animation:settings-in .25s ease-out}
+.debug-panel-title{
+  font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:#fbbf24;padding:8px 12px;
+  background:linear-gradient(135deg,rgba(251,191,36,0.12),rgba(251,191,36,0.04));
+  border-bottom:1px solid rgba(251,191,36,0.15);
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+}
+.debug-panel-actions{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.debug-panel-actions button{
+  background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.25);
+  color:#fbbf24;font-size:9px;font-weight:600;padding:3px 8px;border-radius:6px;
+  cursor:pointer;letter-spacing:.3px;text-transform:uppercase;
+}
+.debug-panel-actions button:hover{background:rgba(251,191,36,0.2)}
+.debug-panel-body{
+  padding:8px 10px;overflow:auto;flex:1;
+  font-size:10px;line-height:1.45;color:var(--fg-dim);
+}
+.debug-panel pre{
+  margin:0;white-space:pre-wrap;word-break:break-word;
+  font-family:inherit;font-size:10px;color:var(--fg);
+  user-select:text;-webkit-user-select:text;
+}
+.debug-hint{font-size:9px;opacity:.65;margin-bottom:6px;line-height:1.4}
 .at-dropdown{
   display:none;position:absolute;bottom:100%;left:0;right:0;
   max-height:240px;overflow-y:auto;z-index:100;
@@ -378,7 +421,27 @@ body{
     <button class="ws-reconnect-btn" id="wsReconnectBtn" title="Force reconnect">&#8635;</button>
   </div>
   <div style="flex:1"></div>
+  <div class="debug-toggle"><button id="debugBtn" title="Debug / Inspect connection state">DBG</button></div>
   <div class="settings-toggle"><button id="settingsBtn" title="Settings">&#9881;</button></div>
+</div>
+<div class="debug-panel" id="debugPanel">
+  <div class="debug-panel-title">
+    <span>Debug / Inspect</span>
+    <div class="debug-panel-actions">
+      <button type="button" id="debugDevToolsBtn" title="Open Webview DevTools">DevTools</button>
+      <button type="button" id="debugReconnectBtn" title="Force hub-connect">Reconnect</button>
+      <button type="button" id="debugCopyBtn" title="Copy full diagnostic JSON">Copy JSON</button>
+      <button type="button" id="debugCloseBtn" title="Close">Close</button>
+    </div>
+  </div>
+  <div class="debug-panel-body">
+    <div class="debug-hint">右键无 Inspect 时用此面板。Eruda Console 提供完整的 log/error 查看。</div>
+    <div id="erudaContainer" style="width:100%;height:280px;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px"></div>
+    <details style="margin-bottom:4px">
+      <summary style="cursor:pointer;font-size:10px;color:var(--fg-dim);user-select:none">Bridge Diagnostic JSON</summary>
+      <pre id="debugJson" style="margin-top:4px">Loading...</pre>
+    </details>
+  </div>
 </div>
 <div class="settings-panel" id="settingsPanel">
   <div class="settings-panel-title">&#9881; Settings</div>
@@ -434,12 +497,37 @@ body{
 <input type="file" id="fileInput" accept="image/*" multiple style="display:none">
 <div class="lightbox" id="lightbox"><img id="lightboxImg" src=""></div>
 
-<!-- panelState.js is inlined here by generate-webview.js -->
-<script>/* PANELSTATE_PLACEHOLDER */</script>
+<!-- eruda console (loaded as external webview resource) -->
+<script src="{{ERUDA_URI}}"></script>
+
+<!-- panelState.js loaded as external webview resource -->
+<script src="{{PANELSTATE_URI}}"></script>
 
 <script>
 const SERVER_URL = '{{SERVER_URL}}';
 const PROJECT_PATH = '{{PROJECT_PATH}}';
+
+window.__mcpPanelError = null;
+window.onerror = function (msg, src, line, col, err) {
+    window.__mcpPanelError = { msg: msg, src: src, line: line, col: col };
+    var el = document.getElementById('statusBar');
+    if (el) {
+        var errSpan = document.createElement('span');
+        errSpan.style.cssText = 'color:#ef4444;font-size:9px;cursor:pointer;margin-left:6px';
+        errSpan.textContent = 'JS ERR L' + line;
+        errSpan.title = msg;
+        errSpan.onclick = function () {
+            var d = document.getElementById('debugJson');
+            if (d) {
+                d.textContent = JSON.stringify(window.__mcpPanelError, null, 2);
+                var dp = document.getElementById('debugPanel');
+                if (dp) dp.classList.add('visible');
+            }
+            alert('Panel JS error at line ' + line + ':\n' + msg);
+        };
+        el.appendChild(errSpan);
+    }
+};
 
 (function () {
     'use strict';
@@ -484,6 +572,13 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     var sendBtn = document.getElementById('sendBtn');
     var settingsBtn = document.getElementById('settingsBtn');
     var settingsPanel = document.getElementById('settingsPanel');
+    var debugBtn = document.getElementById('debugBtn');
+    var debugPanel = document.getElementById('debugPanel');
+    var debugJsonEl = document.getElementById('debugJson');
+    var debugDevToolsBtn = document.getElementById('debugDevToolsBtn');
+    var debugReconnectBtn = document.getElementById('debugReconnectBtn');
+    var debugCopyBtn = document.getElementById('debugCopyBtn');
+    var debugCloseBtn = document.getElementById('debugCloseBtn');
     var autoReplyCheck = document.getElementById('autoReplyCheck');
     var autoReplyText = document.getElementById('autoReplyText');
     var atDropdown = document.getElementById('atDropdown');
@@ -500,6 +595,85 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     var wsStatusLabel = document.getElementById('wsStatusLabel');
     var wsPortEl = document.getElementById('wsPort');
     var wsReconnectBtn = document.getElementById('wsReconnectBtn');
+
+    var debugEvents = [];
+    var lastExtensionDebugReport = null;
+    var erudaInited = false;
+
+    function initEruda() {
+        if (erudaInited) return;
+        if (typeof eruda === 'undefined') {
+            console.warn('eruda not loaded');
+            return;
+        }
+        erudaInited = true;
+        eruda.init({
+            container: document.getElementById('erudaContainer'),
+            tool: ['console', 'elements', 'network', 'resources', 'info'],
+            useShadowDom: false,
+            autoScale: false,
+        });
+        eruda.show();
+        var style = document.createElement('style');
+        style.textContent = '.eruda-container .eruda-dev-tools { height: 100% !important; }';
+        document.head.appendChild(style);
+    }
+
+    function debugLog(msg) {
+        debugEvents.push({ t: new Date().toISOString(), msg: msg });
+        if (debugEvents.length > 50) debugEvents.shift();
+    }
+
+    function collectLocalDebugState() {
+        return {
+            webview: {
+                useBridge: useBridge,
+                bridgeReady: bridgeReady,
+                bridgeRegistered: bridgeRegistered,
+                wsUrl: wsUrl,
+                wsReadyState: ws ? ws.readyState : null,
+                bootstrapped: !!window.__mcpBootstrapped,
+                reconnectAttempts: reconnectAttempts,
+                vscodeApi: !!vscode,
+                transportReady: transportReady(),
+            },
+            events: debugEvents.slice(-30),
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString(),
+        };
+    }
+
+    function renderDebugPanel() {
+        if (!debugJsonEl) return;
+        var payload = {
+            local: collectLocalDebugState(),
+            extension: lastExtensionDebugReport || { note: 'waiting for extension debug-report...' },
+        };
+        debugJsonEl.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function openDebugPanel() {
+        if (!debugPanel) return;
+        debugPanel.classList.add('visible');
+        settingsPanel.classList.remove('visible');
+        if (debugBtn) debugBtn.classList.add('active');
+        initEruda();
+        renderDebugPanel();
+        if (vscode) vscode.postMessage({ type: 'request-debug' });
+    }
+
+    function closeDebugPanel() {
+        if (!debugPanel) return;
+        debugPanel.classList.remove('visible');
+        if (debugBtn) debugBtn.classList.remove('active');
+    }
+
+    function getFullDebugJson() {
+        return JSON.stringify({
+            local: collectLocalDebugState(),
+            extension: lastExtensionDebugReport,
+        }, null, 2);
+    }
 
     function getWsPort() {
         try {
@@ -539,6 +713,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     }
 
     function forceReconnect() {
+        debugLog('forceReconnect');
         bridgeReady = false;
         bridgeRegistered = false;
         if (useBridge) {
@@ -1112,7 +1287,34 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
 
     // ── Settings ────────────────────────────────────────
 
-    settingsBtn.addEventListener('click', function () { settingsPanel.classList.toggle('visible'); });
+    settingsBtn.addEventListener('click', function () {
+        settingsPanel.classList.toggle('visible');
+        closeDebugPanel();
+    });
+    if (debugBtn) {
+        debugBtn.addEventListener('click', function () {
+            if (debugPanel.classList.contains('visible')) closeDebugPanel();
+            else openDebugPanel();
+        });
+    }
+    if (debugCloseBtn) debugCloseBtn.addEventListener('click', closeDebugPanel);
+    if (debugReconnectBtn) debugReconnectBtn.addEventListener('click', function () {
+        debugLog('debug panel reconnect');
+        forceReconnect();
+        renderDebugPanel();
+    });
+    if (debugDevToolsBtn) debugDevToolsBtn.addEventListener('click', function () {
+        debugLog('open-webview-devtools');
+        if (vscode) vscode.postMessage({ type: 'open-webview-devtools' });
+    });
+    if (debugCopyBtn) debugCopyBtn.addEventListener('click', function () {
+        var text = getFullDebugJson();
+        if (vscode) {
+            vscode.postMessage({ type: 'copy-debug-json', json: text });
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text);
+        }
+    });
     autoReplyCheck.addEventListener('change', function () {
         exec(state.setAutoReply(autoReplyCheck.checked, autoReplyText.value));
     });
@@ -1304,6 +1506,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     }
 
     function onBridgeConnected(msg) {
+        debugLog('onBridgeConnected port=' + (msg && msg.port) + ' v=' + (msg && msg.version));
         bridgeReady = true;
         window.__mcpBootstrapped = true;
         reconnectAttempts = 0;
@@ -1327,6 +1530,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     function connect() {
         if (useBridge) {
             if (bridgeReady) return;
+            debugLog('connect hub-connect');
             setWsStatus('connecting');
             vscode.postMessage({ type: 'hub-connect' });
             return;
@@ -1406,6 +1610,13 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
         if (msg.type === 'reconnect' || msg.type === 'hub-connect') {
             bridgeReady = false;
             forceReconnect();
+        } else if (msg.type === 'please-reconnect') {
+            debugLog('please-reconnect from extension');
+            forceReconnect();
+        } else if (msg.type === 'debug-report') {
+            lastExtensionDebugReport = msg.report || null;
+            debugLog('debug-report received');
+            renderDebugPanel();
         } else if (msg.type === 'bridge-connected') {
             onBridgeConnected(msg);
         } else if (msg.type === 'hub-message') {

@@ -55,7 +55,10 @@ function loadWebviewHtml(extensionPath, serverPort, version) {
     return html
         .replace(/\{\{SERVER_URL\}\}/g, `ws://127.0.0.1:${serverPort}`)
         .replace(/\{\{PROJECT_PATH\}\}/g, '/test/project')
-        .replace(/\{\{VERSION\}\}/g, version);
+        .replace(/\{\{VERSION\}\}/g, version)
+        .replace(/\{\{ERUDA_URI\}\}/g, 'https://test/eruda.js')
+        .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://test/panelState.js')
+        .replace(/\{\{CSP_SOURCE\}\}/g, 'https://test');
 }
 
 function fetchHealth(port) {
@@ -110,8 +113,16 @@ async function main() {
         if (!fs.existsSync(p)) throw new Error('missing — run npm run compile');
         const js = fs.readFileSync(p, 'utf-8');
         if (!js.includes('get-server-info')) throw new Error('missing get-server-info');
-        if (!js.includes('webview-ready')) throw new Error('missing webview-ready handler');
+        if (!js.includes('request-debug')) throw new Error('missing request-debug handler');
+        if (!js.includes('getDebugInfo')) throw new Error('missing getDebugInfo');
         return `${Math.round(fs.statSync(p).size / 1024)}kb`;
+    });
+
+    check('debug panel in static/panel.html', () => {
+        const html = fs.readFileSync(path.join(target, 'static/panel.html'), 'utf-8');
+        if (!html.includes('id="debugBtn"')) throw new Error('missing debugBtn');
+        if (!html.includes('request-debug')) throw new Error('missing request-debug in panel');
+        return 'DBG button + debug panel';
     });
 
     check('panel CSP allows localhost WS', () => {
@@ -120,6 +131,12 @@ async function main() {
             throw new Error('missing connect-src for ws://127.0.0.1');
         }
         return '';
+    });
+
+    check('eruda.js in static/vendor', () => {
+        const p = path.join(target, 'static/vendor/eruda.js');
+        if (!fs.existsSync(p)) throw new Error('missing static/vendor/eruda.js');
+        return `${Math.round(fs.statSync(p).size / 1024)}kb`;
     });
 
     check('HTML placeholder injection', () => {

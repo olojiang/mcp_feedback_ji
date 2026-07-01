@@ -46,14 +46,16 @@ exports.FeedbackViewProvider = void 0;
 const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const os = __importStar(require("os"));
 class FeedbackViewProvider {
-    constructor(getHtml, getPort, getVersion, getHub) {
+    constructor(getHtml, getPort, getVersion, getHub, extensionUri) {
         this._view = null;
         this._bridge = null;
         this._getHtml = getHtml;
         this._getPort = getPort;
         this._getVersion = getVersion;
         this._getHub = getHub;
+        this._extensionUri = extensionUri;
     }
     updateHtmlGetter(getHtml) {
         this._getHtml = getHtml;
@@ -65,16 +67,20 @@ class FeedbackViewProvider {
         this._view = webviewView;
         webviewView.webview.options = {
             enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'static'),
+                vscode.Uri.joinPath(this._extensionUri, 'out', 'webview'),
+            ],
         };
         this._setupMessageHandler(webviewView);
-        webviewView.webview.html = this._getHtml();
+        webviewView.webview.html = this._injectWebviewResources(webviewView);
         this._setupHotReload(webviewView);
+        this._connectBridge(webviewView);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 this._connectBridge(webviewView);
             }
         });
-        this._connectBridge(webviewView);
         webviewView.onDidDispose(() => {
             this._view = null;
             this._bridge?.dispose();
@@ -84,7 +90,7 @@ class FeedbackViewProvider {
     }
     recreate() {
         if (this._view) {
-            this._view.webview.html = this._getHtml();
+            this._view.webview.html = this._injectWebviewResources(this._view);
         }
     }
     focusInput() {
@@ -94,20 +100,28 @@ class FeedbackViewProvider {
     }
     reconnect() {
         if (this._view) {
-            this._connectBridge(this._view);
+            this._view.webview.postMessage({ type: 'please-reconnect' });
         }
     }
     /** Refresh webview HTML and re-attach in-process bridge. */
     syncServer(_port) {
         if (!this._view)
             return;
-        this._view.webview.html = this._getHtml();
-        setTimeout(() => {
-            if (this._view)
-                this._connectBridge(this._view);
-        }, 50);
+        this._bridge?.dispose();
+        this._bridge = null;
+        this._view.webview.html = this._injectWebviewResources(this._view);
     }
-    _connectBridge(view) {
+    _injectWebviewResources(view) {
+        let html = this._getHtml();
+        const erudaUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'static', 'vendor', 'eruda.js'));
+        const panelStateUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelState.js'));
+        const cspSource = view.webview.cspSource;
+        html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
+        html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
+        html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
+        return html;
+    }
+    _attachBridge(view) {
         const hub = this._getHub();
         if (!hub)
             return;
@@ -115,6 +129,10 @@ class FeedbackViewProvider {
         this._bridge = hub.attachWebview((msg) => {
             view.webview.postMessage({ type: 'hub-message', data: msg });
         });
+    }
+    /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
+    _connectBridge(view) {
+        this._attachBridge(view);
         view.webview.postMessage({
             type: 'bridge-connected',
             port: this._getPort(),
@@ -123,15 +141,55 @@ class FeedbackViewProvider {
         });
     }
     _pushServerInfo(view) {
-        this._connectBridge(view);
+        view.webview.postMessage({
+            type: 'server-info',
+            port: this._getPort(),
+            version: this._getVersion(),
+            pid: process.pid,
+        });
+    }
+    _handleDebugRequest(view) {
+        const hub = this._getHub();
+        const logDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
+        const report = {
+            timestamp: new Date().toISOString(),
+            extension: {
+                pid: process.pid,
+                version: this._getVersion(),
+                port: this._getPort(),
+                bridgeActive: this._bridge !== null,
+                viewVisible: view.visible,
+                ...(hub?.getDebugInfo() ?? {}),
+            },
+            logPaths: {
+                extension: path.join(logDir, 'extension.log'),
+                mcpServer: path.join(logDir, 'mcp-server.log'),
+            },
+        };
+        view.webview.postMessage({ type: 'debug-report', report });
     }
     _setupMessageHandler(view) {
         view.webview.onDidReceiveMessage((message) => {
             switch (message.type) {
                 case 'get-server-info':
+                    this._pushServerInfo(view);
+                    break;
                 case 'webview-ready':
+                    this._pushServerInfo(view);
+                    break;
                 case 'hub-connect':
                     this._connectBridge(view);
+                    break;
+                case 'request-debug':
+                    this._handleDebugRequest(view);
+                    break;
+                case 'open-webview-devtools':
+                    void vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools');
+                    break;
+                case 'copy-debug-json':
+                    if (typeof message.json === 'string') {
+                        void vscode.env.clipboard.writeText(message.json).then(() => vscode.window.showInformationMessage('MCP Feedback: debug JSON copied'), () => vscode.window.showWarningMessage('MCP Feedback: copy failed'));
+                    }
                     break;
                 case 'hub-message':
                     if (this._bridge && message.data) {

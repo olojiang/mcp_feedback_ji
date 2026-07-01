@@ -624,4 +624,6 @@
 
   PanelState.cmd = { wsSend, render, dom, notify }
   exports.PanelState = PanelState
-})(typeof module !== 'undefined' ? module.exports : (window.PanelStateModule = {}))
+})(typeof window !== 'undefined'
+  ? (window.PanelStateModule = {})
+  : (typeof module !== 'undefined' ? module.exports : {}))

@@ -3719,7 +3719,7 @@ module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
 var fs5 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
-var os4 = __toESM(require("os"));
+var os5 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
 // src/server/wsHub.ts
@@ -19047,6 +19047,16 @@ var WsHub = class {
   getConnectedClients() {
     return this.clients.counts();
   }
+  getDebugInfo() {
+    return {
+      hubPort: this.port,
+      hubVersion: this.version,
+      workspaces: this.workspaces,
+      clients: this.clients.counts(),
+      hasPending: this.feedback.hasPending(),
+      serverListening: this.server !== null
+    };
+  }
   hasPendingRequests() {
     return this.feedback.hasPending();
   }
@@ -19288,14 +19298,16 @@ var WsHub = class {
 var vscode2 = __toESM(require("vscode"));
 var fs4 = __toESM(require("fs"));
 var path4 = __toESM(require("path"));
+var os4 = __toESM(require("os"));
 var FeedbackViewProvider = class {
-  constructor(getHtml, getPort, getVersion, getHub) {
+  constructor(getHtml, getPort, getVersion, getHub, extensionUri) {
     this._view = null;
     this._bridge = null;
     this._getHtml = getHtml;
     this._getPort = getPort;
     this._getVersion = getVersion;
     this._getHub = getHub;
+    this._extensionUri = extensionUri;
   }
   updateHtmlGetter(getHtml) {
     this._getHtml = getHtml;
@@ -19306,17 +19318,21 @@ var FeedbackViewProvider = class {
   resolveWebviewView(webviewView, _context, _token) {
     this._view = webviewView;
     webviewView.webview.options = {
-      enableScripts: true
+      enableScripts: true,
+      localResourceRoots: [
+        vscode2.Uri.joinPath(this._extensionUri, "static"),
+        vscode2.Uri.joinPath(this._extensionUri, "out", "webview")
+      ]
     };
     this._setupMessageHandler(webviewView);
-    webviewView.webview.html = this._getHtml();
+    webviewView.webview.html = this._injectWebviewResources(webviewView);
     this._setupHotReload(webviewView);
+    this._connectBridge(webviewView);
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         this._connectBridge(webviewView);
       }
     });
-    this._connectBridge(webviewView);
     webviewView.onDidDispose(() => {
       this._view = null;
       this._bridge?.dispose();
@@ -19326,7 +19342,7 @@ var FeedbackViewProvider = class {
   }
   recreate() {
     if (this._view) {
-      this._view.webview.html = this._getHtml();
+      this._view.webview.html = this._injectWebviewResources(this._view);
     }
   }
   focusInput() {
@@ -19336,24 +19352,41 @@ var FeedbackViewProvider = class {
   }
   reconnect() {
     if (this._view) {
-      this._connectBridge(this._view);
+      this._view.webview.postMessage({ type: "please-reconnect" });
     }
   }
   /** Refresh webview HTML and re-attach in-process bridge. */
   syncServer(_port) {
     if (!this._view) return;
-    this._view.webview.html = this._getHtml();
-    setTimeout(() => {
-      if (this._view) this._connectBridge(this._view);
-    }, 50);
+    this._bridge?.dispose();
+    this._bridge = null;
+    this._view.webview.html = this._injectWebviewResources(this._view);
   }
-  _connectBridge(view) {
+  _injectWebviewResources(view) {
+    let html = this._getHtml();
+    const erudaUri = view.webview.asWebviewUri(
+      vscode2.Uri.joinPath(this._extensionUri, "static", "vendor", "eruda.js")
+    );
+    const panelStateUri = view.webview.asWebviewUri(
+      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelState.js")
+    );
+    const cspSource = view.webview.cspSource;
+    html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
+    html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
+    html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
+    return html;
+  }
+  _attachBridge(view) {
     const hub = this._getHub();
     if (!hub) return;
     this._bridge?.dispose();
     this._bridge = hub.attachWebview((msg) => {
       view.webview.postMessage({ type: "hub-message", data: msg });
     });
+  }
+  /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
+  _connectBridge(view) {
+    this._attachBridge(view);
     view.webview.postMessage({
       type: "bridge-connected",
       port: this._getPort(),
@@ -19362,15 +19395,58 @@ var FeedbackViewProvider = class {
     });
   }
   _pushServerInfo(view) {
-    this._connectBridge(view);
+    view.webview.postMessage({
+      type: "server-info",
+      port: this._getPort(),
+      version: this._getVersion(),
+      pid: process.pid
+    });
+  }
+  _handleDebugRequest(view) {
+    const hub = this._getHub();
+    const logDir = path4.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+    const report = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      extension: {
+        pid: process.pid,
+        version: this._getVersion(),
+        port: this._getPort(),
+        bridgeActive: this._bridge !== null,
+        viewVisible: view.visible,
+        ...hub?.getDebugInfo() ?? {}
+      },
+      logPaths: {
+        extension: path4.join(logDir, "extension.log"),
+        mcpServer: path4.join(logDir, "mcp-server.log")
+      }
+    };
+    view.webview.postMessage({ type: "debug-report", report });
   }
   _setupMessageHandler(view) {
     view.webview.onDidReceiveMessage((message) => {
       switch (message.type) {
         case "get-server-info":
+          this._pushServerInfo(view);
+          break;
         case "webview-ready":
+          this._pushServerInfo(view);
+          break;
         case "hub-connect":
           this._connectBridge(view);
+          break;
+        case "request-debug":
+          this._handleDebugRequest(view);
+          break;
+        case "open-webview-devtools":
+          void vscode2.commands.executeCommand("workbench.action.webview.openDeveloperTools");
+          break;
+        case "copy-debug-json":
+          if (typeof message.json === "string") {
+            void vscode2.env.clipboard.writeText(message.json).then(
+              () => vscode2.window.showInformationMessage("MCP Feedback: debug JSON copied"),
+              () => vscode2.window.showWarningMessage("MCP Feedback: copy failed")
+            );
+          }
           break;
         case "hub-message":
           if (this._bridge && message.data) {
@@ -19578,7 +19654,7 @@ async function activate(context) {
     vscode3.window.showWarningMessage(`MCP Feedback error: ${reason}`);
   });
   const getHtml = () => _loadWebviewHtml(context.extensionPath, port, pkgVersion);
-  bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion, () => wsServer);
+  bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion, () => wsServer, context.extensionUri);
   const forceResetCallback = async () => {
     await wsServer.stop();
     wsServer.setWorkspaces(getWorkspaces());
@@ -19680,7 +19756,7 @@ function _openEditorPanel(context, port) {
 }
 function ensureMcpConfig(extensionPath) {
   try {
-    const mcpConfigPath = path5.join(os4.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path5.join(os5.homedir(), ".cursor", "mcp.json");
     let config2 = {};
     if (fs5.existsSync(mcpConfigPath)) {
       config2 = JSON.parse(fs5.readFileSync(mcpConfigPath, "utf-8"));
@@ -19708,7 +19784,7 @@ function ensureMcpConfig(extensionPath) {
 function deployCursorHooks(extensionPath) {
   try {
     const hooksSourceDir = path5.join(extensionPath, "scripts", "hooks");
-    const targetDir = path5.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    const targetDir = path5.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
     fs5.mkdirSync(targetDir, { recursive: true });
     const hookFiles = ["hook-utils.js", "consume-pending.js"];
     for (const file2 of hookFiles) {
@@ -19724,7 +19800,7 @@ function deployCursorHooks(extensionPath) {
       }
     }
     const preToolUseHook = path5.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path5.join(os4.homedir(), ".cursor", "hooks.json");
+    const hooksConfigPath = path5.join(os5.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
     if (fs5.existsSync(hooksConfigPath)) {
       hooksConfig = JSON.parse(fs5.readFileSync(hooksConfigPath, "utf-8"));
@@ -19794,7 +19870,7 @@ var RULES_CONTENT = [
 ].join("\n");
 function deployCursorRules() {
   try {
-    const rulesDir = path5.join(os4.homedir(), ".cursor", "rules");
+    const rulesDir = path5.join(os5.homedir(), ".cursor", "rules");
     const ruleFile = path5.join(rulesDir, "mcp-feedback-enhanced.mdc");
     fs5.mkdirSync(rulesDir, { recursive: true });
     let needsWrite = true;
@@ -19820,7 +19896,7 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path5.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    const pendingDir = path5.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
     if (!fs5.existsSync(pendingDir)) return;
     const files = fs5.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) {

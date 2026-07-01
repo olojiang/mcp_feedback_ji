@@ -47,9 +47,24 @@ scriptMatches.forEach((match, index) => {
     }
 });
 
-// 3. Check for unfinished templates or placeholders
+// 3. Check external panelState.js exists and is valid
+const panelStatePath = path.join(__dirname, '../out/webview/panelState.js');
+if (!fs.existsSync(panelStatePath)) {
+    console.error('Error: panelState.js not found at', panelStatePath);
+    process.exit(1);
+}
+try {
+    const psCode = fs.readFileSync(panelStatePath, 'utf8');
+    new vm.Script(psCode, { filename: 'panelState.js' });
+    console.log('Validated external panelState.js');
+} catch (err) {
+    console.error('Syntax Error in panelState.js:', err.message);
+    process.exit(1);
+}
+
+// 4. Check for unfinished templates or placeholders
 if (html.includes('{{ ')) {
-    console.error('❌ Found unreplaced placeholders with spaces (e.g. {{ SERVER_URL }})');
+    console.error('Error: Found unreplaced placeholders with spaces (e.g. {{ SERVER_URL }})');
     process.exit(1);
 }
 
