@@ -35,6 +35,11 @@ if [[ -z "${NODE_BIN}" ]]; then
   exit 1
 fi
 
+if [[ -f "${ROOT}/package.json" && -d "${ROOT}/src" ]]; then
+  echo "Building from source..."
+  (cd "${ROOT}" && npm install && npm run compile)
+fi
+
 mkdir -p "${HOME}/.cursor/extensions"
 
 if [[ "${MODE}" == "link" ]]; then
@@ -47,6 +52,8 @@ else
     --exclude='.git' \
     --exclude='.DS_Store' \
     --exclude='install.sh' \
+    --exclude='upstream' \
+    --exclude='node_modules' \
     "${ROOT}/" "${CURSOR_EXT}/"
   echo "Copied to ${CURSOR_EXT}"
 fi

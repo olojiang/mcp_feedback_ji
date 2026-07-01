@@ -2,7 +2,9 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版，修复了多窗口连接、剪贴板、Tab 管理等实际问题，便于在 **Cursor 重装** 或 **换机器** 后快速恢复。
 
-当前版本：`2.5.1-ji.1`
+当前版本：`2.5.1-ji.2`
+
+基于上游源码开发：`src/`（TypeScript）+ `static/`（面板 UI）+ `mcp-server/src/`。
 
 ---
 
@@ -21,8 +23,21 @@ chmod +x install.sh
 
 安装脚本会自动：
 
-1. 将扩展部署到 `~/.cursor/extensions/mcp-feedback.mcp-feedback-enhanced-2.5.1-universal/`
-2. 更新 `~/.cursor/mcp.json`，指向本仓库内的 `mcp-server/dist/index.js`
+1. **`npm install && npm run compile`** 从源码构建 `out/` 与 `mcp-server/dist/`
+2. 将扩展部署到 `~/.cursor/extensions/mcp-feedback.mcp-feedback-enhanced-2.5.1-universal/`
+3. 更新 `~/.cursor/mcp.json`，指向 `mcp-server/dist/index.js`
+
+### 开发
+
+```bash
+git clone https://github.com/olojiang/mcp_feedback_ji.git
+cd mcp_feedback_ji
+npm install
+cd mcp-server && npm install && cd ..
+npm run compile          # 构建
+./install.sh --link      # 符号链接到 Cursor 扩展目录
+node --test tests/panelPaste.test.js tests/panelState.test.js  # 快速单测
+```
 
 ---
 
@@ -77,7 +92,7 @@ v2.5.1-ji.1   ● Connected :48201 pid=20071   ↻
 
 ---
 
-### 4. 剪贴板（复制 / 粘贴图片）
+### 4. 剪贴板（复制 / 粘贴图片 / 链接去重）
 
 **问题**：Webview 内复制无内容、粘贴双图、无法输入、截图 Cmd+V 无反应。
 
@@ -88,7 +103,7 @@ v2.5.1-ji.1   ● Connected :48201 pid=20071   ↻
 | Copied 但剪贴板为空 | `Dp` 路由未转发 `onClipboardWrite` | 补全 WS 协议转发；成功后 `clipboard_write_ok` 再 toast |
 | 无法输入 | `focus-webview` 抢焦点 | 移除输入框上的 `focus-webview` 调用 |
 | 截图粘贴无反应 | `electron.clipboard` 在 Extension Host 不可用 | macOS：`pbpaste` + `NSPasteboard`（osascript JXA） |
-| 误导性 No image 提示 | WS 与原生 paste 竞态 | 去重路径；去掉负面 toast |
+| 链接粘贴两遍 | WS + 原生 paste 竞态 | `shouldBlockDuplicatePaste`；文本仅 keydown→WS 单路径 |
 
 ---
 
@@ -96,18 +111,17 @@ v2.5.1-ji.1   ● Connected :48201 pid=20071   ↻
 
 ```
 mcp_feedback_ji/
-├── README.md                 # 本文档
-├── install.sh                # 一键安装到 Cursor
-├── package.json              # 扩展清单（version: 2.5.1-ji.1）
-├── out/
-│   ├── extension.js          # Extension + WebSocket Hub（含剪贴板、服务发现）
-│   └── webview/
-│       ├── panel.html        # 面板 UI（Tab、剪贴板、状态栏）
-│       └── panelState.js     # 可测试的状态机
-├── mcp-server/
-│   └── dist/index.js         # MCP Server（stdio，含项目路由 patch）
-├── scripts/hooks/            # Cursor Hooks 工具
-├── tests/                    # 单元测试
+├── README.md
+├── install.sh
+├── src/                      # Extension TypeScript 源码
+│   ├── server/wsHub.ts       # WS Hub + 剪贴板 handler
+│   └── utils/clipboardImage.ts
+├── static/                   # 面板源码（generate-webview 构建入口）
+│   ├── panel.html
+│   └── panelState.js
+├── mcp-server/src/           # MCP Server TypeScript 源码
+├── out/                      # npm run compile 产物
+├── tests/
 └── resources/icon.svg
 ```
 
@@ -153,7 +167,7 @@ cd mcp_feedback_ji
 node --test tests/*.test.js
 ```
 
-覆盖：多 Tab 状态机、剪贴板 helper、协议路由 `Dp` 转发、反馈队列等（14 项）。
+覆盖：多 Tab、剪贴板、协议路由、粘贴去重、反馈队列等（17 项）。
 
 ---
 

@@ -1,0 +1,407 @@
+/**
+ * Extension entry point.
+ *
+ * Responsibilities:
+ * - Start WebSocket server
+ * - Register bottom panel and editor webview providers
+ * - Deploy Cursor hooks
+ * - Auto-configure MCP server in Cursor's mcp.json
+ * - Register commands
+ */
+
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { exec, execSync } from 'child_process';
+import { FeedbackWSServer } from './wsServer';
+import { FeedbackViewProvider } from './feedbackViewProvider';
+
+let wsServer: FeedbackWSServer;
+let bottomProvider: FeedbackViewProvider;
+const disposables: vscode.Disposable[] = [];
+
+const REMINDER_DELAYS = [0, 60_000, 120_000, 300_000];
+let reminderTimers: ReturnType<typeof setTimeout>[] = [];
+
+function playSystemSound(): void {
+    if (process.platform === 'darwin') {
+        exec('afplay /System/Library/Sounds/Funk.aiff');
+    }
+}
+
+function startFeedbackReminders(): void {
+    cancelFeedbackReminders();
+    for (const delay of REMINDER_DELAYS) {
+        reminderTimers.push(setTimeout(playSystemSound, delay));
+    }
+}
+
+function cancelFeedbackReminders(): void {
+    for (const t of reminderTimers) clearTimeout(t);
+    reminderTimers = [];
+}
+
+function getWorkspaces(): string[] {
+    return (vscode.workspace.workspaceFolders || []).map(f => f.uri.fsPath);
+}
+
+/** Resolve `node` for configs spawned by Cursor (hooks, MCP) — same PATH caveats as shell `which`. */
+function resolveNodeBin(): string {
+    try {
+        if (process.platform === 'win32') {
+            const out = execSync('where.exe node', { encoding: 'utf-8', timeout: 5000, env: process.env });
+            const first = out.split(/\r?\n/).map(l => l.trim()).find(Boolean);
+            if (first) { return first; }
+        } else {
+            const resolved = execSync('which node', { encoding: 'utf-8', timeout: 5000, env: process.env }).trim();
+            if (resolved) { return resolved; }
+        }
+    } catch { /* fall through */ }
+    return 'node';
+}
+
+function _loadWebviewHtml(extensionPath: string, serverPort: number): string {
+    const candidates = [
+        path.join(extensionPath, 'static', 'panel.html'),
+        path.join(extensionPath, 'out', 'webview', 'panel.html'),
+    ];
+    let html = '';
+    for (const p of candidates) {
+        if (fs.existsSync(p)) { html = fs.readFileSync(p, 'utf-8'); break; }
+    }
+    if (!html) {
+        return '<html><body><h3>Webview not found. Check static/panel.html.</h3></body></html>';
+    }
+    html = html.replace(/\{\{SERVER_URL\}\}/g, `ws://127.0.0.1:${serverPort}`);
+    html = html.replace(/\{\{PROJECT_PATH\}\}/g, getWorkspaces()[0] || '');
+    return html;
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    // Avoid console.log during activation — it opens the Output panel and steals focus
+
+    const pkgVersion = (context.extension.packageJSON as { version?: string })?.version ?? '0.0.0';
+    wsServer = new FeedbackWSServer(pkgVersion);
+    wsServer.setWorkspaces(getWorkspaces());
+
+    let port: number;
+    try {
+        port = await wsServer.start();
+    } catch (e) {
+        vscode.window.showErrorMessage(`MCP Feedback: Failed to start server - ${e}`);
+        return;
+    }
+
+    wsServer.onFeedbackRequest(async () => {
+        startFeedbackReminders();
+        try {
+            await vscode.commands.executeCommand('workbench.view.extension.mcp-feedback-enhanced-bottom');
+            await vscode.commands.executeCommand('mcp-feedback-enhanced.feedbackPanelBottom.focus');
+        } catch { /* ignore */ }
+    });
+
+    wsServer.onFeedbackResolved(() => {
+        cancelFeedbackReminders();
+    });
+
+    wsServer.onFeedbackError((reason) => {
+        vscode.window.showWarningMessage(`MCP Feedback error: ${reason}`);
+    });
+
+    const getHtml = () => _loadWebviewHtml(context.extensionPath, port);
+    bottomProvider = new FeedbackViewProvider(getHtml);
+
+    const forceResetCallback = async (): Promise<number> => {
+        await wsServer.stop();
+        wsServer.setWorkspaces(getWorkspaces());
+        const newPort = await wsServer.start();
+        port = newPort;
+        bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(context.extensionPath, newPort));
+        bottomProvider.recreate();
+        return newPort;
+    };
+    bottomProvider.onForceReset(forceResetCallback);
+
+    disposables.push(
+        vscode.window.registerWebviewViewProvider(
+            'mcp-feedback-enhanced.feedbackPanelBottom',
+            bottomProvider,
+            { webviewOptions: { retainContextWhenHidden: true } }
+        ),
+    );
+
+    disposables.push(
+        vscode.commands.registerCommand('mcp-feedback-enhanced.openInEditor', () => {
+            _openEditorPanel(context, port);
+        }),
+        vscode.commands.registerCommand('mcp-feedback-enhanced.openInBottom', () => {
+            vscode.commands.executeCommand('mcp-feedback-enhanced.feedbackPanelBottom.focus');
+        }),
+        vscode.commands.registerCommand('mcp-feedback-enhanced.reconnect', () => {
+            bottomProvider.reconnect();
+        }),
+        vscode.commands.registerCommand('mcp-feedback-enhanced.forceReset', async () => {
+            try {
+                const newPort = await forceResetCallback();
+                vscode.window.showInformationMessage(`MCP Feedback: Reset! Server on port ${newPort}`);
+            } catch (e) {
+                vscode.window.showErrorMessage(`MCP Feedback: Reset failed - ${e}`);
+            }
+        }),
+        vscode.commands.registerCommand('mcp-feedback-enhanced.showStatus', () => {
+            const clients = wsServer.getConnectedClients();
+            vscode.window.showInformationMessage(
+                `MCP Feedback Status:\nPort: ${port}\nWebviews: ${clients.webviews}\nMCP Servers: ${clients.mcpServers}\nPending requests: ${wsServer.hasPendingRequests() ? 'Yes' : 'No'}`
+            );
+        }),
+    );
+
+    disposables.push(
+        vscode.workspace.onDidChangeWorkspaceFolders(() => {
+            wsServer.setWorkspaces(getWorkspaces());
+            wsServer.refreshServerRegistration();
+        }),
+    );
+
+    ensureMcpConfig(context.extensionPath);
+    deployCursorHooks(context.extensionPath);
+    deployCursorRules();
+    migratePendingFiles();
+    checkPowerNap();
+
+    context.subscriptions.push(...disposables);
+    // Port info available via showStatus command
+
+    const activatePanel = async () => {
+        try {
+            await vscode.commands.executeCommand('workbench.view.extension.mcp-feedback-enhanced-bottom');
+            await vscode.commands.executeCommand('mcp-feedback-enhanced.feedbackPanelBottom.focus');
+        } catch { /* commands may not be ready yet */ }
+    };
+    for (const delay of [1500, 3000, 5000]) {
+        setTimeout(activatePanel, delay);
+    }
+}
+
+export function deactivate(): void {
+    cancelFeedbackReminders();
+    for (const d of disposables) { d.dispose(); }
+    disposables.length = 0;
+    wsServer?.stop();
+}
+
+function _openEditorPanel(context: vscode.ExtensionContext, port: number): void {
+    const panel = vscode.window.createWebviewPanel(
+        'mcp-feedback-editor',
+        'MCP Feedback',
+        vscode.ViewColumn.Beside,
+        {
+            enableScripts: true,
+            retainContextWhenHidden: false,
+            localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'out'))],
+        }
+    );
+    panel.webview.html = _loadWebviewHtml(context.extensionPath, port);
+}
+
+function ensureMcpConfig(extensionPath: string): void {
+    try {
+        const mcpConfigPath = path.join(os.homedir(), '.cursor', 'mcp.json');
+        let config: Record<string, unknown> = {};
+
+        if (fs.existsSync(mcpConfigPath)) {
+            config = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf-8'));
+        }
+
+        const mcpServers = (config.mcpServers || {}) as Record<string, unknown>;
+        const localServerPath = path.join(extensionPath, 'mcp-server', 'dist', 'index.js');
+        const expectedCommand = resolveNodeBin();
+        const expectedArgs = [localServerPath];
+
+        const existing = mcpServers['mcp-feedback-enhanced'] as Record<string, unknown> | undefined;
+        if (existing?.command === expectedCommand &&
+            JSON.stringify(existing?.args) === JSON.stringify(expectedArgs)) {
+            return;
+        }
+
+        mcpServers['mcp-feedback-enhanced'] = {
+            command: expectedCommand,
+            args: expectedArgs,
+        };
+        delete mcpServers['mcp-feedback-v2'];
+        config.mcpServers = mcpServers;
+
+        fs.mkdirSync(path.dirname(mcpConfigPath), { recursive: true });
+        fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2));
+        // MCP config written
+    } catch (e) {
+        console.error('[MCP Feedback] Failed to update MCP config:', e);
+    }
+}
+
+function deployCursorHooks(extensionPath: string): void {
+    try {
+        const hooksSourceDir = path.join(extensionPath, 'scripts', 'hooks');
+        const targetDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'hooks');
+        fs.mkdirSync(targetDir, { recursive: true });
+
+        const hookFiles = ['hook-utils.js', 'consume-pending.js'];
+        for (const file of hookFiles) {
+            const src = path.join(hooksSourceDir, file);
+            if (fs.existsSync(src)) {
+                fs.copyFileSync(src, path.join(targetDir, file));
+            }
+        }
+
+        for (const old of ['check-pending.js', 'agent-stop.js', 'session-start.js', 'enforce-feedback.js', 'track-feedback.js', 'compact-flag.js']) {
+            try { fs.unlinkSync(path.join(targetDir, old)); } catch { /* already gone */ }
+        }
+
+        const preToolUseHook = path.join(targetDir, 'consume-pending.js');
+        const hooksConfigPath = path.join(os.homedir(), '.cursor', 'hooks.json');
+        let hooksConfig: Record<string, unknown> = {};
+
+        if (fs.existsSync(hooksConfigPath)) {
+            hooksConfig = JSON.parse(fs.readFileSync(hooksConfigPath, 'utf-8'));
+        }
+
+        if (!hooksConfig.version) { hooksConfig.version = 1; }
+
+        const hooks = (hooksConfig.hooks || {}) as Record<string, Array<Record<string, unknown>>>;
+        const SOURCE_TAG = 'mcp-feedback-enhanced';
+        const LEGACY_TAGS = ['mcp-feedback-v2'];
+
+        const nodeBin = resolveNodeBin();
+        const hookEntries: Record<string, Record<string, unknown>> = {
+            preToolUse: { command: `${nodeBin} ${preToolUseHook}` },
+        };
+
+        for (const [event, entry] of Object.entries(hookEntries)) {
+            if (!hooks[event]) { hooks[event] = []; }
+            hooks[event] = hooks[event].filter(h =>
+                h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source as string)
+            );
+            hooks[event].push({
+                ...entry,
+                _source: SOURCE_TAG,
+            });
+        }
+
+        const RETIRED_HOOKS = ['stop', 'sessionStart', 'preCompact'];
+        for (const event of RETIRED_HOOKS) {
+            if (hooks[event]) {
+                hooks[event] = hooks[event].filter(h =>
+                    h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source as string)
+                );
+                if (hooks[event].length === 0) { delete hooks[event]; }
+            }
+        }
+
+        hooksConfig.hooks = hooks;
+        fs.mkdirSync(path.dirname(hooksConfigPath), { recursive: true });
+        fs.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
+    } catch (e) {
+        console.error('[MCP Feedback] Failed to deploy hooks:', e);
+    }
+}
+
+const RULES_CONTENT = [
+    '---',
+    'alwaysApply: true',
+    '---',
+    '',
+    '[MCP Feedback Enhanced] USAGE RULES:',
+    'These rules apply ONLY to the main agent in Agent mode (direct user conversation).',
+    'Do NOT call interactive_feedback if you are a subagent, or in Plan/Ask/Debug mode.',
+    '',
+    'WHY: User responses through feedback are FREE, but each user message in Cursor costs a request.',
+    'Always prefer feedback over ending your turn with plain text alone.',
+    '',
+    'HARD GATE — turn completion:',
+    '- If you are about to end your turn and you have NOT called interactive_feedback in this turn, you are NOT done. Call it first.',
+    '- MUST use interactive_feedback as your LAST tool call when wrapping up (hand off, summarize, or ask the user).',
+    '- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.',
+    '',
+    'You have access to the interactive_feedback MCP tool for communicating with the user:',
+    '- Use it to present results, ask questions, or check in with the user.',
+    '- You do not need to call it between every tool call during multi-step execution.',
+    '- When blocked, uncertain, or facing a decision with trade-offs, call feedback immediately to ask the user — do NOT guess or make assumptions on your own.',
+    '',
+].join('\n');
+
+function deployCursorRules(): void {
+    try {
+        const rulesDir = path.join(os.homedir(), '.cursor', 'rules');
+        const ruleFile = path.join(rulesDir, 'mcp-feedback-enhanced.mdc');
+
+        fs.mkdirSync(rulesDir, { recursive: true });
+
+        let needsWrite = true;
+        if (fs.existsSync(ruleFile)) {
+            const existing = fs.readFileSync(ruleFile, 'utf-8');
+            if (existing === RULES_CONTENT) { needsWrite = false; }
+        }
+
+        if (needsWrite) {
+            fs.writeFileSync(ruleFile, RULES_CONTENT);
+        }
+
+        for (const ws of getWorkspaces()) {
+            const wsRuleFile = path.join(ws, '.cursor', 'rules', 'mcp-feedback-enhanced.mdc');
+            try { fs.unlinkSync(wsRuleFile); } catch { /* already gone */ }
+        }
+    } catch (e) {
+        console.error('[MCP Feedback] Failed to deploy rules:', e);
+    }
+}
+
+function migratePendingFiles(): void {
+    try {
+        const pendingDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'pending');
+        if (!fs.existsSync(pendingDir)) return;
+        const files = fs.readdirSync(pendingDir).filter(f => f.endsWith('.json'));
+        if (files.length === 0) {
+            fs.rmdirSync(pendingDir);
+            return;
+        }
+        for (const f of files) {
+            try { fs.unlinkSync(path.join(pendingDir, f)); } catch { /* ignore */ }
+        }
+        try { fs.rmdirSync(pendingDir); } catch { /* ignore */ }
+    } catch { /* ignore */ }
+}
+
+function checkPowerNap(): void {
+    if (process.platform !== 'darwin') return;
+
+    exec('pmset -g custom', { timeout: 5000 }, (err, stdout) => {
+        if (err || !stdout) return;
+        if (/powernap\s+1/i.test(stdout)) {
+            const isChinese = vscode.env.language.startsWith('zh');
+            const message = isChinese
+                ? 'Power Nap 已启用。如果 Cursor 中有未完成的 Agent 会话，'
+                + '合盖后 macOS 仍会周期性唤醒，Agent 会继续执行并消耗 API 请求。'
+                + '建议禁用 Power Nap，避免休眠期间的无效消耗。'
+                : 'Power Nap is enabled. If you have an active Cursor agent session, '
+                + 'macOS will periodically wake during sleep and the agent will keep running, '
+                + 'silently consuming API requests while your Mac is closed. '
+                + 'Disable Power Nap to prevent unattended request usage.';
+            const disable = isChinese ? '禁用 Power Nap' : 'Disable Power Nap';
+            const learnMore = isChinese ? '了解更多' : 'Learn More';
+
+            vscode.window.showWarningMessage(message, disable, learnMore).then(choice => {
+                if (choice === disable) {
+                    const terminal = vscode.window.createTerminal('Disable Power Nap');
+                    terminal.sendText('sudo pmset -a powernap 0');
+                    terminal.show();
+                } else if (choice === learnMore) {
+                    vscode.env.openExternal(vscode.Uri.parse(
+                        'https://support.apple.com/en-us/102292'
+                    ));
+                }
+            });
+        }
+    });
+}
+

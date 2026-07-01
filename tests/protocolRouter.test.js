@@ -5,18 +5,22 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const extensionJs = readFileSync(join(root, 'out/extension.js'), 'utf8')
 
-describe('extension protocol router', () => {
-  it('forwards clipboard handlers through Dp to Tp', () => {
-    assert.match(extensionJs, /onClipboardWrite:o\.onClipboardWrite/)
-    assert.match(extensionJs, /onClipboardPaste:o\.onClipboardPaste/)
-    assert.match(extensionJs, /case"clipboard_write":\{o\.onClipboardWrite&&o\.onClipboardWrite\(e,n\);break\}/)
+describe('extension protocol router (source)', () => {
+  it('forwards clipboard handlers through routeAdapter', () => {
+    const routeAdapter = readFileSync(join(root, 'src/server/routeAdapter.ts'), 'utf8')
+    const messageRouter = readFileSync(join(root, 'src/server/messageRouter.ts'), 'utf8')
+    assert.match(routeAdapter, /onClipboardWrite: handlers\.onClipboardWrite/)
+    assert.match(routeAdapter, /onClipboardPaste: handlers\.onClipboardPaste/)
+    assert.match(messageRouter, /case 'clipboard_write':/)
+    assert.match(messageRouter, /case 'clipboard_paste':/)
   })
 
-  it('reads clipboard images via macOS pasteboard helper instead of electron', () => {
-    assert.match(extensionJs, /async function Fb_readClipboardImageB64/)
-    assert.match(extensionJs, /NSPasteboard\.generalPasteboard/)
-    assert.doesNotMatch(extensionJs, /require\("electron"\).*readImage/)
+  it('reads clipboard images via macOS helper in source', () => {
+    const wsHub = readFileSync(join(root, 'src/server/wsHub.ts'), 'utf8')
+    const clipUtil = readFileSync(join(root, 'src/utils/clipboardImage.ts'), 'utf8')
+    assert.match(wsHub, /readClipboardImageBase64/)
+    assert.match(clipUtil, /NSPasteboard/)
+    assert.doesNotMatch(clipUtil, /require\(['"]electron['"]\)/)
   })
 })

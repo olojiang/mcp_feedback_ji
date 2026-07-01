@@ -2,12 +2,12 @@
 	"name": "mcp-feedback-enhanced",
 	"displayName": "MCP Feedback Enhanced",
 	"description": "Interactive feedback collection for AI assistants with multi-session tabs (Hunter fork)",
-	"version": "2.5.1-ji.1",
+	"version": "2.5.1-ji.2",
 	"publisher": "mcp-feedback",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode"
+		"url": "https://github.com/olojiang/mcp_feedback_ji"
 	},
 	"homepage": "https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode#readme",
 	"bugs": {
