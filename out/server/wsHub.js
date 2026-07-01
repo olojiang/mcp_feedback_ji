@@ -320,7 +320,7 @@ class WsHub {
                     image,
                 });
             },
-            sendPong: (targetWs) => this._send(targetWs, { type: 'pong' }),
+            sendPong: (targetWs) => this._send(targetWs, { type: 'pong', body: 'pong' }),
             onProtocolError: (context) => this._send(ws, {
                 type: 'protocol_error',
                 error: `Invalid message: ${context}`,

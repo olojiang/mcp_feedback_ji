@@ -57,6 +57,7 @@ function loadWebviewHtml(extensionPath, serverPort, version) {
         .replace(/\{\{PROJECT_PATH\}\}/g, '/test/project')
         .replace(/\{\{VERSION\}\}/g, version)
         .replace(/\{\{ERUDA_URI\}\}/g, 'https://test/eruda.js')
+        .replace(/\{\{ERUDA_PANEL_URI\}\}/g, 'https://test/erudaPanel.js')
         .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://test/panelState.js')
         .replace(/\{\{CSP_SOURCE\}\}/g, 'https://test');
 }

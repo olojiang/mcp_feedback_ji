@@ -115,8 +115,10 @@ class FeedbackViewProvider {
         let html = this._getHtml();
         const erudaUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'static', 'vendor', 'eruda.js'));
         const panelStateUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelState.js'));
+        const erudaPanelUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'erudaPanel.js'));
         const cspSource = view.webview.cspSource;
         html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
+        html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
         return html;

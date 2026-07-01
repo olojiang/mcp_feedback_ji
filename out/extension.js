@@ -19207,7 +19207,7 @@ var WsHub = class {
           image
         });
       },
-      sendPong: (targetWs) => this._send(targetWs, { type: "pong" }),
+      sendPong: (targetWs) => this._send(targetWs, { type: "pong", body: "pong" }),
       onProtocolError: (context) => this._send(ws, {
         type: "protocol_error",
         error: `Invalid message: ${context}`
@@ -19370,8 +19370,12 @@ var FeedbackViewProvider = class {
     const panelStateUri = view.webview.asWebviewUri(
       vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelState.js")
     );
+    const erudaPanelUri = view.webview.asWebviewUri(
+      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "erudaPanel.js")
+    );
     const cspSource = view.webview.cspSource;
     html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
+    html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
     html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
     return html;
@@ -19866,6 +19870,11 @@ var RULES_CONTENT = [
   "- Use it to present results, ask questions, or check in with the user.",
   "- You do not need to call it between every tool call during multi-step execution.",
   "- When blocked, uncertain, or facing a decision with trade-offs, call feedback immediately to ask the user \u2014 do NOT guess or make assumptions on your own.",
+  "",
+  "SESSION LOOP \u2014 ends only when user sends Finished:",
+  "- After EVERY meaningful stage (or before ending your turn), call interactive_feedback as your LAST tool.",
+  '- If the user reply is NOT exactly "Finished" (case-insensitive), keep working and call interactive_feedback again before your next turn ends.',
+  '- Only when the user explicitly sends "Finished" may you treat the task as complete and stop calling interactive_feedback.',
   ""
 ].join("\n");
 function deployCursorRules() {

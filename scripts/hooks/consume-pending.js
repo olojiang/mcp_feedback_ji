@@ -16,7 +16,10 @@ function isAllowlisted(toolName) {
 var FEEDBACK_REMINDER = '\n\nReminder: use interactive_feedback to respond if needed, or adjust your plan and continue working.';
 
 function fmtAgent(text) {
-    return '[User Feedback] The user has submitted new feedback. Read it carefully and adjust your plan accordingly:\n\n"' + text + '"\n\nIf this feedback asks a question, seeks discussion, or needs confirmation, call interactive_feedback to respond. If it is guidance or instructions, adjust your plan and continue working.' + FEEDBACK_REMINDER;
+    var tail = (text && String(text).trim().toLowerCase() === 'finished')
+        ? '\n\nUser sent Finished. You may stop calling interactive_feedback.'
+        : '\n\nUnless the user sent Finished, call interactive_feedback again before ending your turn.';
+    return '[User Feedback] The user has submitted new feedback. Read it carefully and adjust your plan accordingly:\n\n"' + text + '"\n\nIf this feedback asks a question, seeks discussion, or needs confirmation, call interactive_feedback to respond. If it is guidance or instructions, adjust your plan and continue working.' + FEEDBACK_REMINDER + tail;
 }
 
 function fmtUser(text) {

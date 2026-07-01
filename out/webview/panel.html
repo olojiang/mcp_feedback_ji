@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' {{CSP_SOURCE}}; style-src 'unsafe-inline' {{CSP_SOURCE}}; connect-src ws://127.0.0.1:* http://127.0.0.1:*; img-src data: blob: {{CSP_SOURCE}}; font-src {{CSP_SOURCE}};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' {{CSP_SOURCE}}; style-src 'unsafe-inline' {{CSP_SOURCE}}; connect-src ws://127.0.0.1:* http://127.0.0.1:* {{CSP_SOURCE}}; img-src data: blob: {{CSP_SOURCE}}; font-src data: {{CSP_SOURCE}};">
 <title>MCP Feedback Enhanced</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -270,7 +270,7 @@ body{
   border:1px solid rgba(251,191,36,0.35);border-radius:12px;overflow:hidden;
   background:var(--input-bg);
   box-shadow:0 4px 20px rgba(0,0,0,0.3),0 0 1px rgba(251,191,36,0.3);
-  max-height:42vh;
+  max-height:72vh;
 }
 .debug-panel.visible{display:flex;flex-direction:column;animation:settings-in .25s ease-out}
 .debug-panel-title{
@@ -291,6 +291,29 @@ body{
   padding:8px 10px;overflow:auto;flex:1;
   font-size:10px;line-height:1.45;color:var(--fg-dim);
 }
+.eruda-wrap{
+  position:relative;width:100%;margin-bottom:8px;
+  border:1px solid var(--border);border-radius:8px;overflow:hidden;
+  background:rgba(0,0,0,0.15);
+}
+#erudaContainer{
+  width:100%;overflow:hidden;position:relative;
+}
+.eruda-resize-handle{
+  height:8px;cursor:ns-resize;touch-action:none;
+  background:linear-gradient(180deg,rgba(251,191,36,0.08),rgba(251,191,36,0.22));
+  border-top:1px solid rgba(251,191,36,0.2);
+}
+.eruda-resize-handle:hover{background:rgba(251,191,36,0.28)}
+.eruda-resize-handle.dragging{background:rgba(251,191,36,0.38)}
+#erudaContainer .eruda-container,
+#erudaContainer .eruda-dev-tools{
+  position:relative!important;
+  width:100%!important;height:100%!important;max-height:100%!important;
+}
+#erudaContainer .eruda-entry-btn,
+body > .eruda-entry-btn{display:none!important}
+body > .eruda-container{display:none!important}
 .debug-panel pre{
   margin:0;white-space:pre-wrap;word-break:break-word;
   font-family:inherit;font-size:10px;color:var(--fg);
@@ -436,7 +459,10 @@ body{
   </div>
   <div class="debug-panel-body">
     <div class="debug-hint">右键无 Inspect 时用此面板。Eruda Console 提供完整的 log/error 查看。</div>
-    <div id="erudaContainer" style="width:100%;height:280px;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px"></div>
+    <div class="eruda-wrap" id="erudaWrap">
+      <div id="erudaContainer"></div>
+      <div class="eruda-resize-handle" id="erudaResizeHandle" title="Drag to resize console height"></div>
+    </div>
     <details style="margin-bottom:4px">
       <summary style="cursor:pointer;font-size:10px;color:var(--fg-dim);user-select:none">Bridge Diagnostic JSON</summary>
       <pre id="debugJson" style="margin-top:4px">Loading...</pre>
@@ -481,6 +507,7 @@ body{
   <button class="quick-reply-btn" data-text="Looks good, proceed">&#10003; LGTM</button>
   <button class="quick-reply-btn" data-text="Please fix the issues">&#9889; Fix</button>
   <button class="quick-reply-btn" data-text="Stop, let me review first">&#9632; Pause</button>
+  <button class="quick-reply-btn finished-reply-btn" data-text="Finished">Finished</button>
 </div>
 
 <div class="image-previews" id="imagePreviews"></div>
@@ -497,10 +524,9 @@ body{
 <input type="file" id="fileInput" accept="image/*" multiple style="display:none">
 <div class="lightbox" id="lightbox"><img id="lightboxImg" src=""></div>
 
-<!-- eruda console (loaded as external webview resource) -->
+<!-- eruda + helpers loaded as external webview resources (early bootstrap) -->
 <script src="{{ERUDA_URI}}"></script>
-
-<!-- panelState.js loaded as external webview resource -->
+<script src="{{ERUDA_PANEL_URI}}"></script>
 <script src="{{PANELSTATE_URI}}"></script>
 
 <script>
@@ -533,7 +559,9 @@ window.onerror = function (msg, src, line, col, err) {
     'use strict';
 
     var PS = window.PanelStateModule || (typeof PanelState !== 'undefined' ? { PanelState: PanelState } : null);
+    var EP = window.ErudaPanelModule || null;
     if (!PS) { console.error('PanelState not loaded'); return; }
+    if (!EP) { console.error('ErudaPanelModule not loaded'); return; }
 
     var state = new PS.PanelState();
     var vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
@@ -579,6 +607,8 @@ window.onerror = function (msg, src, line, col, err) {
     var debugReconnectBtn = document.getElementById('debugReconnectBtn');
     var debugCopyBtn = document.getElementById('debugCopyBtn');
     var debugCloseBtn = document.getElementById('debugCloseBtn');
+    var erudaContainer = document.getElementById('erudaContainer');
+    var erudaResizeHandle = document.getElementById('erudaResizeHandle');
     var autoReplyCheck = document.getElementById('autoReplyCheck');
     var autoReplyText = document.getElementById('autoReplyText');
     var atDropdown = document.getElementById('atDropdown');
@@ -598,25 +628,107 @@ window.onerror = function (msg, src, line, col, err) {
 
     var debugEvents = [];
     var lastExtensionDebugReport = null;
+    var userPingPending = false;
+    var userPingTimer = null;
     var erudaInited = false;
+    var erudaResizeReady = false;
+    var erudaHeightPx = EP.loadHeight(localStorage, window.innerHeight || 600);
+    var erudaResizeDrag = null;
 
-    function initEruda() {
-        if (erudaInited) return;
-        if (typeof eruda === 'undefined') {
-            console.warn('eruda not loaded');
-            return;
-        }
-        erudaInited = true;
-        eruda.init({
-            container: document.getElementById('erudaContainer'),
-            tool: ['console', 'elements', 'network', 'resources', 'info'],
-            useShadowDom: false,
-            autoScale: false,
+    function logEruda(msg) {
+        console.log('[mcp-eruda] ' + msg);
+        debugLog('eruda: ' + msg);
+    }
+
+    function applyErudaHeight(heightPx, persist) {
+        erudaHeightPx = EP.clampHeight(heightPx, window.innerHeight || 600);
+        EP.applyContainerHeight(erudaContainer, erudaHeightPx);
+        if (persist) EP.saveHeight(localStorage, erudaHeightPx, window.innerHeight || 600);
+    }
+
+    function setupErudaResize() {
+        if (erudaResizeReady || !erudaResizeHandle || !erudaContainer) return;
+        erudaResizeReady = true;
+        erudaResizeHandle.addEventListener('mousedown', function (e) {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            erudaResizeDrag = { startY: e.clientY, startH: erudaHeightPx };
+            erudaResizeHandle.classList.add('dragging');
+            logEruda('resize-start h=' + erudaHeightPx);
         });
-        eruda.show();
-        var style = document.createElement('style');
-        style.textContent = '.eruda-container .eruda-dev-tools { height: 100% !important; }';
-        document.head.appendChild(style);
+        document.addEventListener('mousemove', function (e) {
+            if (!erudaResizeDrag) return;
+            e.preventDefault();
+            var delta = e.clientY - erudaResizeDrag.startY;
+            applyErudaHeight(erudaResizeDrag.startH + delta, false);
+        });
+        document.addEventListener('mouseup', function () {
+            if (!erudaResizeDrag) return;
+            erudaResizeHandle.classList.remove('dragging');
+            applyErudaHeight(erudaHeightPx, true);
+            logEruda('resize-end h=' + erudaHeightPx);
+            erudaResizeDrag = null;
+        });
+    }
+
+    function ensureErudaInited() {
+        if (erudaInited) return true;
+        if (typeof eruda === 'undefined') {
+            console.warn('[mcp-eruda] script not loaded');
+            return false;
+        }
+        if (!erudaContainer) {
+            console.warn('[mcp-eruda] container missing');
+            return false;
+        }
+        applyErudaHeight(erudaHeightPx, false);
+        try {
+            eruda.init({
+                container: erudaContainer,
+                inline: true,
+                tool: ['console', 'elements', 'network', 'resources', 'info'],
+                useShadowDom: false,
+                autoScale: false,
+                defaults: {
+                    displaySize: 100,
+                    transparency: 1,
+                },
+            });
+            erudaInited = true;
+            logEruda('init inline ok h=' + erudaHeightPx);
+            return true;
+        } catch (err) {
+            console.error('[mcp-eruda] init failed', err);
+            debugLog('eruda init failed: ' + (err && err.message ? err.message : String(err)));
+            return false;
+        }
+    }
+
+    function bootstrapErudaPanel() {
+        applyErudaHeight(erudaHeightPx, false);
+        setupErudaResize();
+        logEruda('preload script ready h=' + erudaHeightPx);
+    }
+
+    function showEruda() {
+        if (!ensureErudaInited()) return;
+        try {
+            if (typeof eruda.show === 'function') eruda.show();
+            logEruda('show');
+        } catch (err) {
+            console.error('[mcp-eruda] show failed', err);
+        }
+    }
+
+    function hideEruda() {
+        if (!erudaInited || typeof eruda === 'undefined' || typeof eruda.hide !== 'function') return;
+        try {
+            eruda.hide();
+            logEruda('hide');
+        } catch (err) {
+            console.error('[mcp-eruda] hide failed', err);
+        }
     }
 
     function debugLog(msg) {
@@ -657,15 +769,18 @@ window.onerror = function (msg, src, line, col, err) {
         debugPanel.classList.add('visible');
         settingsPanel.classList.remove('visible');
         if (debugBtn) debugBtn.classList.add('active');
-        initEruda();
-        renderDebugPanel();
-        if (vscode) vscode.postMessage({ type: 'request-debug' });
+        requestAnimationFrame(function () {
+            showEruda();
+            renderDebugPanel();
+            if (vscode) vscode.postMessage({ type: 'request-debug' });
+        });
     }
 
     function closeDebugPanel() {
         if (!debugPanel) return;
         debugPanel.classList.remove('visible');
         if (debugBtn) debugBtn.classList.remove('active');
+        hideEruda();
     }
 
     function getFullDebugJson() {
@@ -767,6 +882,7 @@ window.onerror = function (msg, src, line, col, err) {
                         case 'update_send_button': updateSendButton(); break;
                         case 'save_state': saveState(); break;
                         case 'sync_settings': syncSettings(); break;
+                        case 'user_ping': beginUserPing(); break;
                     }
                     break;
                 case 'notify':
@@ -1151,6 +1267,35 @@ window.onerror = function (msg, src, line, col, err) {
         window.__mcpToastTimer = setTimeout(function () { el.classList.remove('visible'); }, 1200);
     }
 
+    function beginUserPing() {
+        if (!transportReady()) {
+            console.warn('[mcp-ping] transport not ready');
+            showToast('Disconnected');
+            return;
+        }
+        userPingPending = true;
+        clearTimeout(userPingTimer);
+        userPingTimer = setTimeout(function () {
+            if (!userPingPending) return;
+            userPingPending = false;
+            console.warn('[mcp-ping] timeout waiting for pong');
+            showToast('ping timeout');
+        }, 3000);
+        console.log('[mcp-ping] sent');
+        debugLog('ping sent');
+    }
+
+    function finishUserPing(body) {
+        if (!userPingPending) return;
+        userPingPending = false;
+        clearTimeout(userPingTimer);
+        userPingTimer = null;
+        var reply = body || PS.PanelState.PONG_REPLY || 'pong';
+        console.log('[mcp-ping] ' + reply);
+        debugLog('pong received');
+        showToast(reply);
+    }
+
     inputEl.addEventListener('mousedown', function () {
         inputEl.focus();
     });
@@ -1450,6 +1595,11 @@ window.onerror = function (msg, src, line, col, err) {
 
     function handleProtocolMessage(msg) {
         if (!msg || !msg.type) return;
+        if (msg.type === 'pong') {
+            finishUserPing(msg.body);
+            exec(state.handleMessage(msg));
+            return;
+        }
         if (msg.type === 'connection_established') {
             if (useBridge) {
                 onBridgeConnected(msg);
@@ -1644,6 +1794,7 @@ window.onerror = function (msg, src, line, col, err) {
 
     // ── Init ────────────────────────────────────────────
 
+    bootstrapErudaPanel();
     loadState();
     if (state.getActiveSession() && state.getActiveSession().inputDraft) {
         inputEl.value = state.getActiveSession().inputDraft;

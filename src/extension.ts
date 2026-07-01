@@ -338,6 +338,11 @@ const RULES_CONTENT = [
     '- You do not need to call it between every tool call during multi-step execution.',
     '- When blocked, uncertain, or facing a decision with trade-offs, call feedback immediately to ask the user — do NOT guess or make assumptions on your own.',
     '',
+    'SESSION LOOP — ends only when user sends Finished:',
+    '- After EVERY meaningful stage (or before ending your turn), call interactive_feedback as your LAST tool.',
+    '- If the user reply is NOT exactly "Finished" (case-insensitive), keep working and call interactive_feedback again before your next turn ends.',
+    '- Only when the user explicitly sends "Finished" may you treat the task as complete and stop calling interactive_feedback.',
+    '',
 ].join('\n');
 
 function deployCursorRules(): void {

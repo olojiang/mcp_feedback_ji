@@ -20,6 +20,9 @@
     return { type: 'notify', message }
   }
 
+  var PING_COMMAND = 'ping'
+  var PONG_REPLY = 'pong'
+
   function createSession(id, label, summary) {
     return {
       id: id,
@@ -311,6 +314,14 @@
     }
 
     smartSend(text, images) {
+      var hasImages = images && images.length > 0
+      if (!hasImages && PanelState.isPingCommand(text)) {
+        return [
+          wsSend({ type: 'ping' }),
+          dom('user_ping'),
+          dom('clear_input'),
+        ]
+      }
       var active = this.getActiveSession()
       if (active && active.waiting) return this.submitFeedback(text, images)
       return this.addToPending(text, images)
@@ -619,9 +630,15 @@
       return match ? { query: match[1], start: match.index, end: cursorPos } : null
     }
 
+    static isPingCommand(text) {
+      return typeof text === 'string' && text.trim().toLowerCase() === PING_COMMAND
+    }
+
     static tabTitle = tabTitle
   }
 
+  PanelState.PING_COMMAND = PING_COMMAND
+  PanelState.PONG_REPLY = PONG_REPLY
   PanelState.cmd = { wsSend, render, dom, notify }
   exports.PanelState = PanelState
 })(typeof window !== 'undefined'

@@ -6,8 +6,13 @@ import { findExtensionServer, type ServerData } from './serverDiscovery.js';
 import { connectToExtension, requestFeedback } from './extensionClient.js';
 import { browserFallback } from './browserFallback.js';
 import { runPostFeedbackHooks } from './postFeedbackHooks.js';
+import { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
 
-export const FEEDBACK_REMINDER = '\n\n<!-- Read through all your active rules now. For each rule, check: am I following it? If you have forgotten any, Read ~/.cursor/rules/ before continuing. -->';
+export { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
+
+export const FEEDBACK_REMINDER = '\n\n[Reminder] Read through all your active rules now. For each rule, check: am I following it? If you have forgotten any, read ~/.cursor/rules/ before continuing.';
+
+export const PONG_TEXT = 'pong';
 
 const INSTRUCTIONS_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'instructions');
 
@@ -41,8 +46,8 @@ function loadRegisteredInstructions(): string {
     return _instructionsCache;
 }
 
-function feedbackSuffix(): string {
-    return FEEDBACK_REMINDER + loadRegisteredInstructions();
+function feedbackSuffix(userFeedback = '') {
+    return FEEDBACK_REMINDER + loadRegisteredInstructions() + sessionTailForFeedback(userFeedback);
 }
 
 type ToolContent = Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
@@ -83,6 +88,14 @@ export function buildToolDefinitions() {
                 properties: {},
             },
         },
+        {
+            name: 'ping',
+            description: 'Health check for MCP server process. Always returns the fixed text "pong".',
+            inputSchema: {
+                type: 'object' as const,
+                properties: {},
+            },
+        },
     ];
 }
 
@@ -103,6 +116,13 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         cursorTraceId: process.env.CURSOR_TRACE_ID || '',
                     }, null, 2),
                 }],
+            };
+        }
+
+        if (name === 'ping') {
+            deps.log('[MCP Feedback] ping -> pong');
+            return {
+                content: [{ type: 'text', text: PONG_TEXT }],
             };
         }
 
@@ -138,7 +158,7 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                             + `pid=${extensionServer.pid}`
                         );
                         const content: ToolContent = [
-                            { type: 'text', text: result.feedback + feedbackSuffix() },
+                            { type: 'text', text: result.feedback + feedbackSuffix(result.feedback) },
                         ];
                         if (result.images) {
                             for (const img of result.images) {
@@ -179,7 +199,7 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
             const feedback = await deps.browserFallback(summary);
             runPostFeedbackHooks({ summary, feedback });
             return {
-                content: [{ type: 'text', text: feedback + feedbackSuffix() }],
+                content: [{ type: 'text', text: feedback + feedbackSuffix(feedback) }],
             };
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -195,7 +215,7 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                 const feedback = await deps.browserFallback(summary);
                 runPostFeedbackHooks({ summary, feedback });
                 return {
-                    content: [{ type: 'text', text: feedback + feedbackSuffix() }],
+                    content: [{ type: 'text', text: feedback + feedbackSuffix(feedback) }],
                 };
             } catch (fallbackErr) {
                 const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);

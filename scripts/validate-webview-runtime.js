@@ -21,12 +21,17 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{PROJECT_PATH\}\}/g, '/test/project')
     .replace(/\{\{VERSION\}\}/g, '2.5.1-test')
     .replace(/\{\{ERUDA_URI\}\}/g, 'https://mock/eruda.js')
+    .replace(/\{\{ERUDA_PANEL_URI\}\}/g, 'https://mock/erudaPanel.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
     .replace(/\{\{CSP_SOURCE\}\}/g, 'https://mock');
 
 const panelStateFile = path.join(__dirname, '..', 'out', 'webview', 'panelState.js');
+const erudaPanelFile = path.join(__dirname, '..', 'out', 'webview', 'erudaPanel.js');
 const panelStateCode = fs.existsSync(panelStateFile)
     ? fs.readFileSync(panelStateFile, 'utf-8')
+    : null;
+const erudaPanelCode = fs.existsSync(erudaPanelFile)
+    ? fs.readFileSync(erudaPanelFile, 'utf-8')
     : null;
 
 const scripts = [];
@@ -123,13 +128,16 @@ const mockWindow = {
     innerHeight: 600,
     innerWidth: 400,
     scrollTo() {},
-    requestAnimationFrame(fn) { fn(); },
+    requestAnimationFrame(fn) { fn(); return 1; },
 };
 
 mockWindow.eruda = {
-    init() {},
-    show() {},
-    hide() {},
+    init(opts) {
+        mockWindow._erudaInitOpts = opts || {};
+        mockWindow._erudaInited = true;
+    },
+    show() { mockWindow._erudaShown = true; },
+    hide() { mockWindow._erudaShown = false; },
     destroy() {},
 };
 
@@ -148,7 +156,8 @@ const ctx = vm.createContext({
         return { postMessage(msg) { mockWindow._lastPostMessage = msg; } };
     },
     setInterval() { return 0; },
-    setTimeout(fn) { return 0; },
+    setTimeout(fn) { if (typeof fn === 'function') fn(); return 0; },
+    requestAnimationFrame(fn) { if (typeof fn === 'function') fn(); return 1; },
     clearTimeout() {},
     clearInterval() {},
     WebSocket: function MockWebSocket() { this.readyState = 3; },
@@ -222,6 +231,25 @@ if (panelStateCode) {
     hadError = true;
 }
 
+if (erudaPanelCode) {
+    try {
+        vm.runInContext(erudaPanelCode, ctx, { filename: 'erudaPanel.js', timeout: 5000 });
+        console.log('  OK  External erudaPanel.js loaded');
+        if (ctx.window.ErudaPanelModule && ctx.window.ErudaPanelModule.loadHeight) {
+            console.log('  OK  ErudaPanelModule.loadHeight is available');
+        } else {
+            console.error('  FAIL ErudaPanelModule.loadHeight not set after loading');
+            hadError = true;
+        }
+    } catch (err) {
+        console.error(`  FAIL External erudaPanel.js: ${err.message}`);
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL External erudaPanel.js not found');
+    hadError = true;
+}
+
 for (let i = 0; i < scripts.length; i++) {
     const label = `Script block ${i + 1} (${scripts[i].length} chars)`;
     try {
@@ -257,12 +285,44 @@ for (const id of criticalIds) {
     }
 }
 
+if (listeners.debugBtn && listeners.debugBtn.click) {
+    try {
+        listeners.debugBtn.click();
+        console.log('  OK  debugBtn click simulated');
+    } catch (err) {
+        console.error('  FAIL debugBtn click:', err.message);
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL debugBtn click handler missing');
+    hadError = true;
+}
+
 const lastMsg = mockWindow._lastPostMessage;
 console.log('\nLast postMessage:', lastMsg ? JSON.stringify(lastMsg) : '(none)');
 if (lastMsg && lastMsg.type === 'hub-connect') {
     console.log('  OK  bootstrapConnection sent hub-connect');
 } else {
     console.log('  WARN  Expected hub-connect as last postMessage');
+}
+
+if (mockWindow._erudaInited) {
+    console.log('  OK  eruda initialized after DBG open');
+    if (mockWindow._erudaInitOpts && mockWindow._erudaInitOpts.inline === true) {
+        console.log('  OK  eruda.init inline=true');
+    } else {
+        console.error('  FAIL eruda.init missing inline:true');
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL eruda was not initialized after DBG open');
+    hadError = true;
+}
+if (mockWindow._erudaShown) {
+    console.log('  OK  eruda.show called when DBG opened');
+} else {
+    console.error('  FAIL eruda.show not called when DBG opened');
+    hadError = true;
 }
 
 console.log('');
