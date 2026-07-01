@@ -543,10 +543,19 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
 
-      const inlineMd = (s) => escapeHtml(s)
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      const inlineMd = (s) => {
+        let t = escapeHtml(s)
+        // GFM: `` `word` `` → literal `word` (allow spaces around inner backticks)
+        t = t.replace(/``\s*(`([^`]+)`)\s*``/g, '&#96;$2&#96;')
+        t = t.replace(/`([^`]+)`/g, (match, inner) => {
+          const body = inner.trim()
+          if (!body) return ''
+          return `<code>${body}</code>`
+        })
+        t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        t = t.replace(/\*(.+?)\*/g, '<em>$1</em>')
+        return t
+      }
 
       let src = String(text)
       src = src.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code) => {

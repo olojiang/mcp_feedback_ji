@@ -26,4 +26,13 @@ describe('PanelState.md', () => {
     assert.match(html, /<h3>Section<\/h3><p>Paragraph text<\/p>/)
     assert.ok(!html.includes('<br>'))
   })
+
+  it('renders GFM escaped inline code without empty code pills', () => {
+    const html = PanelState.md('see `` `commit` `` and `hash`')
+    assert.ok(!html.includes('<code> </code>'))
+    assert.ok(!html.includes('<code></code>'))
+    assert.match(html, /&#96;commit&#96;/)
+    assert.match(html, /<code>hash<\/code>/)
+    assert.equal((html.match(/<code>/g) || []).length, 1)
+  })
 })
