@@ -13,15 +13,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 type HtmlGetter = () => string;
+type PortGetter = () => number;
+type VersionGetter = () => string;
 
 export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _view: vscode.WebviewView | null = null;
     private _getHtml: HtmlGetter;
+    private _getPort: PortGetter;
+    private _getVersion: VersionGetter;
     private _forceResetCallback?: () => Promise<number>;
     private _fileWatcher?: fs.FSWatcher;
 
-    constructor(getHtml: HtmlGetter) {
+    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter) {
         this._getHtml = getHtml;
+        this._getPort = getPort;
+        this._getVersion = getVersion;
     }
 
     updateHtmlGetter(getHtml: HtmlGetter): void {
@@ -46,6 +52,13 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getHtml();
         this._setupMessageHandler(webviewView);
         this._setupHotReload(webviewView);
+        this._pushServerInfo(webviewView);
+
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) {
+                this._pushServerInfo(webviewView);
+            }
+        });
 
         webviewView.onDidDispose(() => {
             this._view = null;
@@ -72,15 +85,29 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     }
 
     /** Refresh webview HTML and push current extension port after reload / port change. */
-    syncServer(port: number): void {
+    syncServer(_port: number): void {
         if (!this._view) return;
         this._view.webview.html = this._getHtml();
-        this._view.webview.postMessage({ type: 'server-info', port });
+        setTimeout(() => {
+            if (this._view) this._pushServerInfo(this._view);
+        }, 50);
+    }
+
+    private _pushServerInfo(view: vscode.WebviewView): void {
+        view.webview.postMessage({
+            type: 'server-info',
+            port: this._getPort(),
+            version: this._getVersion(),
+        });
     }
 
     private _setupMessageHandler(view: vscode.WebviewView): void {
         view.webview.onDidReceiveMessage((message: Record<string, unknown>) => {
             switch (message.type) {
+                case 'get-server-info':
+                    this._pushServerInfo(view);
+                    break;
+
                 case 'feedback-submitted':
                     vscode.window.setStatusBarMessage('Feedback submitted!', 1500);
                     break;

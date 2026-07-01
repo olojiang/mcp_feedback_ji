@@ -367,7 +367,7 @@ body{
 <body>
 
 <div class="status-bar" id="statusBar">
-  <span id="versionLabel" style="opacity:.5;font-size:10px">v2.1.0</span>
+  <span id="versionLabel" style="opacity:.5;font-size:10px">v{{VERSION}}</span>
   <div class="ws-info">
     <div id="wsStatus" class="ws-status" data-state="disconnected" title="Click to reconnect">
       <span class="ws-status-dot"></span>
@@ -1922,6 +1922,40 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
         setTimeout(connect, delay);
     }
 
+    function applyServerInfo(msg) {
+        if (!msg || !msg.port) return;
+        if (msg.version) {
+            var vl = document.getElementById('versionLabel');
+            if (vl) vl.textContent = 'v' + msg.version;
+        }
+        var synced = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
+        var needsReconnect = synced !== wsUrl
+            || !ws
+            || ws.readyState === WebSocket.CLOSED
+            || ws.readyState === WebSocket.CLOSING;
+        wsUrl = synced;
+        window.__mcpBootstrapped = true;
+        if (needsReconnect) {
+            forceReconnect();
+        } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+            connect();
+        }
+    }
+
+    function bootstrapConnection() {
+        if (vscode) {
+            vscode.postMessage({ type: 'get-server-info' });
+            setTimeout(function () {
+                if (!window.__mcpBootstrapped) {
+                    window.__mcpBootstrapped = true;
+                    connect();
+                }
+            }, 800);
+        } else {
+            connect();
+        }
+    }
+
     // ── Extension Messages ──────────────────────────────
 
     window.addEventListener('message', function (event) {
@@ -1931,12 +1965,8 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
             ws = null; reconnectAttempts = 0;
             setWsStatus('connecting', 'Reconnecting...');
             connect();
-        } else if (msg.type === 'server-info' && msg.port) {
-            var synced = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
-            if (synced !== wsUrl) {
-                wsUrl = synced;
-                forceReconnect();
-            }
+        } else if (msg.type === 'server-info') {
+            applyServerInfo(msg);
         } else if (msg.type === 'focus-input') {
             inputEl.focus();
         } else if (msg.type === 'clipboard-paste-result') {
@@ -1968,7 +1998,7 @@ const PROJECT_PATH = '{{PROJECT_PATH}}';
     renderStagedImages();
     updateSendButton();
     syncSettings();
-    connect();
+    bootstrapConnection();
 })();
 </script>
 </body>

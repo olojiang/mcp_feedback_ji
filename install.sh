@@ -16,9 +16,9 @@ Usage: ./install.sh [--link]
   --link    Symlink instead of copy (for local development)
 
 After install:
-  1. Developer: Reload Window
+  1. Developer: Reload Window  (required — loads new extension host)
   2. Open bottom panel "MCP Feedback Enhanced"
-  3. Confirm status shows Connected :<port> pid=<pid>
+  3. Confirm status shows v2.5.1-ji.x  Connected :<port> pid=<pid>
 EOF
 }
 
@@ -82,5 +82,9 @@ with open(path, "w", encoding="utf-8") as f:
 print(f"Updated {path}")
 PY
 
+INSTALLED_VER="$(node -e "console.log(require('${CURSOR_EXT}/package.json').version)")"
 echo ""
-echo "Done. Run 'Developer: Reload Window' in Cursor."
+echo "Installed version: ${INSTALLED_VER}"
+echo ""
+echo "IMPORTANT: Run 'Developer: Reload Window' in Cursor to load the new extension."
+echo "Then open bottom panel and confirm: v${INSTALLED_VER}  Connected :<port>"

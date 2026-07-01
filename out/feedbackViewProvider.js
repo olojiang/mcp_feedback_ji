@@ -47,9 +47,11 @@ const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 class FeedbackViewProvider {
-    constructor(getHtml) {
+    constructor(getHtml, getPort, getVersion) {
         this._view = null;
         this._getHtml = getHtml;
+        this._getPort = getPort;
+        this._getVersion = getVersion;
     }
     updateHtmlGetter(getHtml) {
         this._getHtml = getHtml;
@@ -65,6 +67,12 @@ class FeedbackViewProvider {
         webviewView.webview.html = this._getHtml();
         this._setupMessageHandler(webviewView);
         this._setupHotReload(webviewView);
+        this._pushServerInfo(webviewView);
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) {
+                this._pushServerInfo(webviewView);
+            }
+        });
         webviewView.onDidDispose(() => {
             this._view = null;
             this._stopHotReload();
@@ -86,15 +94,28 @@ class FeedbackViewProvider {
         }
     }
     /** Refresh webview HTML and push current extension port after reload / port change. */
-    syncServer(port) {
+    syncServer(_port) {
         if (!this._view)
             return;
         this._view.webview.html = this._getHtml();
-        this._view.webview.postMessage({ type: 'server-info', port });
+        setTimeout(() => {
+            if (this._view)
+                this._pushServerInfo(this._view);
+        }, 50);
+    }
+    _pushServerInfo(view) {
+        view.webview.postMessage({
+            type: 'server-info',
+            port: this._getPort(),
+            version: this._getVersion(),
+        });
     }
     _setupMessageHandler(view) {
         view.webview.onDidReceiveMessage((message) => {
             switch (message.type) {
+                case 'get-server-info':
+                    this._pushServerInfo(view);
+                    break;
                 case 'feedback-submitted':
                     vscode.window.setStatusBarMessage('Feedback submitted!', 1500);
                     break;

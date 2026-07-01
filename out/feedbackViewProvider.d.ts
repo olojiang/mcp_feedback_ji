@@ -9,12 +9,16 @@
  */
 import * as vscode from 'vscode';
 type HtmlGetter = () => string;
+type PortGetter = () => number;
+type VersionGetter = () => string;
 export declare class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _view;
     private _getHtml;
+    private _getPort;
+    private _getVersion;
     private _forceResetCallback?;
     private _fileWatcher?;
-    constructor(getHtml: HtmlGetter);
+    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter);
     updateHtmlGetter(getHtml: HtmlGetter): void;
     onForceReset(callback: () => Promise<number>): void;
     resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void;
@@ -22,7 +26,8 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     focusInput(): void;
     reconnect(): void;
     /** Refresh webview HTML and push current extension port after reload / port change. */
-    syncServer(port: number): void;
+    syncServer(_port: number): void;
+    private _pushServerInfo;
     private _setupMessageHandler;
     private _handleAtSearch;
     private _focusPanel;

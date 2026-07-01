@@ -19235,9 +19235,11 @@ var vscode2 = __toESM(require("vscode"));
 var fs4 = __toESM(require("fs"));
 var path4 = __toESM(require("path"));
 var FeedbackViewProvider = class {
-  constructor(getHtml) {
+  constructor(getHtml, getPort, getVersion) {
     this._view = null;
     this._getHtml = getHtml;
+    this._getPort = getPort;
+    this._getVersion = getVersion;
   }
   updateHtmlGetter(getHtml) {
     this._getHtml = getHtml;
@@ -19253,6 +19255,12 @@ var FeedbackViewProvider = class {
     webviewView.webview.html = this._getHtml();
     this._setupMessageHandler(webviewView);
     this._setupHotReload(webviewView);
+    this._pushServerInfo(webviewView);
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this._pushServerInfo(webviewView);
+      }
+    });
     webviewView.onDidDispose(() => {
       this._view = null;
       this._stopHotReload();
@@ -19274,14 +19282,26 @@ var FeedbackViewProvider = class {
     }
   }
   /** Refresh webview HTML and push current extension port after reload / port change. */
-  syncServer(port) {
+  syncServer(_port) {
     if (!this._view) return;
     this._view.webview.html = this._getHtml();
-    this._view.webview.postMessage({ type: "server-info", port });
+    setTimeout(() => {
+      if (this._view) this._pushServerInfo(this._view);
+    }, 50);
+  }
+  _pushServerInfo(view) {
+    view.webview.postMessage({
+      type: "server-info",
+      port: this._getPort(),
+      version: this._getVersion()
+    });
   }
   _setupMessageHandler(view) {
     view.webview.onDidReceiveMessage((message) => {
       switch (message.type) {
+        case "get-server-info":
+          this._pushServerInfo(view);
+          break;
         case "feedback-submitted":
           vscode2.window.setStatusBarMessage("Feedback submitted!", 1500);
           break;
@@ -19437,7 +19457,7 @@ function resolveNodeBin() {
   }
   return "node";
 }
-function _loadWebviewHtml(extensionPath, serverPort) {
+function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
     path5.join(extensionPath, "static", "panel.html"),
     path5.join(extensionPath, "out", "webview", "panel.html")
@@ -19454,6 +19474,7 @@ function _loadWebviewHtml(extensionPath, serverPort) {
   }
   html = html.replace(/\{\{SERVER_URL\}\}/g, `ws://127.0.0.1:${serverPort}`);
   html = html.replace(/\{\{PROJECT_PATH\}\}/g, getWorkspaces()[0] || "");
+  html = html.replace(/\{\{VERSION\}\}/g, version2);
   return html;
 }
 async function activate(context) {
@@ -19481,14 +19502,14 @@ async function activate(context) {
   wsServer.onFeedbackError((reason) => {
     vscode3.window.showWarningMessage(`MCP Feedback error: ${reason}`);
   });
-  const getHtml = () => _loadWebviewHtml(context.extensionPath, port);
-  bottomProvider = new FeedbackViewProvider(getHtml);
+  const getHtml = () => _loadWebviewHtml(context.extensionPath, port, pkgVersion);
+  bottomProvider = new FeedbackViewProvider(getHtml, () => port, () => pkgVersion);
   const forceResetCallback = async () => {
     await wsServer.stop();
     wsServer.setWorkspaces(getWorkspaces());
     const newPort = await wsServer.start();
     port = newPort;
-    bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(context.extensionPath, newPort));
+    bottomProvider.updateHtmlGetter(() => _loadWebviewHtml(context.extensionPath, newPort, pkgVersion));
     bottomProvider.syncServer(newPort);
     return newPort;
   };
@@ -19497,7 +19518,7 @@ async function activate(context) {
     vscode3.window.registerWebviewViewProvider(
       "mcp-feedback-enhanced.feedbackPanelBottom",
       bottomProvider,
-      { webviewOptions: { retainContextWhenHidden: true } }
+      { webviewOptions: { retainContextWhenHidden: false } }
     )
   );
   disposables.push(
@@ -19508,6 +19529,7 @@ async function activate(context) {
       vscode3.commands.executeCommand("mcp-feedback-enhanced.feedbackPanelBottom.focus");
     }),
     vscode3.commands.registerCommand("mcp-feedback-enhanced.reconnect", () => {
+      bottomProvider.syncServer(port);
       bottomProvider.reconnect();
     }),
     vscode3.commands.registerCommand("mcp-feedback-enhanced.forceReset", async () => {
@@ -19568,6 +19590,7 @@ function deactivate() {
   wsServer?.stop();
 }
 function _openEditorPanel(context, port) {
+  const version2 = context.extension.packageJSON?.version ?? "0.0.0";
   const panel = vscode3.window.createWebviewPanel(
     "mcp-feedback-editor",
     "MCP Feedback",
@@ -19578,7 +19601,7 @@ function _openEditorPanel(context, port) {
       localResourceRoots: [vscode3.Uri.file(path5.join(context.extensionPath, "out"))]
     }
   );
-  panel.webview.html = _loadWebviewHtml(context.extensionPath, port);
+  panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
 }
 function ensureMcpConfig(extensionPath) {
   try {
