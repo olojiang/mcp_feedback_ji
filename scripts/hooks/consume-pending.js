@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { log, output, readStdin, httpGet, findServer, readFeedbackState, writeFeedbackState, readEnforcementConfig } = require('./hook-utils');
+const { log, output, readStdin, httpGet, findServer, readFeedbackState, writeFeedbackState, readEnforcementConfig, writeAgentContext } = require('./hook-utils');
 
 const ALLOWLIST_TOOLS = ['interactive_feedback', 'get_system_info', 'mcp-feedback-enhanced'];
 const PASSTHROUGH_TOOLS = ['task', 'switchmode', 'read', 'grep', 'glob', 'semanticsearch', 'readlints', 'todowrite', 'askquestion'];
@@ -46,7 +46,9 @@ async function main() {
 
     var toolName = input.tool_name || '';
     var workspaceRoots = input.workspace_roots || [];
+    var traceId = input.trace_id || input.cursor_trace_id || input.conversation_id || '';
 
+    writeAgentContext(workspaceRoots, { traceId: traceId });
     log('preToolUse: tool=' + toolName);
 
     if (isAllowlisted(toolName)) {

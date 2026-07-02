@@ -12,10 +12,13 @@ import {
     pickServerForImplicitProject,
     pickServerForProject,
     projectPathMatches,
+    resolveImplicitProjectDirectory,
+    type AgentContextSnapshot,
 } from './serverDiscoveryCore.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
 const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
+const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
 
 export type { ServerData, HealthData };
 export {
@@ -60,12 +63,27 @@ function currentMcpVersion(): string {
 }
 
 function implicitProjectDirectory(): string | undefined {
-    const explicit = process.env.MCP_FEEDBACK_PROJECT_DIRECTORY;
-    if (explicit) return explicit;
+    let cwd: string | undefined;
     try {
-        return process.cwd();
+        cwd = process.cwd();
     } catch {
-        return undefined;
+        cwd = undefined;
+    }
+
+    return resolveImplicitProjectDirectory({
+        envProjectDirectory: process.env.MCP_FEEDBACK_PROJECT_DIRECTORY,
+        cwd,
+        agentContext: readAgentContext(),
+        traceId: process.env.CURSOR_TRACE_ID || '',
+    });
+}
+
+function readAgentContext(): AgentContextSnapshot | null {
+    try {
+        if (!fs.existsSync(AGENT_CONTEXT_FILE)) return null;
+        return JSON.parse(fs.readFileSync(AGENT_CONTEXT_FILE, 'utf-8')) as AgentContextSnapshot;
+    } catch {
+        return null;
     }
 }
 
@@ -96,9 +114,10 @@ export async function findExtensionServer(
     log: (msg: string) => void = () => {}
 ): Promise<ServerData | null> {
     const want = projectDirectory ? normalizeProjectPath(projectDirectory) : undefined;
-    if (want) {
-        log(`feedback_request start version=${currentMcpVersion()} project=${want} trace=${process.env.CURSOR_TRACE_ID || ''}`);
-    }
+    log(
+        `feedback_request start version=${currentMcpVersion()} `
+        + `project=${want ?? '(none)'} trace=${process.env.CURSOR_TRACE_ID || ''}`
+    );
 
     const candidates: ServerData[] = [];
 
@@ -144,7 +163,10 @@ export async function findExtensionServer(
         picked = pickServerForImplicitProject(candidates, implicit);
         if (picked && implicit) {
             pickedFromImplicitProject = normalizeProjectPath(implicit);
-            log(`feedback_request implicit_project=${pickedFromImplicitProject}`);
+            const source = readAgentContext()?.workspaceRoots?.includes(implicit)
+                ? 'agent_context'
+                : 'cwd';
+            log(`feedback_request implicit_project=${pickedFromImplicitProject} source=${source}`);
         }
     }
 

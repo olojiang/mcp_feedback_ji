@@ -7,6 +7,7 @@ import {
   projectPathRelation,
   pickServerForProject,
   pickServerForImplicitProject,
+  resolveImplicitProjectDirectory,
   isCurrentRegistryEntry,
   resolveWsUrl,
 } from '../mcp-server/dist/serverDiscoveryCore.js'
@@ -123,6 +124,33 @@ describe('serverDiscoveryCore', () => {
       '/Users/hunter/Workspace'
     )
     assert.equal(picked, null)
+  })
+
+  it('resolveImplicitProjectDirectory prefers agent context over cwd', () => {
+    const now = Date.now()
+    const resolved = resolveImplicitProjectDirectory({
+      cwd: '/Users/hunter/.cursor/extensions/mcp-feedback',
+      agentContext: {
+        traceId: 'trace-a',
+        workspaceRoots: ['/Users/hunter/Workspace/llm-gateway'],
+        updatedAt: now,
+      },
+      traceId: 'trace-a',
+      now,
+    })
+    assert.equal(resolved, '/Users/hunter/Workspace/llm-gateway')
+  })
+
+  it('resolveImplicitProjectDirectory ignores stale agent context', () => {
+    const resolved = resolveImplicitProjectDirectory({
+      cwd: '/tmp',
+      agentContext: {
+        workspaceRoots: ['/Users/hunter/Workspace/llm-gateway'],
+        updatedAt: Date.now() - 6 * 60 * 1000,
+      },
+      now: Date.now(),
+    })
+    assert.equal(resolved, '/tmp')
   })
 
   it('pickServerForProject picks newest started_at on duplicate project', () => {

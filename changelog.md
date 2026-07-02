@@ -13,6 +13,15 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - **README**: Synced to ji.30 — subfolder routing, rediscovery, env vars, troubleshooting matrix, test count.
 
+## [2.5.1-ji.31] - 2026-07-02
+
+### Added
+- **Agent context routing**: preToolUse hook writes `agent-context.json` (workspace roots + trace id); MCP uses it when `project_directory` is omitted to route across multiple Cursor windows.
+- **Discovery logging**: Always log `feedback_request start project=(none)` when project directory is missing.
+
+### Fixed
+- **Webview bridge duplicate registration**: Single bridge attach per panel lifecycle; panel init no longer double-fires `hub-connect` with `webview-ready`.
+
 ## Unreleased
 
 ## [2.4.0] - 2026-03-26

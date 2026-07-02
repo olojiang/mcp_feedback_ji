@@ -121,6 +121,41 @@ export function pickServerForImplicitProject(
     return pickServerForProject(inWorkspace, implicit);
 }
 
+export interface AgentContextSnapshot {
+    traceId?: string;
+    workspaceRoots?: string[];
+    updatedAt?: number;
+}
+
+export function resolveImplicitProjectDirectory(options: {
+    envProjectDirectory?: string;
+    cwd?: string;
+    agentContext?: AgentContextSnapshot | null;
+    traceId?: string;
+    now?: number;
+    contextTtlMs?: number;
+}): string | undefined {
+    if (options.envProjectDirectory) {
+        return normalizeProjectPath(options.envProjectDirectory);
+    }
+
+    const ctx = options.agentContext;
+    const now = options.now ?? Date.now();
+    const ttl = options.contextTtlMs ?? 5 * 60 * 1000;
+    if (ctx?.workspaceRoots?.length && ctx.updatedAt && now - ctx.updatedAt <= ttl) {
+        const traceId = options.traceId || '';
+        if (!traceId || !ctx.traceId || traceId === ctx.traceId || now - ctx.updatedAt <= 2 * 60 * 1000) {
+            return normalizeProjectPath(ctx.workspaceRoots[0]);
+        }
+    }
+
+    if (options.cwd) {
+        return normalizeProjectPath(options.cwd);
+    }
+
+    return undefined;
+}
+
 export function resolveWsUrl(currentUrl: string, serverPort: number): string {
     if (!serverPort) return currentUrl;
     const match = currentUrl.match(/^(ws:\/\/127\.0\.0\.1:)(\d+)(.*)$/);

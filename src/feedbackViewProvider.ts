@@ -68,7 +68,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         this._setupHotReload(webviewView);
 
         webviewView.onDidChangeVisibility(() => {
-            if (webviewView.visible) {
+            if (webviewView.visible && !this._bridge) {
                 this._connectBridge(webviewView);
             }
         });
@@ -137,9 +137,8 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     private _attachBridge(view: vscode.WebviewView): void {
         const hub = this._getHub();
-        if (!hub) return;
+        if (!hub || this._bridge) return;
 
-        this._bridge?.dispose();
         this._bridge = hub.attachWebview((msg) => {
             view.webview.postMessage({ type: 'hub-message', data: msg });
         });
@@ -147,6 +146,15 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
     private _connectBridge(view: vscode.WebviewView): void {
+        if (this._bridge) {
+            view.webview.postMessage({
+                type: 'bridge-connected',
+                port: this._getPort(),
+                version: this._getVersion(),
+                pid: process.pid,
+            });
+            return;
+        }
         this._attachBridge(view);
         view.webview.postMessage({
             type: 'bridge-connected',
@@ -195,7 +203,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'webview-ready':
-                    this._connectBridge(view);
+                    this._pushServerInfo(view);
+                    if (!this._bridge) {
+                        this._connectBridge(view);
+                    }
                     break;
 
                 case 'hub-connect':

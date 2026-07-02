@@ -76,7 +76,7 @@ class FeedbackViewProvider {
         webviewView.webview.html = this._injectWebviewResources(webviewView);
         this._setupHotReload(webviewView);
         webviewView.onDidChangeVisibility(() => {
-            if (webviewView.visible) {
+            if (webviewView.visible && !this._bridge) {
                 this._connectBridge(webviewView);
             }
         });
@@ -131,15 +131,23 @@ class FeedbackViewProvider {
     }
     _attachBridge(view) {
         const hub = this._getHub();
-        if (!hub)
+        if (!hub || this._bridge)
             return;
-        this._bridge?.dispose();
         this._bridge = hub.attachWebview((msg) => {
             view.webview.postMessage({ type: 'hub-message', data: msg });
         });
     }
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
     _connectBridge(view) {
+        if (this._bridge) {
+            view.webview.postMessage({
+                type: 'bridge-connected',
+                port: this._getPort(),
+                version: this._getVersion(),
+                pid: process.pid,
+            });
+            return;
+        }
         this._attachBridge(view);
         view.webview.postMessage({
             type: 'bridge-connected',
@@ -183,7 +191,10 @@ class FeedbackViewProvider {
                     this._pushServerInfo(view);
                     break;
                 case 'webview-ready':
-                    this._connectBridge(view);
+                    this._pushServerInfo(view);
+                    if (!this._bridge) {
+                        this._connectBridge(view);
+                    }
                     break;
                 case 'hub-connect':
                     this._connectBridge(view);

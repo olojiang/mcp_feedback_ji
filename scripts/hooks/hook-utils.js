@@ -9,6 +9,8 @@ const http = require('http');
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
 const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
+const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
+const AGENT_CONTEXT_TTL_MS = 5 * 60 * 1000;
 
 function log(msg) {
     try {
@@ -152,9 +154,27 @@ function readEnforcementConfig() {
     };
 }
 
+function writeAgentContext(workspaceRoots, meta) {
+    try {
+        var roots = (workspaceRoots || []).map(function (r) { return r.replace(/\/+$/, ''); }).filter(Boolean);
+        var traceId = (meta && meta.traceId) || process.env.CURSOR_TRACE_ID || '';
+        if (!roots.length && !traceId) return;
+        fs.mkdirSync(CONFIG_DIR, { recursive: true });
+        fs.writeFileSync(AGENT_CONTEXT_FILE, JSON.stringify({
+            traceId: traceId,
+            workspaceRoots: roots,
+            updatedAt: Date.now(),
+        }));
+    } catch (e) {
+        log('writeAgentContext error: ' + e.message);
+    }
+}
+
 module.exports = {
     CONFIG_DIR,
     SERVERS_DIR,
+    AGENT_CONTEXT_FILE,
+    AGENT_CONTEXT_TTL_MS,
     FEEDBACK_STATE_FILE,
     ENFORCEMENT_CONFIG_FILE,
     DEFAULT_ENFORCEMENT,
@@ -167,4 +187,5 @@ module.exports = {
     readFeedbackState,
     writeFeedbackState,
     readEnforcementConfig,
+    writeAgentContext,
 };
