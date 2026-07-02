@@ -23,6 +23,7 @@ export interface PendingSessionSnapshot {
 }
 export declare class FeedbackManager {
     private queue;
+    private readonly promises;
     enqueue(mcpClient: WebSocket, projectDir?: string, summary?: string): {
         sessionId: string;
         promise: Promise<ResolvedFeedback>;
@@ -36,5 +37,8 @@ export declare class FeedbackManager {
     hasPending(): boolean;
     pendingCount(): number;
     pendingSessions(): PendingSessionSnapshot[];
+    promiseForSession(sessionId: string): Promise<ResolvedFeedback> | null;
+    detachMcpClient(ws: WebSocket): string[];
+    isMcpDetached(sessionId: string): boolean;
     rejectAll(error: Error): void;
 }

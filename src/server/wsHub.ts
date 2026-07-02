@@ -292,6 +292,12 @@ export class WsHub {
                 }
             },
             onDisconnect: () => {
+                if (client.clientType === 'mcp-server') {
+                    const detached = this.feedback.detachMcpClient(ws);
+                    if (detached.length) {
+                        wsLog(`mcp disconnected: detached sessions=${detached.join(',')}`);
+                    }
+                }
                 this.clients.remove(ws);
             },
         });

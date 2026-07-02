@@ -60,4 +60,32 @@ describe('FeedbackManager', () => {
       },
     ])
   })
+
+  it('detachMcpClient marks pending sessions when mcp websocket closes', async () => {
+    const fm = new FeedbackManager()
+    const ws = { id: 'ws1', readyState: 3 }
+    const project = '/Users/hunter/Workspace/llm-gateway'
+    const request = fm.enqueue(ws, project, 'waiting')
+
+    assert.deepEqual(fm.detachMcpClient(ws), [request.sessionId])
+    assert.equal(fm.isMcpDetached(request.sessionId), true)
+
+    assert.equal(fm.resolveBySessionId(request.sessionId, { feedback: 'late reply' }), true)
+    const resolved = await request.promise
+    assert.equal(resolved.feedback, 'late reply')
+    assert.equal(resolved.transport, ws)
+  })
+
+  it('updateTransport clears detached flag on reconnect', () => {
+    const fm = new FeedbackManager()
+    const ws1 = { id: 'ws1', readyState: 3 }
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const project = '/Users/hunter/Workspace/llm-gateway'
+    const request = fm.enqueue(ws1, project, 'summary')
+    fm.detachMcpClient(ws1)
+
+    const transport = fm.updateTransport(ws2, project, 'summary')
+    assert.equal(transport.updated, true)
+    assert.equal(fm.isMcpDetached(request.sessionId), false)
+  })
 })

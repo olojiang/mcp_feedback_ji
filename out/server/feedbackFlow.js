@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FeedbackFlow = void 0;
+const ws_1 = require("ws");
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -25,6 +26,7 @@ class FeedbackFlow {
                 timestamp: new Date().toISOString(),
             });
             this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
+            this.deps.onFeedbackRequested?.();
             return;
         }
         this.deps.addMessage({
@@ -32,11 +34,24 @@ class FeedbackFlow {
             content: req.summary,
             timestamp: new Date().toISOString(),
         });
-        const { sessionId, promise } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary);
+        const { sessionId } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary);
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
         this.deps.broadcastSessionUpdated(req.summary, sessionId);
         this.deps.onFeedbackRequested?.();
+        this._attachMcpPromiseHandlers(mcpWs, sessionId);
+    }
+    _attachMcpPromiseHandlers(mcpWs, sessionId) {
+        const promise = this.deps.feedback.promiseForSession(sessionId);
+        if (!promise)
+            return;
         promise.then((resolved) => {
+            if (!this._canDeliverToMcp(resolved.transport, sessionId)) {
+                this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
+                this.deps.queueAsPending(resolved.feedback, resolved.images);
+                this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+                this.deps.onFeedbackResolved?.();
+                return;
+            }
             this.deps.sendResult(resolved.transport, {
                 feedback: resolved.feedback,
                 images: resolved.images,
@@ -44,9 +59,16 @@ class FeedbackFlow {
         }).catch((err) => {
             const reason = err instanceof Error ? err.message : 'Feedback error';
             this.deps.log(`feedbackRequest failed: ${reason}`);
-            this.deps.sendError(mcpWs, err instanceof Error ? err : new Error(reason));
+            if (this._canDeliverToMcp(mcpWs, sessionId)) {
+                this.deps.sendError(mcpWs, err instanceof Error ? err : new Error(reason));
+            }
             this.deps.onFeedbackError?.(reason);
         });
+    }
+    _canDeliverToMcp(ws, sessionId) {
+        if (this.deps.feedback.isMcpDetached(sessionId))
+            return false;
+        return ws.readyState === ws_1.WebSocket.OPEN;
     }
     handleFeedbackResponse(res) {
         this.deps.log(`feedbackResponse: session=${res.session_id ?? '(first)'} feedback=${res.feedback.slice(0, 80)}`);

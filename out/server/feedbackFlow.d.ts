@@ -29,6 +29,8 @@ export declare class FeedbackFlow {
         summary: string;
         project_directory?: string;
     }): void;
+    private _attachMcpPromiseHandlers;
+    private _canDeliverToMcp;
     handleFeedbackResponse(res: {
         feedback: string;
         images?: string[];

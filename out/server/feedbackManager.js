@@ -19,18 +19,21 @@ function isMcpTransportOpen(ws) {
 class FeedbackManager {
     constructor() {
         this.queue = [];
+        this.promises = new Map();
     }
     enqueue(mcpClient, projectDir, summary = '') {
         const sessionId = newSessionId();
         const promise = new Promise((resolve, reject) => {
             this.queue.push({ sessionId, mcpClient, projectDir, summary, resolve, reject });
         });
+        this.promises.set(sessionId, promise);
         return { sessionId, promise };
     }
     resolveFirst(result) {
         const entry = this.queue.shift();
         if (!entry)
             return false;
+        this.promises.delete(entry.sessionId);
         entry.resolve({ ...result, transport: entry.mcpClient });
         return true;
     }
@@ -39,6 +42,7 @@ class FeedbackManager {
         if (idx < 0)
             return false;
         const entry = this.queue.splice(idx, 1)[0];
+        this.promises.delete(sessionId);
         entry.resolve({ ...result, transport: entry.mcpClient });
         return true;
     }
@@ -48,6 +52,7 @@ class FeedbackManager {
         for (const entry of this.queue) {
             if (entry.projectDir && entry.projectDir === projectDir && !isMcpTransportOpen(entry.mcpClient)) {
                 entry.mcpClient = newWs;
+                entry.mcpDetached = false;
                 if (summary)
                     entry.summary = summary;
                 return { updated: true, sessionId: entry.sessionId };
@@ -70,11 +75,30 @@ class FeedbackManager {
             waiting: true,
         }));
     }
+    promiseForSession(sessionId) {
+        return this.promises.get(sessionId) ?? null;
+    }
+    detachMcpClient(ws) {
+        const detached = [];
+        for (const entry of this.queue) {
+            if (entry.mcpClient === ws) {
+                entry.mcpDetached = true;
+                detached.push(entry.sessionId);
+            }
+        }
+        return detached;
+    }
+    isMcpDetached(sessionId) {
+        const entry = this.queue.find((item) => item.sessionId === sessionId);
+        return entry?.mcpDetached === true;
+    }
     rejectAll(error) {
         for (const entry of this.queue) {
+            this.promises.delete(entry.sessionId);
             entry.reject(error);
         }
         this.queue = [];
+        this.promises.clear();
     }
 }
 exports.FeedbackManager = FeedbackManager;

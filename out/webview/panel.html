@@ -1809,6 +1809,7 @@ window.onerror = function (msg, src, line, col, err) {
     renderStagedImages();
     updateSendButton();
     syncSettings();
+    bootstrapConnection();
     if (vscode) {
         vscode.postMessage({ type: 'webview-ready' });
         debugLog('webview-ready posted');

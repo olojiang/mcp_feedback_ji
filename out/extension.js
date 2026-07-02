@@ -3832,17 +3832,20 @@ function isMcpTransportOpen(ws) {
 var FeedbackManager = class {
   constructor() {
     this.queue = [];
+    this.promises = /* @__PURE__ */ new Map();
   }
   enqueue(mcpClient, projectDir, summary = "") {
     const sessionId = newSessionId();
     const promise2 = new Promise((resolve, reject) => {
       this.queue.push({ sessionId, mcpClient, projectDir, summary, resolve, reject });
     });
+    this.promises.set(sessionId, promise2);
     return { sessionId, promise: promise2 };
   }
   resolveFirst(result) {
     const entry = this.queue.shift();
     if (!entry) return false;
+    this.promises.delete(entry.sessionId);
     entry.resolve({ ...result, transport: entry.mcpClient });
     return true;
   }
@@ -3850,6 +3853,7 @@ var FeedbackManager = class {
     const idx = this.queue.findIndex((entry2) => entry2.sessionId === sessionId);
     if (idx < 0) return false;
     const entry = this.queue.splice(idx, 1)[0];
+    this.promises.delete(sessionId);
     entry.resolve({ ...result, transport: entry.mcpClient });
     return true;
   }
@@ -3858,6 +3862,7 @@ var FeedbackManager = class {
     for (const entry of this.queue) {
       if (entry.projectDir && entry.projectDir === projectDir && !isMcpTransportOpen(entry.mcpClient)) {
         entry.mcpClient = newWs;
+        entry.mcpDetached = false;
         if (summary) entry.summary = summary;
         return { updated: true, sessionId: entry.sessionId };
       }
@@ -3879,11 +3884,30 @@ var FeedbackManager = class {
       waiting: true
     }));
   }
+  promiseForSession(sessionId) {
+    return this.promises.get(sessionId) ?? null;
+  }
+  detachMcpClient(ws) {
+    const detached = [];
+    for (const entry of this.queue) {
+      if (entry.mcpClient === ws) {
+        entry.mcpDetached = true;
+        detached.push(entry.sessionId);
+      }
+    }
+    return detached;
+  }
+  isMcpDetached(sessionId) {
+    const entry = this.queue.find((item) => item.sessionId === sessionId);
+    return entry?.mcpDetached === true;
+  }
   rejectAll(error51) {
     for (const entry of this.queue) {
+      this.promises.delete(entry.sessionId);
       entry.reject(error51);
     }
     this.queue = [];
+    this.promises.clear();
   }
 };
 
@@ -4216,6 +4240,7 @@ var FeedbackFlow = class {
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       });
       this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
+      this.deps.onFeedbackRequested?.();
       return;
     }
     this.deps.addMessage({
@@ -4223,7 +4248,7 @@ var FeedbackFlow = class {
       content: req.summary,
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     });
-    const { sessionId, promise: promise2 } = this.deps.feedback.enqueue(
+    const { sessionId } = this.deps.feedback.enqueue(
       mcpWs,
       req.project_directory,
       req.summary
@@ -4231,7 +4256,19 @@ var FeedbackFlow = class {
     this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
     this.deps.broadcastSessionUpdated(req.summary, sessionId);
     this.deps.onFeedbackRequested?.();
+    this._attachMcpPromiseHandlers(mcpWs, sessionId);
+  }
+  _attachMcpPromiseHandlers(mcpWs, sessionId) {
+    const promise2 = this.deps.feedback.promiseForSession(sessionId);
+    if (!promise2) return;
     promise2.then((resolved) => {
+      if (!this._canDeliverToMcp(resolved.transport, sessionId)) {
+        this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
+        this.deps.queueAsPending(resolved.feedback, resolved.images);
+        this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+        this.deps.onFeedbackResolved?.();
+        return;
+      }
       this.deps.sendResult(resolved.transport, {
         feedback: resolved.feedback,
         images: resolved.images
@@ -4239,9 +4276,15 @@ var FeedbackFlow = class {
     }).catch((err) => {
       const reason = err instanceof Error ? err.message : "Feedback error";
       this.deps.log(`feedbackRequest failed: ${reason}`);
-      this.deps.sendError(mcpWs, err instanceof Error ? err : new Error(reason));
+      if (this._canDeliverToMcp(mcpWs, sessionId)) {
+        this.deps.sendError(mcpWs, err instanceof Error ? err : new Error(reason));
+      }
       this.deps.onFeedbackError?.(reason);
     });
+  }
+  _canDeliverToMcp(ws, sessionId) {
+    if (this.deps.feedback.isMcpDetached(sessionId)) return false;
+    return ws.readyState === import_websocket.default.OPEN;
   }
   handleFeedbackResponse(res) {
     this.deps.log(
@@ -19337,6 +19380,12 @@ var WsHub = class {
         }
       },
       onDisconnect: () => {
+        if (client.clientType === "mcp-server") {
+          const detached = this.feedback.detachMcpClient(ws);
+          if (detached.length) {
+            wsLog(`mcp disconnected: detached sessions=${detached.join(",")}`);
+          }
+        }
         this.clients.remove(ws);
       }
     });
