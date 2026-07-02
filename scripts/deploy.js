@@ -44,6 +44,41 @@ function compile() {
     execSync('npm run compile', { cwd: ROOT, stdio: 'inherit' });
 }
 
+function stopExistingMcpServers() {
+    if (process.platform === 'win32') return;
+    if (!EXTENSION_DIR) return;
+
+    const serverPath = path.join(EXTENSION_DIR, 'mcp-server', 'dist', 'index.js');
+    let output = '';
+    try {
+        output = execSync('ps -axo pid=,args=', { encoding: 'utf8' });
+    } catch {
+        return;
+    }
+
+    const currentPid = process.pid;
+    const pids = output
+        .split(/\r?\n/)
+        .map((line) => {
+            const match = line.trim().match(/^(\d+)\s+(.+)$/);
+            if (!match) return null;
+            const pid = Number(match[1]);
+            const args = match[2];
+            if (!Number.isFinite(pid) || pid === currentPid) return null;
+            return args.includes(serverPath) ? pid : null;
+        })
+        .filter((pid) => pid !== null);
+
+    for (const pid of pids) {
+        try {
+            process.kill(pid, 'SIGTERM');
+            console.log('[deploy] stopped stale MCP server pid=' + pid);
+        } catch {
+            // Process may have already exited.
+        }
+    }
+}
+
 function syncMcpConfig(version) {
     const mcpConfigPath = path.join(require('os').homedir(), '.cursor', 'mcp.json');
     if (!EXTENSION_DIR || !fs.existsSync(mcpConfigPath)) return;
@@ -104,3 +139,4 @@ const newVersion = bumpVersion();
 console.log(`[deploy] version bumped to ${newVersion}`);
 compile();
 syncToExtDir(newVersion);
+stopExistingMcpServers();

@@ -178,11 +178,32 @@ node --test tests/*.test.js
 | 现象 | 检查 |
 |------|------|
 | 面板 Disconnected | 点击 ↻ 或 Reload Window；查 `extension.log` 是否有 `server started` |
-| 面板 Connected 但对话报未连接 | 多窗口端口错乱或 stale registry | 点击 ↻；查 `mcp-server.log` 的 `discover:` 行 |
-| Agent 无反馈进面板 | 查 `mcp-server.log` 是否 `Feedback via extension port=...`；确认 `project_directory` 与当前工作区一致 |
+| 面板 Connected 但对话报未连接 | 多窗口端口错乱或 stale registry | 点击 ↻；查 MCP 输出或 `mcp-server.log` 的 `discover:` 行 |
+| Agent 无反馈进面板 | 查 MCP 日志是否 `Feedback via extension port=...`；若见 `project_mismatch`，多为工作区根目录与 Agent 的 `project_directory` 不一致（如根目录 `llm-gateway`、Agent 指向子目录 `provider_mock`） |
+| 匹配成功但只更新旧 Tab、无新会话 | 查 `extension.log`：若见 `transport updated session=...` 说明复用了旧会话；修复后应见 `enqueued session=fb-...` |
 | 复制无效 | 日志搜 `clipboard-write ok` |
 | 截图粘贴失败 | 日志搜 `clipboard-paste ok image=true`；仅 macOS 支持 Extension 读图 |
 | Tab 过多 | 右键 Tab → Close All Resolved，或点「Close resolved」 |
+
+### 日志位置与关联排查
+
+| 层级 | 文件 / 位置 | 关键日志 |
+|------|-------------|----------|
+| **MCP Server**（后端路由） | Cursor → Output → `MCP: user-mcp-feedback-enhanced`；或 `~/.config/mcp-feedback-enhanced/logs/mcp-server.log` | `feedback_request start project=...` → `discover: accept/skip ... have=... want=...` → `feedback_request candidates=port:pid` → `Feedback via extension port=...` |
+| **Extension**（WS Hub） | `~/.config/mcp-feedback-enhanced/logs/extension.log` | `server started: port=... ws=[...]` → `feedbackRequest: project=...` → `enqueued session=fb-...`（新 Tab）或 `transport updated session=...`（MCP 重连复用） |
+| **注册表**（目录↔端口） | `~/.config/mcp-feedback-enhanced/servers/*.json` | `projectPath` + `port` + `pid`，与 MCP 日志里的 `candidates=` 对照 |
+| **Hooks** | `~/.config/mcp-feedback-enhanced/logs/hooks.log` | preToolUse 注入、enforcement 相关 |
+
+**一次完整调用的对照顺序**：
+
+1. MCP：`feedback_request start project=/path/to/workspace`
+2. MCP：`discover: accept port=48200 pid=...`（或 `skip ... project_mismatch have=... want=...`）
+3. MCP：`feedback_request candidates=48200:pid(hash.json)`
+4. MCP：`Feedback via extension port=48200 pid=...`
+5. Extension：`feedbackRequest: project=/path/to/workspace`
+6. Extension：`feedbackRequest: enqueued session=fb-xxxxx`（应出现新 Tab）
+
+面板顶部 `Connected :48200 pid=96795` 中的 port/pid 应与注册表 JSON 及 MCP `candidates=` 一致。
 
 ---
 

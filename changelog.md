@@ -4,7 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- **Stricter deployed `.mdc` rules**: `RULES_CONTENT` now states an explicit **HARD GATE** — the agent must not treat the turn as complete without an `interactive_feedback` call; that call must be the **last tool** when wrapping up. Redeploys to `~/.cursor/rules/mcp-feedback-enhanced.mdc` on next extension activation (file is rewritten when content differs).
+- **Subfolder workspace routing**: MCP server discovery now matches parent/child workspace paths (e.g. workspace root `llm-gateway` + agent `project_directory` `llm-gateway/provider_mock`). Fixes `discover: skip ... reason=project_mismatch` when Agent targets a subfolder of the open workspace.
+- **New session tab per live MCP call**: `updateTransport` only reuses a pending session when the previous MCP WebSocket is closed (reconnect). Concurrent `interactive_feedback` calls in the same workspace now each get a new panel tab instead of overwriting the old one.
 
 ## [2.4.0] - 2026-03-26
 

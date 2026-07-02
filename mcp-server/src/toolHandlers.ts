@@ -7,6 +7,7 @@ import { connectToExtension, requestFeedback } from './extensionClient.js';
 import { browserFallback } from './browserFallback.js';
 import { runPostFeedbackHooks } from './postFeedbackHooks.js';
 import { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
+import { mcpLog } from './logger.js';
 
 export { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
 
@@ -58,6 +59,35 @@ interface ToolHandlerDeps {
     requestFeedback: typeof requestFeedback;
     browserFallback: typeof browserFallback;
     log: (msg: string) => void;
+    rediscoveryAttempts?: number;
+    retryDelayMs?: number;
+}
+
+const DEFAULT_EXTENSION_ATTEMPTS = 3;
+const DEFAULT_REDISCOVERY_ATTEMPTS = 6;
+const DEFAULT_RETRY_DELAY_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+    return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+async function rediscoverExtensionServer(
+    deps: ToolHandlerDeps,
+    projectDirectory: string | undefined,
+    log: (msg: string) => void,
+): Promise<ServerData | null> {
+    const attempts = deps.rediscoveryAttempts ?? DEFAULT_REDISCOVERY_ATTEMPTS;
+    const retryDelayMs = deps.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+
+    for (let i = 1; i <= attempts; i++) {
+        const server = await deps.findExtensionServer(projectDirectory, log);
+        if (server) return server;
+        if (i < attempts) {
+            deps.log(`[MCP Feedback] rediscover ${i}/${attempts} found no extension; retrying`);
+            await sleep(retryDelayMs);
+        }
+    }
+    return null;
 }
 
 export function buildToolDefinitions() {
@@ -143,8 +173,8 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
 
         try {
             const log = (msg: string) => deps.log(msg);
-            let extensionServer = await deps.findExtensionServer(project_directory, log);
-            const maxAttempts = 3;
+            let extensionServer = await rediscoverExtensionServer(deps, project_directory, log);
+            const maxAttempts = DEFAULT_EXTENSION_ATTEMPTS;
 
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 if (!extensionServer) break;
@@ -180,7 +210,7 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         `[MCP Feedback] Extension port=${extensionServer.port} `
                         + `pid=${extensionServer.pid} attempt ${attempt}/${maxAttempts} failed: ${errMsg}`
                     );
-                    extensionServer = await deps.findExtensionServer(project_directory, log);
+                    extensionServer = await rediscoverExtensionServer(deps, project_directory, log);
                 }
             }
 
@@ -234,5 +264,5 @@ export const handleToolCall = createToolCallHandler({
     connectToExtension,
     requestFeedback,
     browserFallback,
-    log: (msg) => console.error(msg),
+    log: mcpLog,
 });

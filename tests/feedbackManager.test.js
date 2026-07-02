@@ -6,10 +6,10 @@ const require = createRequire(import.meta.url)
 const { FeedbackManager } = require('../out/server/feedbackManager.js')
 
 describe('FeedbackManager', () => {
-  it('rebroadcast path: updateTransport returns same sessionId and updates summary', async () => {
+  it('rebroadcast path: updateTransport returns same sessionId when old ws is closed', async () => {
     const fm = new FeedbackManager()
-    const ws1 = { id: 'ws1' }
-    const ws2 = { id: 'ws2' }
+    const ws1 = { id: 'ws1', readyState: 3 }
+    const ws2 = { id: 'ws2', readyState: 1 }
     const project = '/Users/hunter/Workspace/mcp_feedback_ji'
 
     const first = fm.enqueue(ws1, project, 'first summary')
@@ -24,6 +24,18 @@ describe('FeedbackManager', () => {
     const resolved = await first.promise
     assert.equal(resolved.transport, ws2)
     assert.equal(resolved.feedback, 'ok')
+  })
+
+  it('updateTransport does not reuse session while old mcp ws is still open', () => {
+    const fm = new FeedbackManager()
+    const ws1 = { id: 'ws1', readyState: 1 }
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const project = '/Users/hunter/Workspace/mcp_feedback_ji'
+
+    fm.enqueue(ws1, project, 'first summary')
+    const transport = fm.updateTransport(ws2, project, 'second summary')
+    assert.equal(transport.updated, false)
+    assert.equal(fm.pendingCount(), 1)
   })
 
   it('updateTransport without matching project returns not updated', () => {

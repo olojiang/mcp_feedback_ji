@@ -3826,6 +3826,9 @@ function cleanupStaleServers() {
 function newSessionId() {
   return `fb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+function isMcpTransportOpen(ws) {
+  return ws.readyState === import_websocket.default.OPEN || ws.readyState === import_websocket.default.CONNECTING;
+}
 var FeedbackManager = class {
   constructor() {
     this.queue = [];
@@ -3853,7 +3856,7 @@ var FeedbackManager = class {
   updateTransport(newWs, projectDir, summary) {
     if (!projectDir) return { updated: false };
     for (const entry of this.queue) {
-      if (entry.projectDir && entry.projectDir === projectDir) {
+      if (entry.projectDir && entry.projectDir === projectDir && !isMcpTransportOpen(entry.mcpClient)) {
         entry.mcpClient = newWs;
         if (summary) entry.summary = summary;
         return { updated: true, sessionId: entry.sessionId };
@@ -3915,10 +3918,116 @@ var PendingManager = class {
 };
 
 // src/server/httpRoutes.ts
+function buildOpenApiSpec(deps) {
+  return {
+    openapi: "3.0.3",
+    info: {
+      title: "MCP Feedback API",
+      version: deps.version,
+      description: "Local diagnostic API exposed by the MCP Feedback extension."
+    },
+    servers: [{ url: `http://127.0.0.1:${deps.port}` }],
+    paths: {
+      "/health": {
+        get: {
+          summary: "Return extension server health and version.",
+          responses: {
+            "200": {
+              description: "Extension server is reachable.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "port", "pid", "version"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      port: { type: "integer" },
+                      pid: { type: "integer" },
+                      version: { type: "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/pending": {
+        get: {
+          summary: "Read or consume queued pending feedback.",
+          parameters: [{
+            name: "consume",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["1"] },
+            description: "Set to 1 to consume the pending entry."
+          }],
+          responses: {
+            "200": {
+              description: "Pending feedback exists.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["comments", "images"],
+                    properties: {
+                      comments: { type: "array", items: { type: "string" } },
+                      images: { type: "array", items: { type: "string" } }
+                    }
+                  }
+                }
+              }
+            },
+            "404": {
+              description: "No pending feedback exists."
+            }
+          }
+        }
+      }
+    }
+  };
+}
+function docsHtml(deps) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP Feedback API</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:860px;margin:40px auto;padding:0 20px;line-height:1.5}
+    code{background:#f3f4f6;padding:2px 5px;border-radius:4px}
+    pre{background:#111827;color:#f9fafb;padding:14px;border-radius:6px;overflow:auto}
+  </style>
+</head>
+<body>
+  <h1>MCP Feedback API</h1>
+  <p>Local diagnostic API for this extension instance.</p>
+  <ul>
+    <li><code>GET /health</code> - server health, port, pid, and version.</li>
+    <li><code>GET /pending</code> - read pending feedback.</li>
+    <li><code>GET /pending?consume=1</code> - consume pending feedback.</li>
+    <li><code>GET /openapi.json</code> - OpenAPI 3.0 JSON.</li>
+  </ul>
+  <pre>curl http://127.0.0.1:${deps.port}/openapi.json</pre>
+</body>
+</html>`;
+}
 function handleHttpRoute(req, res, deps) {
   const url2 = new URL(req.url || "/", `http://127.0.0.1:${deps.port}`);
   const pathname = url2.pathname;
   res.setHeader("Content-Type", "application/json");
+  if (req.method === "GET" && pathname === "/openapi.json") {
+    res.writeHead(200);
+    res.end(JSON.stringify(buildOpenApiSpec(deps)));
+    return true;
+  }
+  if (req.method === "GET" && pathname === "/docs") {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.writeHead(200);
+    res.end(docsHtml(deps));
+    return true;
+  }
   if (req.method === "GET" && pathname === "/health") {
     res.writeHead(200);
     res.end(JSON.stringify({

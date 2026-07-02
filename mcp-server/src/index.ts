@@ -12,16 +12,32 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { createRequire } from 'node:module';
 import { buildToolDefinitions, handleToolCall } from './toolHandlers.js';
 import { registerPostFeedbackHook } from './postFeedbackHooks.js';
+import { mcpLog } from './logger.js';
 
 import { memosHook } from './hooks/memos.js';
 registerPostFeedbackHook(memosHook);
 
+const require = createRequire(import.meta.url);
+
+function readServerVersion(): string {
+    if (process.env.MCP_FEEDBACK_VERSION) return process.env.MCP_FEEDBACK_VERSION;
+    try {
+        const pkg = require('../package.json') as { version?: string };
+        return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+    } catch {
+        return '0.0.0';
+    }
+}
+
+const serverVersion = readServerVersion();
+
 // ─── MCP Server Setup ─────────────────────────────────────
 
 const server = new Server(
-    { name: 'mcp-feedback-enhanced', version: '2.0.0' },
+    { name: 'mcp-feedback-enhanced', version: serverVersion },
     { capabilities: { tools: {} } }
 );
 
@@ -39,7 +55,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 try {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error('[MCP Feedback] Server started');
+    mcpLog(`[MCP Feedback] Server started version=${serverVersion}`);
 } catch (err) {
     console.error('[MCP Feedback] Fatal error:', err);
     process.exit(1);

@@ -6,6 +6,7 @@ import * as crypto from 'node:crypto';
 import {
     type ServerData,
     type HealthData,
+    isCurrentRegistryEntry,
     isProcessAlive,
     normalizeProjectPath,
     pickServerForProject,
@@ -102,17 +103,17 @@ export async function findExtensionServer(
             continue;
         }
 
-        if (health.pid !== entry.pid) {
+        if (!isCurrentRegistryEntry(entry, health)) {
             log(
                 `discover: stale registry port=${entry.port} reg_pid=${entry.pid} `
                 + `health_pid=${health.pid} source=${f}`
             );
             deleteRegistryFile(filePath);
-            entry.pid = health.pid;
+            continue;
         }
 
         if (want && !projectPathMatches(entry.projectPath, want)) {
-            log(`discover: skip port=${entry.port} source=${f} reason=project_mismatch want=${want}`);
+            log(`discover: skip port=${entry.port} source=${f} reason=project_mismatch have=${entry.projectPath} want=${want}`);
             continue;
         }
 
