@@ -76,6 +76,13 @@ export const StateSyncOutSchema = z.object({
     pending_comments: z.array(z.string()),
     pending_images: z.array(z.string()),
     feedback_queue_size: z.number(),
+    pending_sessions: z.array(z.object({
+        id: z.string(),
+        label: z.string(),
+        summary: z.string(),
+        projectDir: z.string().optional(),
+        waiting: z.literal(true),
+    })),
 });
 
 // ─── 4. Hook output schemas (for contract tests) ───────────────────────────

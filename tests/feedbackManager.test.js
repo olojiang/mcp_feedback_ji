@@ -44,4 +44,20 @@ describe('FeedbackManager', () => {
     const transport = fm.updateTransport({ id: 'ws2' }, '/missing', 'y')
     assert.equal(transport.updated, false)
   })
+
+  it('exposes pending sessions for webview state sync', () => {
+    const fm = new FeedbackManager()
+    const project = '/Users/hunter/Workspace/llm-gateway'
+    const request = fm.enqueue({ id: 'ws', readyState: 1 }, project, 'Need feedback')
+
+    assert.deepEqual(fm.pendingSessions(), [
+      {
+        id: request.sessionId,
+        label: project,
+        summary: 'Need feedback',
+        projectDir: project,
+        waiting: true,
+      },
+    ])
+  })
 })

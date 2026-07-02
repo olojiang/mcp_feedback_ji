@@ -66,6 +66,13 @@ exports.StateSyncOutSchema = zod_1.z.object({
     pending_comments: zod_1.z.array(zod_1.z.string()),
     pending_images: zod_1.z.array(zod_1.z.string()),
     feedback_queue_size: zod_1.z.number(),
+    pending_sessions: zod_1.z.array(zod_1.z.object({
+        id: zod_1.z.string(),
+        label: zod_1.z.string(),
+        summary: zod_1.z.string(),
+        projectDir: zod_1.z.string().optional(),
+        waiting: zod_1.z.literal(true),
+    })),
 });
 // ─── 4. Hook output schemas (for contract tests) ───────────────────────────
 exports.PreToolUseOutputSchema = zod_1.z.discriminatedUnion('decision', [

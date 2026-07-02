@@ -18,6 +18,14 @@ export interface ResolvedFeedback extends FeedbackResult {
     transport: WebSocket;
 }
 
+export interface PendingSessionSnapshot {
+    id: string;
+    label: string;
+    summary: string;
+    projectDir?: string;
+    waiting: true;
+}
+
 interface PendingFeedback {
     sessionId: string;
     mcpClient: WebSocket;
@@ -87,6 +95,16 @@ export class FeedbackManager {
 
     pendingCount(): number {
         return this.queue.length;
+    }
+
+    pendingSessions(): PendingSessionSnapshot[] {
+        return this.queue.map((entry) => ({
+            id: entry.sessionId,
+            label: entry.projectDir ?? entry.sessionId,
+            summary: entry.summary,
+            projectDir: entry.projectDir,
+            waiting: true,
+        }));
     }
 
     rejectAll(error: Error): void {

@@ -3870,6 +3870,15 @@ var FeedbackManager = class {
   pendingCount() {
     return this.queue.length;
   }
+  pendingSessions() {
+    return this.queue.map((entry) => ({
+      id: entry.sessionId,
+      label: entry.projectDir ?? entry.sessionId,
+      summary: entry.summary,
+      projectDir: entry.projectDir,
+      waiting: true
+    }));
+  }
   rejectAll(error51) {
     for (const entry of this.queue) {
       entry.reject(error51);
@@ -18874,7 +18883,14 @@ var StateSyncOutSchema = external_exports.object({
   })),
   pending_comments: external_exports.array(external_exports.string()),
   pending_images: external_exports.array(external_exports.string()),
-  feedback_queue_size: external_exports.number()
+  feedback_queue_size: external_exports.number(),
+  pending_sessions: external_exports.array(external_exports.object({
+    id: external_exports.string(),
+    label: external_exports.string(),
+    summary: external_exports.string(),
+    projectDir: external_exports.string().optional(),
+    waiting: external_exports.literal(true)
+  }))
 });
 var PreToolUseOutputSchema = external_exports.discriminatedUnion("decision", [
   external_exports.object({ decision: external_exports.literal("allow") }),
@@ -19416,7 +19432,8 @@ var WsHub = class {
       messages: this.timeline.getMessages(),
       pending_comments: entry?.comments ?? [],
       pending_images: entry?.images ?? [],
-      feedback_queue_size: this.feedback.pendingCount()
+      feedback_queue_size: this.feedback.pendingCount(),
+      pending_sessions: this.feedback.pendingSessions()
     });
   }
   // ── Heartbeat ───────────────────────────────────────────

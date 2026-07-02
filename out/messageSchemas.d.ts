@@ -66,6 +66,13 @@ export declare const StateSyncOutSchema: z.ZodObject<{
     pending_comments: z.ZodArray<z.ZodString>;
     pending_images: z.ZodArray<z.ZodString>;
     feedback_queue_size: z.ZodNumber;
+    pending_sessions: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        label: z.ZodString;
+        summary: z.ZodString;
+        projectDir: z.ZodOptional<z.ZodString>;
+        waiting: z.ZodLiteral<true>;
+    }, z.core.$strip>>;
 }, z.core.$strip>;
 export declare const PreToolUseOutputSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     decision: z.ZodLiteral<"allow">;

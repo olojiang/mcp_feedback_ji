@@ -14,6 +14,13 @@ export interface FeedbackResult {
 export interface ResolvedFeedback extends FeedbackResult {
     transport: WebSocket;
 }
+export interface PendingSessionSnapshot {
+    id: string;
+    label: string;
+    summary: string;
+    projectDir?: string;
+    waiting: true;
+}
 export declare class FeedbackManager {
     private queue;
     enqueue(mcpClient: WebSocket, projectDir?: string, summary?: string): {
@@ -28,5 +35,6 @@ export declare class FeedbackManager {
     };
     hasPending(): boolean;
     pendingCount(): number;
+    pendingSessions(): PendingSessionSnapshot[];
     rejectAll(error: Error): void;
 }

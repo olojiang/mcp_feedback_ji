@@ -403,6 +403,7 @@ export class WsHub {
             pending_comments: entry?.comments ?? [],
             pending_images: entry?.images ?? [],
             feedback_queue_size: this.feedback.pendingCount(),
+            pending_sessions: this.feedback.pendingSessions(),
         });
     }
 

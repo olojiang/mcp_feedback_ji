@@ -61,6 +61,15 @@ class FeedbackManager {
     pendingCount() {
         return this.queue.length;
     }
+    pendingSessions() {
+        return this.queue.map((entry) => ({
+            id: entry.sessionId,
+            label: entry.projectDir ?? entry.sessionId,
+            summary: entry.summary,
+            projectDir: entry.projectDir,
+            waiting: true,
+        }));
+    }
     rejectAll(error) {
         for (const entry of this.queue) {
             entry.reject(error);
