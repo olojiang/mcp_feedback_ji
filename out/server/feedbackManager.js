@@ -92,6 +92,13 @@ class FeedbackManager {
         const entry = this.queue.find((item) => item.sessionId === sessionId);
         return entry?.mcpDetached === true;
     }
+    tryAttachHandlers(sessionId) {
+        const entry = this.queue.find((item) => item.sessionId === sessionId);
+        if (!entry || entry.handlersAttached)
+            return false;
+        entry.handlersAttached = true;
+        return true;
+    }
     rejectAll(error) {
         for (const entry of this.queue) {
             this.promises.delete(entry.sessionId);

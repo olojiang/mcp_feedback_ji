@@ -47,7 +47,7 @@ export class FeedbackFlow {
             req.project_directory,
             req.summary,
         );
-        if (transport.updated) {
+        if (transport.updated && transport.sessionId) {
             this.deps.log(
                 `feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`,
             );
@@ -58,6 +58,7 @@ export class FeedbackFlow {
             });
             this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
             this.deps.onFeedbackRequested?.();
+            this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
             return;
         }
 
@@ -79,6 +80,7 @@ export class FeedbackFlow {
     }
 
     private _attachMcpPromiseHandlers(mcpWs: WebSocket, sessionId: string): void {
+        if (!this.deps.feedback.tryAttachHandlers(sessionId)) return;
         const promise = this.deps.feedback.promiseForSession(sessionId);
         if (!promise) return;
         promise.then((resolved) => {

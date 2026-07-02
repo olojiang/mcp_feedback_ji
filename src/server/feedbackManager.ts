@@ -32,6 +32,7 @@ interface PendingFeedback {
     projectDir?: string;
     summary: string;
     mcpDetached?: boolean;
+    handlersAttached?: boolean;
     resolve: (result: ResolvedFeedback) => void;
     reject: (error: Error) => void;
 }
@@ -131,6 +132,13 @@ export class FeedbackManager {
     isMcpDetached(sessionId: string): boolean {
         const entry = this.queue.find((item) => item.sessionId === sessionId);
         return entry?.mcpDetached === true;
+    }
+
+    tryAttachHandlers(sessionId: string): boolean {
+        const entry = this.queue.find((item) => item.sessionId === sessionId);
+        if (!entry || entry.handlersAttached) return false;
+        entry.handlersAttached = true;
+        return true;
     }
 
     rejectAll(error: Error): void {

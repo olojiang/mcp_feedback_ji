@@ -18,7 +18,7 @@ class FeedbackFlow {
     handleFeedbackRequest(mcpWs, req) {
         this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
-        if (transport.updated) {
+        if (transport.updated && transport.sessionId) {
             this.deps.log(`feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`);
             this.deps.addMessage({
                 role: 'ai',
@@ -27,6 +27,7 @@ class FeedbackFlow {
             });
             this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
             this.deps.onFeedbackRequested?.();
+            this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
             return;
         }
         this.deps.addMessage({
@@ -41,6 +42,8 @@ class FeedbackFlow {
         this._attachMcpPromiseHandlers(mcpWs, sessionId);
     }
     _attachMcpPromiseHandlers(mcpWs, sessionId) {
+        if (!this.deps.feedback.tryAttachHandlers(sessionId))
+            return;
         const promise = this.deps.feedback.promiseForSession(sessionId);
         if (!promise)
             return;

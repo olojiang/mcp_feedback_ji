@@ -40,5 +40,6 @@ export declare class FeedbackManager {
     promiseForSession(sessionId: string): Promise<ResolvedFeedback> | null;
     detachMcpClient(ws: WebSocket): string[];
     isMcpDetached(sessionId: string): boolean;
+    tryAttachHandlers(sessionId: string): boolean;
     rejectAll(error: Error): void;
 }

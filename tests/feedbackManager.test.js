@@ -88,4 +88,13 @@ describe('FeedbackManager', () => {
     assert.equal(transport.updated, true)
     assert.equal(fm.isMcpDetached(request.sessionId), false)
   })
+
+  it('tryAttachHandlers only allows one handler attachment per session', () => {
+    const fm = new FeedbackManager()
+    const project = '/Users/hunter/Workspace/llm-gateway'
+    const request = fm.enqueue({ id: 'ws', readyState: 1 }, project, 'summary')
+
+    assert.equal(fm.tryAttachHandlers(request.sessionId), true)
+    assert.equal(fm.tryAttachHandlers(request.sessionId), false)
+  })
 })

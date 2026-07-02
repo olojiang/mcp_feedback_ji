@@ -3901,6 +3901,12 @@ var FeedbackManager = class {
     const entry = this.queue.find((item) => item.sessionId === sessionId);
     return entry?.mcpDetached === true;
   }
+  tryAttachHandlers(sessionId) {
+    const entry = this.queue.find((item) => item.sessionId === sessionId);
+    if (!entry || entry.handlersAttached) return false;
+    entry.handlersAttached = true;
+    return true;
+  }
   rejectAll(error51) {
     for (const entry of this.queue) {
       this.promises.delete(entry.sessionId);
@@ -4230,7 +4236,7 @@ var FeedbackFlow = class {
       req.project_directory,
       req.summary
     );
-    if (transport.updated) {
+    if (transport.updated && transport.sessionId) {
       this.deps.log(
         `feedbackRequest: transport updated session=${transport.sessionId ?? "unknown"}`
       );
@@ -4241,6 +4247,7 @@ var FeedbackFlow = class {
       });
       this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
       this.deps.onFeedbackRequested?.();
+      this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
       return;
     }
     this.deps.addMessage({
@@ -4259,6 +4266,7 @@ var FeedbackFlow = class {
     this._attachMcpPromiseHandlers(mcpWs, sessionId);
   }
   _attachMcpPromiseHandlers(mcpWs, sessionId) {
+    if (!this.deps.feedback.tryAttachHandlers(sessionId)) return;
     const promise2 = this.deps.feedback.promiseForSession(sessionId);
     if (!promise2) return;
     promise2.then((resolved) => {
@@ -19380,11 +19388,9 @@ var WsHub = class {
         }
       },
       onDisconnect: () => {
-        if (client.clientType === "mcp-server") {
-          const detached = this.feedback.detachMcpClient(ws);
-          if (detached.length) {
-            wsLog(`mcp disconnected: detached sessions=${detached.join(",")}`);
-          }
+        const detached = this.feedback.detachMcpClient(ws);
+        if (detached.length) {
+          wsLog(`mcp disconnected: detached sessions=${detached.join(",")}`);
         }
         this.clients.remove(ws);
       }
