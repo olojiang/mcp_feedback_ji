@@ -9,6 +9,7 @@ import {
     isCurrentRegistryEntry,
     isProcessAlive,
     normalizeProjectPath,
+    pickServerForImplicitProject,
     pickServerForProject,
     projectPathMatches,
 } from './serverDiscoveryCore.js';
@@ -21,6 +22,7 @@ export {
     normalizeProjectPath,
     isProcessAlive,
     pickServerForProject,
+    pickServerForImplicitProject,
     resolveWsUrl,
 } from './serverDiscoveryCore.js';
 
@@ -55,6 +57,16 @@ function projectHash(dir: string): string {
 
 function currentMcpVersion(): string {
     return process.env.MCP_FEEDBACK_VERSION || 'unknown';
+}
+
+function implicitProjectDirectory(): string | undefined {
+    const explicit = process.env.MCP_FEEDBACK_PROJECT_DIRECTORY;
+    if (explicit) return explicit;
+    try {
+        return process.cwd();
+    } catch {
+        return undefined;
+    }
 }
 
 export async function fetchHealth(port: number): Promise<HealthData | null> {
@@ -125,14 +137,31 @@ export async function findExtensionServer(
         log(`discover: accept port=${entry.port} pid=${entry.pid} source=${f}`);
     }
 
-    const picked = pickServerForProject(candidates, projectDirectory);
+    let picked = pickServerForProject(candidates, projectDirectory);
+    let pickedFromImplicitProject: string | undefined;
+    if (!picked && !want) {
+        const implicit = implicitProjectDirectory();
+        picked = pickServerForImplicitProject(candidates, implicit);
+        if (picked && implicit) {
+            pickedFromImplicitProject = normalizeProjectPath(implicit);
+            log(`feedback_request implicit_project=${pickedFromImplicitProject}`);
+        }
+    }
+
     if (picked) {
         log(
             `feedback_request candidates=${picked.port}:${picked.pid}`
-            + `(${projectDirectory ? projectHash(projectDirectory) + '.json' : 'auto'})`
+            + `(${projectDirectory
+                ? projectHash(projectDirectory) + '.json'
+                : pickedFromImplicitProject
+                    ? `cwd:${projectHash(pickedFromImplicitProject)}.json`
+                    : 'auto'
+            })`
         );
     } else if (want) {
         log(`feedback_request candidates=none want=${want}`);
+    } else {
+        log('feedback_request candidates=none reason=ambiguous_no_project');
     }
     return picked;
 }

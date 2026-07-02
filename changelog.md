@@ -2,10 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [2.5.1-ji.30] - 2026-07-02
 
-- **Subfolder workspace routing**: MCP server discovery now matches parent/child workspace paths (e.g. workspace root `llm-gateway` + agent `project_directory` `llm-gateway/provider_mock`). Fixes `discover: skip ... reason=project_mismatch` when Agent targets a subfolder of the open workspace.
-- **New session tab per live MCP call**: `updateTransport` only reuses a pending session when the previous MCP WebSocket is closed (reconnect). Concurrent `interactive_feedback` calls in the same workspace now each get a new panel tab instead of overwriting the old one.
+### Added
+- **Subfolder workspace routing**: MCP server discovery matches parent/child workspace paths (e.g. workspace root `llm-gateway` + agent `project_directory` `llm-gateway/provider_mock`).
+- **New session tab per live MCP call**: `updateTransport` only reuses a pending session when the previous MCP WebSocket is closed (reconnect). Concurrent calls each get a new panel tab.
+- **`pickServerForImplicitProject`**: When `project_directory` is omitted, infer target Extension from MCP process cwd if it falls inside a registered workspace.
+- **Ambiguous routing log**: `feedback_request candidates=none reason=ambiguous_no_project` when multiple Extensions exist and cwd cannot disambiguate.
+
+### Changed
+- **README**: Synced to ji.30 — subfolder routing, rediscovery, env vars, troubleshooting matrix, test count.
+
+## Unreleased
 
 ## [2.4.0] - 2026-03-26
 

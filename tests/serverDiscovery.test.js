@@ -6,6 +6,7 @@ import {
   projectPathMatches,
   projectPathRelation,
   pickServerForProject,
+  pickServerForImplicitProject,
   isCurrentRegistryEntry,
   resolveWsUrl,
 } from '../mcp-server/dist/serverDiscoveryCore.js'
@@ -98,6 +99,28 @@ describe('serverDiscoveryCore', () => {
         { port: 48201, pid: 1, projectPath: '/repo/a', version: '1' },
         { port: 48202, pid: 1, projectPath: '/repo/b', version: '1' },
       ]
+    )
+    assert.equal(picked, null)
+  })
+
+  it('pickServerForImplicitProject uses cwd when it is inside one registered workspace', () => {
+    const picked = pickServerForImplicitProject(
+      [
+        { port: 48201, pid: 1, projectPath: '/Users/hunter/Workspace/mcp_feedback_ji', version: '1' },
+        { port: 48202, pid: 2, projectPath: '/Users/hunter/Workspace/dual_finder', version: '1' },
+      ],
+      '/Users/hunter/Workspace/mcp_feedback_ji/mcp-server'
+    )
+    assert.equal(picked.port, 48201)
+  })
+
+  it('pickServerForImplicitProject does not pick from a common parent directory', () => {
+    const picked = pickServerForImplicitProject(
+      [
+        { port: 48201, pid: 1, projectPath: '/Users/hunter/Workspace/mcp_feedback_ji', version: '1' },
+        { port: 48202, pid: 2, projectPath: '/Users/hunter/Workspace/dual_finder', version: '1' },
+      ],
+      '/Users/hunter/Workspace'
     )
     assert.equal(picked, null)
   })

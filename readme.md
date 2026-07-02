@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版，修复了多窗口连接、剪贴板、Tab 管理等实际问题，便于在 **Cursor 重装** 或 **换机器** 后快速恢复。
 
-当前版本：`2.5.1-ji.6`
+当前版本：`2.5.1-ji.30`
 
 基于上游源码开发：`src/`（TypeScript）+ `static/`（面板 UI）+ `mcp-server/src/`。
 
@@ -52,8 +52,10 @@ npm run verify:install    # 不 Reload 即可验证编译产物
 
 | 改动 | 说明 |
 |------|------|
-| 按工作区 hash 注册 | 每个项目写入 `current-server-{hash}.json`，避免全局抢端口 |
-| `project_directory` 自动推断 | MCP 根据 cwd 过滤候选 Extension，连到正确窗口 |
+| 按工作区 hash 注册 | 每个项目写入 `~/.config/mcp-feedback-enhanced/servers/{hash}.json`，避免全局抢端口 |
+| 子目录 / 父目录匹配 | `project_directory` 支持 `exact / ancestor / descendant`（如 workspace 根 `llm-gateway`，Agent 指向 `llm-gateway/provider_mock`） |
+| 无 `project_directory` 时的 cwd 推断 | 多窗口下不随机路由；若 MCP cwd 落在某一已注册 workspace 内，则自动选中该 Extension |
+| 有限 rediscovery | 扩展重启或 registry 短暂为空时，同一次 `interactive_feedback` 内最多重试 6 轮 discovery |
 | 默认禁用 browser fallback | 不再弹出 `127.0.0.1:随机端口` 浏览器页；需设置 `MCP_FEEDBACK_BROWSER_FALLBACK=1` 才启用 |
 | 健康检查与重连 | 面板显示 `Connected :端口 pid=进程号`；点击状态栏或 ↻ 可强制重连 |
 
@@ -68,7 +70,7 @@ npm run verify:install    # 不 Reload 即可验证编译产物
 
 **能力**：
 
-- 每次 `interactive_feedback` 调用对应一个 **Chat Tab**（`session_id`）
+- 每次**并发** `interactive_feedback` 调用对应一个 **Chat Tab**（`session_id`）；MCP WebSocket 重连时复用 pending session，不覆盖旧 Tab
 - 绿点 / 橙点：等待回复 vs 已结束
 - 可切换 Tab 任意顺序回复（非 FIFO）
 - **关闭 Tab**：单击 `×`、右键菜单（Close / Close Others / Close to the Left / Close All Resolved）、工具栏「Close resolved」
@@ -82,7 +84,7 @@ npm run verify:install    # 不 Reload 即可验证编译产物
 面板顶部状态栏：
 
 ```
-v2.5.1-ji.2   ● Connected :48201 pid=20071   ↻
+v2.5.1-ji.30   ● Connected :48201 pid=20071   ↻
 ```
 
 - **Connected :端口**：当前 WebSocket 连到的 Extension 端口（48200–48300 范围）
@@ -158,6 +160,8 @@ mcp_feedback_ji/
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `MCP_FEEDBACK_BROWSER_FALLBACK` | 未设置（禁用） | 设为 `1` 启用浏览器 fallback |
+| `MCP_FEEDBACK_PROJECT_DIRECTORY` | 未设置 | 显式指定 MCP 侧项目目录；未传 `project_directory` 时用于 cwd 推断 |
+| `MCP_FEEDBACK_VERSION` | 未设置 | 由 `install.sh` / `deploy.js` 写入，启动日志打印实际版本 |
 | `MCP_FEEDBACK_DEV` | 未设置 | 开发时 webview 热重载 |
 
 ---
@@ -169,7 +173,7 @@ cd mcp_feedback_ji
 node --test tests/*.test.js
 ```
 
-覆盖：多 Tab、剪贴板、协议路由、粘贴去重、反馈队列等（17 项）。
+覆盖：多 Tab、剪贴板、协议路由、粘贴去重、反馈队列、workspace discovery、MCP 重连等（76 项）。
 
 ---
 
@@ -179,8 +183,10 @@ node --test tests/*.test.js
 |------|------|
 | 面板 Disconnected | 点击 ↻ 或 Reload Window；查 `extension.log` 是否有 `server started` |
 | 面板 Connected 但对话报未连接 | 多窗口端口错乱或 stale registry | 点击 ↻；查 MCP 输出或 `mcp-server.log` 的 `discover:` 行 |
-| Agent 无反馈进面板 | 查 MCP 日志是否 `Feedback via extension port=...`；若见 `project_mismatch`，多为工作区根目录与 Agent 的 `project_directory` 不一致（如根目录 `llm-gateway`、Agent 指向子目录 `provider_mock`） |
-| 匹配成功但只更新旧 Tab、无新会话 | 查 `extension.log`：若见 `transport updated session=...` 说明复用了旧会话；修复后应见 `enqueued session=fb-...` |
+| Agent 无反馈进面板 | 查 MCP 日志是否 `Feedback via extension port=...`；若见 `project_mismatch`，检查 `have=` / `want=` 是否应为 ancestor/descendant 关系 |
+| `Extension unavailable` 且 rediscover 6 次 | 多为**未传 `project_directory` 且同时开了多个 Cursor 窗口**；Agent 应传 workspace 路径，或在 `mcp.json` 设置 `MCP_FEEDBACK_PROJECT_DIRECTORY` |
+| `feedbackRequest failed: Server shutting down` | 通常发生在 deploy / Reload Window 窗口期；重试或等扩展重启后再调用 |
+| 匹配成功但只更新旧 Tab、无新会话 | 查 `extension.log`：并发调用应见 `enqueued session=fb-...`；仅 MCP 重连复用 transport 时才见 `transport updated session=...` |
 | 复制无效 | 日志搜 `clipboard-write ok` |
 | 截图粘贴失败 | 日志搜 `clipboard-paste ok image=true`；仅 macOS 支持 Extension 读图 |
 | Tab 过多 | 右键 Tab → Close All Resolved，或点「Close resolved」 |
@@ -192,7 +198,8 @@ node --test tests/*.test.js
 | **MCP Server**（后端路由） | Cursor → Output → `MCP: user-mcp-feedback-enhanced`；或 `~/.config/mcp-feedback-enhanced/logs/mcp-server.log` | `feedback_request start project=...` → `discover: accept/skip ... have=... want=...` → `feedback_request candidates=port:pid` → `Feedback via extension port=...` |
 | **Extension**（WS Hub） | `~/.config/mcp-feedback-enhanced/logs/extension.log` | `server started: port=... ws=[...]` → `feedbackRequest: project=...` → `enqueued session=fb-...`（新 Tab）或 `transport updated session=...`（MCP 重连复用） |
 | **注册表**（目录↔端口） | `~/.config/mcp-feedback-enhanced/servers/*.json` | `projectPath` + `port` + `pid`，与 MCP 日志里的 `candidates=` 对照 |
-| **Hooks** | `~/.config/mcp-feedback-enhanced/logs/hooks.log` | preToolUse 注入、enforcement 相关 |
+| **Hooks** | `~/.config/mcp-feedback-enhanced/logs/hooks.log` | preToolUse pending 注入、rules refresh |
+| **HTTP 诊断** | `http://127.0.0.1:<port>/health`、`/docs`、`/openapi.json` | 本地 OpenAPI 与 curl 示例，绑定 127.0.0.1 |
 
 **一次完整调用的对照顺序**：
 
@@ -210,8 +217,8 @@ node --test tests/*.test.js
 ## 与上游的关系
 
 - **上游**：Open VSX / GitHub `mcp-feedback-enhanced-vscode` v2.5.1
-- **本 Fork**：在已安装扩展产物上直接 patch（无 TypeScript 源码），以 `out/` + `mcp-server/dist/` 为主
-- **升级上游时**：重新安装原版后，用 `diff` 对比本仓库改动，或重新应用 patch
+- **本 Fork**：完整 TypeScript 源码（`src/` + `mcp-server/src/` + `static/`），`npm run compile` 生成 `out/` 与 `mcp-server/dist/`
+- **升级上游时**：对比上游 tag，合并 `src/` / `static/` / `mcp-server/src/` 改动后跑全量测试
 
 ---
 

@@ -108,6 +108,19 @@ export function pickServerForProject(
     return scored[0].server;
 }
 
+export function pickServerForImplicitProject(
+    candidates: ServerData[],
+    implicitProjectDirectory?: string,
+): ServerData | null {
+    if (!implicitProjectDirectory) return null;
+    const implicit = normalizeProjectPath(implicitProjectDirectory);
+    const inWorkspace = candidates.filter((server) => {
+        const relation = projectPathRelation(server.projectPath, implicit);
+        return relation === 'exact' || relation === 'ancestor';
+    });
+    return pickServerForProject(inWorkspace, implicit);
+}
+
 export function resolveWsUrl(currentUrl: string, serverPort: number): string {
     if (!serverPort) return currentUrl;
     const match = currentUrl.match(/^(ws:\/\/127\.0\.0\.1:)(\d+)(.*)$/);
