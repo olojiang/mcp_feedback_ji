@@ -52,6 +52,7 @@ exports.readServerByHash = readServerByHash;
 exports.writeServer = writeServer;
 exports.deleteServerByHash = deleteServerByHash;
 exports.cleanupStaleServers = cleanupStaleServers;
+exports.writeAgentContext = writeAgentContext;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
@@ -143,5 +144,16 @@ function cleanupStaleServers() {
         }
     }
     return cleaned;
+}
+const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
+function writeAgentContext(workspaceRoots, traceId = '') {
+    const roots = workspaceRoots.map((r) => r.replace(/\/+$/, '')).filter(Boolean);
+    if (!roots.length)
+        return;
+    safeWriteJSON(AGENT_CONTEXT_FILE, {
+        traceId,
+        workspaceRoots: roots,
+        updatedAt: Date.now(),
+    });
 }
 //# sourceMappingURL=fileStore.js.map

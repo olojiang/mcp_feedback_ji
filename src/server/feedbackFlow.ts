@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws';
 import type { ConversationMessage } from '../types';
+import { writeAgentContext } from '../fileStore';
 import { FeedbackManager } from './feedbackManager';
 
 interface FeedbackFlowDeps {
@@ -38,6 +39,10 @@ export class FeedbackFlow {
     }
 
     handleFeedbackRequest(mcpWs: WebSocket, req: { summary: string; project_directory?: string }): void {
+        if (req.project_directory) {
+            writeAgentContext([req.project_directory]);
+        }
+
         this.deps.log(
             `feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`,
         );

@@ -114,4 +114,22 @@ export function cleanupStaleServers(): number {
     return cleaned;
 }
 
+const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
+
+export interface AgentContextFile {
+    traceId?: string;
+    workspaceRoots: string[];
+    updatedAt: number;
+}
+
+export function writeAgentContext(workspaceRoots: string[], traceId = ''): void {
+    const roots = workspaceRoots.map((r) => r.replace(/\/+$/, '')).filter(Boolean);
+    if (!roots.length) return;
+    safeWriteJSON(AGENT_CONTEXT_FILE, {
+        traceId,
+        workspaceRoots: roots,
+        updatedAt: Date.now(),
+    } satisfies AgentContextFile);
+}
+
 export { CONFIG_DIR, PROJECTS_DIR, SERVERS_DIR };

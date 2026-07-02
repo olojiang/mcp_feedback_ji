@@ -106,6 +106,10 @@ export class WsHub {
                 this._broadcastToWebviews({ type: 'pending_synced', comments, images: images ?? [] });
             },
             sendResult: (ws, result) => {
+                if (ws.readyState !== WebSocket.OPEN) {
+                    wsLog(`sendResult: skip closed ws readyState=${ws.readyState}`);
+                    return;
+                }
                 this._send(ws, {
                     type: 'feedback_result',
                     feedback: result.feedback,

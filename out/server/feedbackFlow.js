@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FeedbackFlow = void 0;
 const ws_1 = require("ws");
+const fileStore_1 = require("../fileStore");
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -16,6 +17,9 @@ class FeedbackFlow {
         this.deps.onFeedbackError = cb;
     }
     handleFeedbackRequest(mcpWs, req) {
+        if (req.project_directory) {
+            (0, fileStore_1.writeAgentContext)([req.project_directory]);
+        }
         this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
         if (transport.updated && transport.sessionId) {

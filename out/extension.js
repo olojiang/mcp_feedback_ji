@@ -3821,6 +3821,16 @@ function cleanupStaleServers() {
   }
   return cleaned;
 }
+var AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, "agent-context.json");
+function writeAgentContext(workspaceRoots, traceId = "") {
+  const roots = workspaceRoots.map((r) => r.replace(/\/+$/, "")).filter(Boolean);
+  if (!roots.length) return;
+  safeWriteJSON(AGENT_CONTEXT_FILE, {
+    traceId,
+    workspaceRoots: roots,
+    updatedAt: Date.now()
+  });
+}
 
 // src/server/feedbackManager.ts
 function newSessionId() {
@@ -4228,6 +4238,9 @@ var FeedbackFlow = class {
     this.deps.onFeedbackError = cb;
   }
   handleFeedbackRequest(mcpWs, req) {
+    if (req.project_directory) {
+      writeAgentContext([req.project_directory]);
+    }
     this.deps.log(
       `feedbackRequest: project=${req.project_directory ?? "(none)"} summary=${req.summary.slice(0, 80)}`
     );
@@ -19231,6 +19244,10 @@ var WsHub = class {
         this._broadcastToWebviews({ type: "pending_synced", comments, images: images ?? [] });
       },
       sendResult: (ws, result) => {
+        if (ws.readyState !== import_websocket.default.OPEN) {
+          wsLog(`sendResult: skip closed ws readyState=${ws.readyState}`);
+          return;
+        }
         this._send(ws, {
           type: "feedback_result",
           feedback: result.feedback,

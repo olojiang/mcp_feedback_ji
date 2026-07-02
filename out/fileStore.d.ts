@@ -20,4 +20,10 @@ export declare function readServerByHash(hash: string): ServerInfo | null;
 export declare function writeServer(hash: string, data: ServerInfo): void;
 export declare function deleteServerByHash(hash: string): boolean;
 export declare function cleanupStaleServers(): number;
+export interface AgentContextFile {
+    traceId?: string;
+    workspaceRoots: string[];
+    updatedAt: number;
+}
+export declare function writeAgentContext(workspaceRoots: string[], traceId?: string): void;
 export { CONFIG_DIR, PROJECTS_DIR, SERVERS_DIR };

@@ -62,7 +62,7 @@ function currentMcpVersion(): string {
     return process.env.MCP_FEEDBACK_VERSION || 'unknown';
 }
 
-function implicitProjectDirectory(): string | undefined {
+function implicitProjectDirectory(agentContext?: AgentContextSnapshot | null): string | undefined {
     let cwd: string | undefined;
     try {
         cwd = process.cwd();
@@ -73,7 +73,7 @@ function implicitProjectDirectory(): string | undefined {
     return resolveImplicitProjectDirectory({
         envProjectDirectory: process.env.MCP_FEEDBACK_PROJECT_DIRECTORY,
         cwd,
-        agentContext: readAgentContext(),
+        agentContext,
         traceId: process.env.CURSOR_TRACE_ID || '',
     });
 }
@@ -114,6 +114,7 @@ export async function findExtensionServer(
     log: (msg: string) => void = () => {}
 ): Promise<ServerData | null> {
     const want = projectDirectory ? normalizeProjectPath(projectDirectory) : undefined;
+    const agentContext = want ? null : readAgentContext();
     log(
         `feedback_request start version=${currentMcpVersion()} `
         + `project=${want ?? '(none)'} trace=${process.env.CURSOR_TRACE_ID || ''}`
@@ -159,11 +160,11 @@ export async function findExtensionServer(
     let picked = pickServerForProject(candidates, projectDirectory);
     let pickedFromImplicitProject: string | undefined;
     if (!picked && !want) {
-        const implicit = implicitProjectDirectory();
+        const implicit = implicitProjectDirectory(agentContext);
         picked = pickServerForImplicitProject(candidates, implicit);
         if (picked && implicit) {
             pickedFromImplicitProject = normalizeProjectPath(implicit);
-            const source = readAgentContext()?.workspaceRoots?.includes(implicit)
+            const source = agentContext?.workspaceRoots?.includes(implicit)
                 ? 'agent_context'
                 : 'cwd';
             log(`feedback_request implicit_project=${pickedFromImplicitProject} source=${source}`);
