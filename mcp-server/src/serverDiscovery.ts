@@ -53,6 +53,10 @@ function projectHash(dir: string): string {
     return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
+function currentMcpVersion(): string {
+    return process.env.MCP_FEEDBACK_VERSION || 'unknown';
+}
+
 export async function fetchHealth(port: number): Promise<HealthData | null> {
     return new Promise((resolve) => {
         const req = http.get(`http://127.0.0.1:${port}/health`, { timeout: 1500 }, (res) => {
@@ -81,7 +85,7 @@ export async function findExtensionServer(
 ): Promise<ServerData | null> {
     const want = projectDirectory ? normalizeProjectPath(projectDirectory) : undefined;
     if (want) {
-        log(`feedback_request start project=${want} trace=${process.env.CURSOR_TRACE_ID || ''}`);
+        log(`feedback_request start version=${currentMcpVersion()} project=${want} trace=${process.env.CURSOR_TRACE_ID || ''}`);
     }
 
     const candidates: ServerData[] = [];

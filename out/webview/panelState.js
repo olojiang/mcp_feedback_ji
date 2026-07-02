@@ -184,9 +184,11 @@
 
     _onStateSync(msg) {
       var pending = msg.pending_sessions || []
+      var latestPendingId = null
       for (var i = 0; i < pending.length; i++) {
         var p = pending[i]
         this.ensureSession(p.id, p.label, p.summary)
+        latestPendingId = p.id || latestPendingId
         if (p.summary) {
           var sess = this.sessions[p.id]
           if (!sess.messages.length || sess.messages[sess.messages.length - 1].role !== 'ai') {
@@ -198,7 +200,9 @@
           }
         }
       }
-      if (!this.activeSessionId && this.sessionOrder.length > 0) {
+      if (latestPendingId && this.sessions[latestPendingId] && this.sessions[latestPendingId].waiting) {
+        this.activeSessionId = latestPendingId
+      } else if (!this.activeSessionId && this.sessionOrder.length > 0) {
         this.activeSessionId = this.sessionOrder[this.sessionOrder.length - 1]
       }
       this.globalPendingQueue = msg.pending_comments || []

@@ -70,6 +70,32 @@ describe('PanelState multi-session', () => {
     assert.equal(state.sessions['fb-9'].messages[0].content, 'waiting summary')
   })
 
+  it('activates latest pending session from state sync over a resolved session', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-old',
+      session_label: 'old',
+      summary: 'Old question',
+    })
+    state.submitFeedback('done', [], { session_id: 'fb-old' })
+
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-new', label: 'new', summary: 'New waiting question', waiting: true },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 1,
+      messages: [],
+    })
+
+    assert.equal(state.sessions['fb-old'].waiting, false)
+    assert.equal(state.sessions['fb-new'].waiting, true)
+    assert.equal(state.activeSessionId, 'fb-new')
+  })
+
   it('uses legacy session id when session_id missing', () => {
     const state = new PanelState()
     state.handleMessage({ type: 'session_updated', summary: 'legacy question' })

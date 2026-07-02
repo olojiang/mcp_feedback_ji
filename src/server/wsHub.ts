@@ -397,13 +397,18 @@ export class WsHub {
 
     private _sendState(ws: WebSocket): void {
         const entry = this.pending.read();
+        const pendingSessions = this.feedback.pendingSessions();
+        wsLog(
+            `stateSync: version=${this.version} port=${this.port} `
+            + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()}`
+        );
         this._send(ws, {
             type: 'state_sync',
             messages: this.timeline.getMessages(),
             pending_comments: entry?.comments ?? [],
             pending_images: entry?.images ?? [],
             feedback_queue_size: this.feedback.pendingCount(),
-            pending_sessions: this.feedback.pendingSessions(),
+            pending_sessions: pendingSessions,
         });
     }
 
