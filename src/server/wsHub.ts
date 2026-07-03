@@ -49,21 +49,11 @@ import {
 import { readClipboardImageBase64 } from '../utils/clipboardImage';
 import * as vscode from 'vscode';
 import { getLogsDir } from '../configPaths.js';
+import { hubLog, hubStructuredLog } from '../extensionFileLog.js';
+import { buildStateSyncPayload } from '../stateSyncPayload.js';
 
-const LOG_DIR = getLogsDir();
 function wsLog(msg: string): void {
-    try {
-        fs.mkdirSync(LOG_DIR, { recursive: true });
-        const logFile = path.join(LOG_DIR, 'extension.log');
-        try {
-            const stat = fs.statSync(logFile);
-            if (stat.size > 2 * 1024 * 1024) {
-                try { fs.unlinkSync(logFile + '.old'); } catch { /* ignore */ }
-                fs.renameSync(logFile, logFile + '.old');
-            }
-        } catch { /* ignore */ }
-        fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${msg}\n`);
-    } catch { /* ignore */ }
+    hubLog(msg);
 }
 
 const PORT_RANGE_START = 48200;
@@ -86,6 +76,7 @@ export class WsHub {
     private readonly feedbackFlow: FeedbackFlow;
 
     private workspaces: string[] = [];
+    private readonly stateSyncGenerations = new Map<WebSocket, number>();
 
     constructor(version = '0.0.0') {
         this.version = version;
@@ -355,6 +346,7 @@ export class WsHub {
                     })}`);
                 }
                 this.clients.remove(ws);
+                this.stateSyncGenerations.delete(ws);
             },
         });
         return client;
@@ -493,19 +485,27 @@ export class WsHub {
         const entry = this.pending.read();
         const pendingSessions = this.feedback.pendingSessions();
         const hub = this._hubSnapshot();
+        const generation = this.stateSyncGenerations.get(ws) ?? 0;
+        this.stateSyncGenerations.set(ws, generation + 1);
         wsLog(
             `stateSync: version=${this.version} port=${this.port} `
             + `workspaces=${JSON.stringify(this.workspaces)} `
             + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} `
-            + `mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count}`,
+            + `mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count} gen=${generation}`,
         );
-        this._send(ws, {
-            type: 'state_sync',
+        hubStructuredLog('state_sync', {
+            port: this.port,
+            pending: pendingSessions.length,
+            gen: generation,
+            incremental: generation > 0 ? '1' : '0',
+        });
+        this._send(ws, buildStateSyncPayload({
             messages: this.timeline.getMessages(),
-            pending_comments: entry?.comments ?? [],
-            pending_images: entry?.images ?? [],
-            feedback_queue_size: this.feedback.pendingCount(),
-            pending_sessions: pendingSessions.map((s) => ({
+            syncGeneration: generation,
+            pendingComments: entry?.comments ?? [],
+            pendingImages: entry?.images ?? [],
+            feedbackQueueSize: this.feedback.pendingCount(),
+            pendingSessions: pendingSessions.map((s) => ({
                 id: s.id,
                 label: s.label,
                 summary: s.summary,
@@ -514,8 +514,8 @@ export class WsHub {
                 ...(s.projectDir ? { project_directory: s.projectDir } : {}),
                 ...(s.traceId ? { trace_id: s.traceId } : {}),
             })),
-            hub,
-        });
+            hub: hub as unknown as Record<string, unknown>,
+        }));
     }
 
     // ── Heartbeat ───────────────────────────────────────────

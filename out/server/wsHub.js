@@ -42,8 +42,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WsHub = void 0;
 const http = __importStar(require("node:http"));
-const fs = __importStar(require("node:fs"));
-const path = __importStar(require("node:path"));
 const ws_1 = require("ws");
 const fileStore_1 = require("../fileStore");
 const registryLock_1 = require("../registryLock");
@@ -64,26 +62,10 @@ const disconnectReason_1 = require("../disconnectReason");
 const feedbackDelivery_1 = require("../feedbackDelivery");
 const clipboardImage_1 = require("../utils/clipboardImage");
 const vscode = __importStar(require("vscode"));
-const configPaths_js_1 = require("../configPaths.js");
-const LOG_DIR = (0, configPaths_js_1.getLogsDir)();
+const extensionFileLog_js_1 = require("../extensionFileLog.js");
+const stateSyncPayload_js_1 = require("../stateSyncPayload.js");
 function wsLog(msg) {
-    try {
-        fs.mkdirSync(LOG_DIR, { recursive: true });
-        const logFile = path.join(LOG_DIR, 'extension.log');
-        try {
-            const stat = fs.statSync(logFile);
-            if (stat.size > 2 * 1024 * 1024) {
-                try {
-                    fs.unlinkSync(logFile + '.old');
-                }
-                catch { /* ignore */ }
-                fs.renameSync(logFile, logFile + '.old');
-            }
-        }
-        catch { /* ignore */ }
-        fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${msg}\n`);
-    }
-    catch { /* ignore */ }
+    (0, extensionFileLog_js_1.hubLog)(msg);
 }
 const PORT_RANGE_START = 48200;
 const PORT_RANGE_END = 48300;
@@ -98,6 +80,7 @@ class WsHub {
         this.clients = new clientRegistry_1.ClientRegistry();
         this.heartbeatTimer = null;
         this.workspaces = [];
+        this.stateSyncGenerations = new Map();
         this.version = version;
         this.feedback = new feedbackManager_1.FeedbackManager();
         this.pending = new pendingManager_1.PendingManager();
@@ -337,6 +320,7 @@ class WsHub {
                     })}`);
                 }
                 this.clients.remove(ws);
+                this.stateSyncGenerations.delete(ws);
             },
         });
         return client;
@@ -458,17 +442,25 @@ class WsHub {
         const entry = this.pending.read();
         const pendingSessions = this.feedback.pendingSessions();
         const hub = this._hubSnapshot();
+        const generation = this.stateSyncGenerations.get(ws) ?? 0;
+        this.stateSyncGenerations.set(ws, generation + 1);
         wsLog(`stateSync: version=${this.version} port=${this.port} `
             + `workspaces=${JSON.stringify(this.workspaces)} `
             + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} `
-            + `mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count}`);
-        this._send(ws, {
-            type: 'state_sync',
+            + `mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count} gen=${generation}`);
+        (0, extensionFileLog_js_1.hubStructuredLog)('state_sync', {
+            port: this.port,
+            pending: pendingSessions.length,
+            gen: generation,
+            incremental: generation > 0 ? '1' : '0',
+        });
+        this._send(ws, (0, stateSyncPayload_js_1.buildStateSyncPayload)({
             messages: this.timeline.getMessages(),
-            pending_comments: entry?.comments ?? [],
-            pending_images: entry?.images ?? [],
-            feedback_queue_size: this.feedback.pendingCount(),
-            pending_sessions: pendingSessions.map((s) => ({
+            syncGeneration: generation,
+            pendingComments: entry?.comments ?? [],
+            pendingImages: entry?.images ?? [],
+            feedbackQueueSize: this.feedback.pendingCount(),
+            pendingSessions: pendingSessions.map((s) => ({
                 id: s.id,
                 label: s.label,
                 summary: s.summary,
@@ -477,8 +469,8 @@ class WsHub {
                 ...(s.projectDir ? { project_directory: s.projectDir } : {}),
                 ...(s.traceId ? { trace_id: s.traceId } : {}),
             })),
-            hub,
-        });
+            hub: hub,
+        }));
     }
     // ── Heartbeat ───────────────────────────────────────────
     _startHeartbeat() {

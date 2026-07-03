@@ -19,6 +19,8 @@ import { FeedbackViewProvider } from './feedbackViewProvider';
 import { readExtensionVersion, readMemoryExtensionVersion } from './extensionVersion';
 import { extensionSyncDelaysMs, EXTENSION_PANEL_FOCUS_DELAYS_MS } from './activateSyncPolicy';
 import { shouldPromptReloadAfterVersionChange } from './deployStamp';
+import { resolveNodeBin } from './deploy/nodeBin';
+import { planMcpConfigUpdate, applyMcpConfigPlan } from './deploy/mcpConfig';
 
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
@@ -47,21 +49,6 @@ function cancelFeedbackReminders(): void {
 
 function getWorkspaces(): string[] {
     return (vscode.workspace.workspaceFolders || []).map(f => f.uri.fsPath);
-}
-
-/** Resolve `node` for configs spawned by Cursor (hooks, MCP) — same PATH caveats as shell `which`. */
-function resolveNodeBin(): string {
-    try {
-        if (process.platform === 'win32') {
-            const out = execSync('where.exe node', { encoding: 'utf-8', timeout: 5000, env: process.env });
-            const first = out.split(/\r?\n/).map(l => l.trim()).find(Boolean);
-            if (first) { return first; }
-        } else {
-            const resolved = execSync('which node', { encoding: 'utf-8', timeout: 5000, env: process.env }).trim();
-            if (resolved) { return resolved; }
-        }
-    } catch { /* fall through */ }
-    return 'node';
 }
 
 function _loadWebviewHtml(extensionPath: string, serverPort: number, version: string): string {
@@ -247,30 +234,17 @@ function ensureMcpConfig(extensionPath: string): void {
         }
 
         const mcpServers = (config.mcpServers || {}) as Record<string, unknown>;
-        const localServerPath = path.join(extensionPath, 'mcp-server', 'dist', 'index.js');
-        const expectedCommand = resolveNodeBin();
-        const expectedArgs = [localServerPath];
-        const expectedEnv = { MCP_FEEDBACK_VERSION: version };
+        const plan = planMcpConfigUpdate(
+            extensionPath,
+            version,
+            resolveNodeBin(),
+            mcpServers['mcp-feedback-enhanced'] as Record<string, unknown> | undefined,
+        );
+        if (!plan.changed) return;
 
-        const existing = mcpServers['mcp-feedback-enhanced'] as Record<string, unknown> | undefined;
-        const existingEnv = (existing?.env || {}) as Record<string, string>;
-        if (existing?.command === expectedCommand &&
-            JSON.stringify(existing?.args) === JSON.stringify(expectedArgs) &&
-            existingEnv.MCP_FEEDBACK_VERSION === version) {
-            return;
-        }
-
-        mcpServers['mcp-feedback-enhanced'] = {
-            command: expectedCommand,
-            args: expectedArgs,
-            env: expectedEnv,
-        };
-        delete mcpServers['mcp-feedback-v2'];
-        config.mcpServers = mcpServers;
-
+        config = applyMcpConfigPlan(config, plan);
         fs.mkdirSync(path.dirname(mcpConfigPath), { recursive: true });
         fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2));
-        // MCP config written
     } catch (e) {
         console.error('[MCP Feedback] Failed to update MCP config:', e);
     }

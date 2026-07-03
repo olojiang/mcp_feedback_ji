@@ -29,6 +29,7 @@ import { readDeployStamp } from './deployStampReader';
 import { readLogTailLines } from './logTail';
 import { quickRepliesFromConfig } from './quickReplySettings';
 import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
+import { buildDefaultWebviewHandlers, createWebviewMessageRouter } from './webviewMessageRouter';
 
 type HtmlGetter = () => string;
 type PortGetter = () => number;
@@ -162,6 +163,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelConnection.js')
                 .with({ query: `v=${cacheKey}` })
         );
+        const panelAppUri = view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelApp.js')
+                .with({ query: `v=${cacheKey}` })
+        );
         const themeContrastUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'themeContrast.js')
                 .with({ query: `v=${cacheKey}` })
@@ -171,6 +176,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
         html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
+        html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
         return html;
@@ -214,12 +220,12 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _bridgePayload(): Record<string, unknown> {
+    private _hostPayload(type: 'bridge-connected' | 'server-info'): Record<string, unknown> {
         const deployStamp = readDeployStamp();
         const version = this._getVersion();
         const memoryVersion = this._getMemoryVersion();
         return {
-            type: 'bridge-connected',
+            type,
             port: this._getPort(),
             version,
             memoryVersion,
@@ -230,6 +236,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             deployReloadBanner: deployReloadBannerText(memoryVersion, version, deployStamp),
             quickReplies: this._quickRepliesFromSettings(),
         };
+    }
+
+    private _bridgePayload(): Record<string, unknown> {
+        return this._hostPayload('bridge-connected');
     }
 
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
@@ -243,21 +253,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _pushServerInfo(view: vscode.WebviewView): void {
-        const deployStamp = readDeployStamp();
-        const version = this._getVersion();
-        const memoryVersion = this._getMemoryVersion();
-        view.webview.postMessage({
-            type: 'server-info',
-            port: this._getPort(),
-            version,
-            memoryVersion,
-            pid: process.pid,
-            versionWarnings: this._versionWarnings(),
-            deployStamp,
-            deployLabel: formatDeployStampLabel(deployStamp, version),
-            deployReloadBanner: deployReloadBannerText(memoryVersion, version, deployStamp),
-            quickReplies: this._quickRepliesFromSettings(),
-        });
+        view.webview.postMessage(this._hostPayload('server-info'));
     }
 
     private _handleDebugRequest(view: vscode.WebviewView): void {
@@ -322,109 +318,46 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _setupMessageHandler(view: vscode.WebviewView): void {
+        const handlers = {
+            ...buildDefaultWebviewHandlers(vscode),
+            'request-debug': (_msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
+                ctx.handleDebug(v);
+            },
+            'prune-test-registry': (_msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
+                ctx.handlePrune(v);
+            },
+            'open-mcp-output': () => {
+                void this._openMcpOutput();
+            },
+            log: (message: Record<string, unknown>) => {
+                if (typeof message.msg === 'string') {
+                    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                    const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                    appendWebviewLog(message.msg, typeof projectPath === 'string' ? projectPath : undefined);
+                }
+            },
+        };
+        const route = createWebviewMessageRouter(handlers);
         view.webview.onDidReceiveMessage((message: Record<string, unknown>) => {
-            switch (message.type) {
-                case 'get-server-info':
-                    this._pushServerInfo(view);
-                    break;
-
-                case 'webview-ready':
-                    if (!this._bridge) {
-                        this._connectBridge(view);
-                    } else {
-                        view.webview.postMessage(this._bridgePayload());
+            route(message, view, {
+                pushServerInfo: (v) => this._pushServerInfo(v),
+                connectBridge: (v) => this._connectBridge(v),
+                bridgePayload: () => this._bridgePayload(),
+                hasBridge: () => this._bridge !== null,
+                deliverHubMessage: (data) => {
+                    if (this._bridge && data) {
+                        this._bridge.deliver(JSON.stringify(data));
                     }
-                    break;
-
-                case 'hub-connect':
-                    this._connectBridge(view);
-                    break;
-
-                case 'request-debug':
-                    this._handleDebugRequest(view);
-                    break;
-
-                case 'prune-test-registry':
-                    this._handlePruneTestRegistry(view);
-                    break;
-
-                case 'open-webview-devtools':
-                    void vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools');
-                    break;
-
-                case 'copy-debug-json':
-                    if (typeof message.json === 'string') {
-                        void vscode.env.clipboard.writeText(message.json).then(
-                            () => vscode.window.showInformationMessage('MCP Feedback: debug JSON copied'),
-                            () => vscode.window.showWarningMessage('MCP Feedback: copy failed'),
-                        );
-                    }
-                    break;
-
-                case 'hub-message':
-                    if (this._bridge && message.data) {
-                        this._bridge.deliver(JSON.stringify(message.data));
-                    }
-                    break;
-
-                case 'feedback-submitted':
-                    vscode.window.setStatusBarMessage('Feedback submitted!', 1500);
-                    break;
-
-                case 'error':
-                    vscode.window.showErrorMessage(`MCP Feedback: ${message.message}`);
-                    break;
-
-                case 'info':
-                    vscode.window.showInformationMessage(`MCP Feedback: ${message.message}`);
-                    break;
-
-                case 'new-session':
-                    this._focusPanel();
-                    break;
-
-                case 'force-reset':
-                    if (this._forceResetCallback) {
-                        this._forceResetCallback().then((newPort) => {
-                            vscode.window.showInformationMessage(`MCP Feedback: Reset! Port ${newPort}`);
-                        }).catch((e) => {
-                            vscode.window.showErrorMessage(`MCP Feedback: Reset failed - ${e}`);
-                        });
-                    }
-                    break;
-
-                case 'open-in-editor':
-                    vscode.commands.executeCommand('mcp-feedback-enhanced.openInEditor');
-                    break;
-
-                case 'reload-webview':
-                    this.recreate();
-                    break;
-
-                case 'at-search':
-                    this._handleAtSearch(message.query as string, view);
-                    break;
-
-                case 'open-log':
-                    void this._openLogFile(message.target as string);
-                    break;
-
-                case 'open-mcp-output':
-                    void this._openMcpOutput();
-                    break;
-
-                case 'export-sessions':
-                    void this._exportSessions(message.data as Record<string, unknown>);
-                    break;
-
-                case 'log':
-                    if (typeof message.msg === 'string') {
-                        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
-                        const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
-                        appendWebviewLog(message.msg, typeof projectPath === 'string' ? projectPath : undefined);
-                    }
-                    break;
-            }
+                },
+                handleDebug: (v) => this._handleDebugRequest(v),
+                handlePrune: (v) => this._handlePruneTestRegistry(v),
+                handleAtSearch: (q, v) => this._handleAtSearch(q, v),
+                openLog: (t) => this._openLogFile(t),
+                exportSessions: (d) => this._exportSessions(d),
+                forceReset: this._forceResetCallback,
+                recreate: () => this.recreate(),
+                focusPanel: () => this._focusPanel(),
+            });
         });
     }
 

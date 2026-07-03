@@ -19,6 +19,7 @@ export declare class WsHub {
     private readonly timeline;
     private readonly feedbackFlow;
     private workspaces;
+    private readonly stateSyncGenerations;
     constructor(version?: string);
     setWorkspaces(workspaces: string[]): void;
     onFeedbackRequest(cb: () => void): void;

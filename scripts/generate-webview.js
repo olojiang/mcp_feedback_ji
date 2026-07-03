@@ -41,6 +41,12 @@ if (fs.existsSync(panelConnectionSrc)) {
     console.log('[generate-webview] Copied panelConnection.js to out/webview/ (loaded as external resource)');
 }
 
+const panelAppSrc = path.join(__dirname, '..', 'static', 'panelApp.js');
+if (fs.existsSync(panelAppSrc)) {
+    fs.copyFileSync(panelAppSrc, path.join(outDir, 'panelApp.js'));
+    console.log('[generate-webview] Copied panelApp.js to out/webview/ (loaded as external resource)');
+}
+
 if (fs.existsSync(themeContrastSrc)) {
     fs.copyFileSync(themeContrastSrc, path.join(outDir, 'themeContrast.js'));
     console.log('[generate-webview] Copied themeContrast.js to out/webview/ (loaded as external resource)');

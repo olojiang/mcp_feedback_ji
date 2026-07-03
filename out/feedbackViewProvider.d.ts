@@ -39,6 +39,7 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     private _registryEntries;
     private _versionWarnings;
     private _quickRepliesFromSettings;
+    private _hostPayload;
     private _bridgePayload;
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
     private _connectBridge;

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.68] - 2026-07-03
+
+### Refactor (recommendations 1–4)
+- **panelApp.js**: extract ~1650 lines from `panel.html` (HTML now ~733 lines).
+- **deploy/mcpConfig + nodeBin**: pure MCP config planning; lazy node resolve.
+- **structuredFileLog + extensionFileLog**: batched hub logging (100ms flush).
+- **stateSyncPayload**: incremental sync omits unused timeline after gen 0.
+- **webviewMessageRouter**: table-driven panel message handlers + `_hostPayload` dedup.
+- **Tests**: `refactor168.test.js`.
+
 ## [2.5.1-ji.67] - 2026-07-03
 
 ### Added (P4 架构)

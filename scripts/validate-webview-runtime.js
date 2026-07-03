@@ -24,12 +24,15 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{ERUDA_PANEL_URI\}\}/g, 'https://mock/erudaPanel.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
     .replace(/\{\{PANELCONNECTION_URI\}\}/g, 'https://mock/panelConnection.js')
+    .replace(/\{\{PANELAPP_URI\}\}/g, 'https://mock/panelApp.js')
     .replace(/\{\{THEMECONTRAST_URI\}\}/g, 'https://mock/themeContrast.js')
     .replace(/\{\{CSP_SOURCE\}\}/g, 'https://mock');
 
 const panelStateFile = path.join(__dirname, '..', 'out', 'webview', 'panelState.js');
 const erudaPanelFile = path.join(__dirname, '..', 'out', 'webview', 'erudaPanel.js');
 const themeContrastFile = path.join(__dirname, '..', 'out', 'webview', 'themeContrast.js');
+const panelConnectionFile = path.join(__dirname, '..', 'out', 'webview', 'panelConnection.js');
+const panelAppFile = path.join(__dirname, '..', 'out', 'webview', 'panelApp.js');
 const panelStateCode = fs.existsSync(panelStateFile)
     ? fs.readFileSync(panelStateFile, 'utf-8')
     : null;
@@ -38,6 +41,12 @@ const erudaPanelCode = fs.existsSync(erudaPanelFile)
     : null;
 const themeContrastCode = fs.existsSync(themeContrastFile)
     ? fs.readFileSync(themeContrastFile, 'utf-8')
+    : null;
+const panelConnectionCode = fs.existsSync(panelConnectionFile)
+    ? fs.readFileSync(panelConnectionFile, 'utf-8')
+    : null;
+const panelAppCode = fs.existsSync(panelAppFile)
+    ? fs.readFileSync(panelAppFile, 'utf-8')
     : null;
 
 const scripts = [];
@@ -275,6 +284,19 @@ if (themeContrastCode) {
     hadError = true;
 }
 
+if (panelConnectionCode) {
+    try {
+        vm.runInContext(panelConnectionCode, ctx, { filename: 'panelConnection.js', timeout: 5000 });
+        console.log('  OK  External panelConnection.js loaded');
+    } catch (err) {
+        console.error(`  FAIL External panelConnection.js: ${err.message}`);
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL External panelConnection.js not found');
+    hadError = true;
+}
+
 for (let i = 0; i < scripts.length; i++) {
     const label = `Script block ${i + 1} (${scripts[i].length} chars)`;
     try {
@@ -291,6 +313,19 @@ for (let i = 0; i < scripts.length; i++) {
             console.error(`       ${line.trim()}`);
         }
     }
+}
+
+if (panelAppCode) {
+    try {
+        vm.runInContext(panelAppCode, ctx, { filename: 'panelApp.js', timeout: 10000 });
+        console.log('  OK  External panelApp.js loaded');
+    } catch (err) {
+        console.error(`  FAIL External panelApp.js: ${err.message}`);
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL External panelApp.js not found');
+    hadError = true;
 }
 
 const criticalIds = [

@@ -3717,15 +3717,13 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
-var fs9 = __toESM(require("fs"));
-var path10 = __toESM(require("path"));
+var fs10 = __toESM(require("fs"));
+var path12 = __toESM(require("path"));
 var os5 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
 // src/server/wsHub.ts
 var http2 = __toESM(require("node:http"));
-var fs3 = __toESM(require("node:fs"));
-var path5 = __toESM(require("node:path"));
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -5487,10 +5485,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path11) {
-  if (!path11)
+function getElementAtPath(obj, path13) {
+  if (!path13)
     return obj;
-  return path11.reduce((acc, key) => acc?.[key], obj);
+  return path13.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5899,11 +5897,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path11, issues) {
+function prefixIssues(path13, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path11);
+    iss.path.unshift(path13);
     return iss;
   });
 }
@@ -6050,16 +6048,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path11 = []) => {
+  const processError = (error52, path13 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else {
-        const fullpath = [...path11, ...issue2.path];
+        const fullpath = [...path13, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -6086,17 +6084,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path11 = []) => {
+  const processError = (error52, path13 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else {
-        const fullpath = [...path11, ...issue2.path];
+        const fullpath = [...path13, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -6128,8 +6126,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path11 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path11) {
+  const path13 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path13) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -18821,13 +18819,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path11 = ref.slice(1).split("/").filter(Boolean);
-  if (path11.length === 0) {
+  const path13 = ref.slice(1).split("/").filter(Boolean);
+  if (path13.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path11[0] === defsKey) {
-    const key = path11[1];
+  if (path13[0] === defsKey) {
+    const key = path13[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -19576,26 +19574,107 @@ async function readClipboardImageBase64() {
 
 // src/server/wsHub.ts
 var vscode = __toESM(require("vscode"));
-var LOG_DIR2 = getLogsDir();
-function wsLog(msg) {
-  try {
-    fs3.mkdirSync(LOG_DIR2, { recursive: true });
-    const logFile = path5.join(LOG_DIR2, "extension.log");
-    try {
-      const stat = fs3.statSync(logFile);
-      if (stat.size > 2 * 1024 * 1024) {
+
+// src/extensionFileLog.ts
+var fs4 = __toESM(require("node:fs"));
+var path6 = __toESM(require("node:path"));
+
+// src/structuredFileLog.ts
+var fs3 = __toESM(require("node:fs"));
+var path5 = __toESM(require("node:path"));
+var defaultSink = {
+  append(filePath, line) {
+    fs3.mkdirSync(path5.dirname(filePath), { recursive: true });
+    fs3.appendFileSync(filePath, line + "\n");
+  }
+};
+var BatchedFileLogger = class {
+  constructor(filePath, sink = defaultSink, flushMs = 100) {
+    this.filePath = filePath;
+    this.sink = sink;
+    this.flushMs = flushMs;
+    this.queue = [];
+    this.timer = null;
+  }
+  append(line) {
+    this.queue.push(line);
+    if (this.timer) return;
+    this.timer = setTimeout(() => this.flush(), this.flushMs);
+  }
+  flush() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (!this.queue.length) return;
+    const chunk = this.queue.join("\n");
+    this.queue.length = 0;
+    this.sink.append(this.filePath, chunk);
+  }
+};
+function formatStructuredLine(component, event, fields = {}) {
+  return formatLogEvent(component, event, fields);
+}
+function createBatchedLogger(filePath, sink) {
+  return new BatchedFileLogger(filePath, sink);
+}
+
+// src/extensionFileLog.ts
+var hubLogger = null;
+function logFilePath() {
+  return path6.join(getLogsDir(), "extension.log");
+}
+function getHubLogger() {
+  if (!hubLogger) {
+    hubLogger = createBatchedLogger(logFilePath(), {
+      append(filePath, line) {
         try {
-          fs3.unlinkSync(logFile + ".old");
+          fs4.mkdirSync(path6.dirname(filePath), { recursive: true });
+          try {
+            const stat = fs4.statSync(filePath);
+            if (stat.size > 2 * 1024 * 1024) {
+              try {
+                fs4.unlinkSync(filePath + ".old");
+              } catch {
+              }
+              fs4.renameSync(filePath, filePath + ".old");
+            }
+          } catch {
+          }
+          fs4.appendFileSync(filePath, line + "\n");
         } catch {
         }
-        fs3.renameSync(logFile, logFile + ".old");
       }
-    } catch {
-    }
-    fs3.appendFileSync(logFile, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
-`);
-  } catch {
+    });
   }
+  return hubLogger;
+}
+function hubLog(msg) {
+  getHubLogger().append(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}`);
+}
+function hubStructuredLog(event, fields = {}, component = "hub") {
+  hubLog(formatStructuredLine(component, event, fields));
+}
+
+// src/stateSyncPayload.ts
+function buildStateSyncPayload(input) {
+  const incremental = input.syncGeneration > 0;
+  return {
+    type: "state_sync",
+    incremental,
+    sync_generation: input.syncGeneration,
+    messages: incremental ? [] : input.messages,
+    pending_comments: input.pendingComments,
+    pending_images: input.pendingImages,
+    feedback_queue_size: input.feedbackQueueSize,
+    pending_sessions: input.pendingSessions,
+    hub: input.hub
+  };
+}
+
+// src/server/wsHub.ts
+function wsLog(msg) {
+  hubLog(msg);
 }
 var PORT_RANGE_START = 48200;
 var PORT_RANGE_END = 48300;
@@ -19610,6 +19689,7 @@ var WsHub = class {
     this.clients = new ClientRegistry();
     this.heartbeatTimer = null;
     this.workspaces = [];
+    this.stateSyncGenerations = /* @__PURE__ */ new Map();
     this.version = version2;
     this.feedback = new FeedbackManager();
     this.pending = new PendingManager();
@@ -19847,6 +19927,7 @@ var WsHub = class {
           })}`);
         }
         this.clients.remove(ws);
+        this.stateSyncGenerations.delete(ws);
       }
     });
     return client;
@@ -19966,16 +20047,24 @@ var WsHub = class {
     const entry = this.pending.read();
     const pendingSessions = this.feedback.pendingSessions();
     const hub = this._hubSnapshot();
+    const generation = this.stateSyncGenerations.get(ws) ?? 0;
+    this.stateSyncGenerations.set(ws, generation + 1);
     wsLog(
-      `stateSync: version=${this.version} port=${this.port} workspaces=${JSON.stringify(this.workspaces)} pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count}`
+      `stateSync: version=${this.version} port=${this.port} workspaces=${JSON.stringify(this.workspaces)} pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count} gen=${generation}`
     );
-    this._send(ws, {
-      type: "state_sync",
+    hubStructuredLog("state_sync", {
+      port: this.port,
+      pending: pendingSessions.length,
+      gen: generation,
+      incremental: generation > 0 ? "1" : "0"
+    });
+    this._send(ws, buildStateSyncPayload({
       messages: this.timeline.getMessages(),
-      pending_comments: entry?.comments ?? [],
-      pending_images: entry?.images ?? [],
-      feedback_queue_size: this.feedback.pendingCount(),
-      pending_sessions: pendingSessions.map((s) => ({
+      syncGeneration: generation,
+      pendingComments: entry?.comments ?? [],
+      pendingImages: entry?.images ?? [],
+      feedbackQueueSize: this.feedback.pendingCount(),
+      pendingSessions: pendingSessions.map((s) => ({
         id: s.id,
         label: s.label,
         summary: s.summary,
@@ -19985,7 +20074,7 @@ var WsHub = class {
         ...s.traceId ? { trace_id: s.traceId } : {}
       })),
       hub
-    });
+    }));
   }
   // ── Heartbeat ───────────────────────────────────────────
   _startHeartbeat() {
@@ -20050,15 +20139,15 @@ var WsHub = class {
 
 // src/feedbackViewProvider.ts
 var vscode2 = __toESM(require("vscode"));
-var fs7 = __toESM(require("fs"));
-var path8 = __toESM(require("path"));
+var fs8 = __toESM(require("fs"));
+var path9 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
 
 // src/webviewLog.ts
-var fs4 = __toESM(require("fs"));
+var fs5 = __toESM(require("fs"));
 var os3 = __toESM(require("os"));
-var path6 = __toESM(require("path"));
-var DEFAULT_LOG_DIR = path6.join(os3.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var path7 = __toESM(require("path"));
+var DEFAULT_LOG_DIR = path7.join(os3.homedir(), ".config", "mcp-feedback-enhanced", "logs");
 var DEFAULT_LOG_FILE = "webview.log";
 var MAX_BYTES = 2 * 1024 * 1024;
 var logDirOverride = null;
@@ -20068,38 +20157,38 @@ function resolveLogDir() {
 function appendWebviewLog(msg, projectPath) {
   try {
     const logDir = resolveLogDir();
-    fs4.mkdirSync(logDir, { recursive: true });
-    const logFile = path6.join(logDir, DEFAULT_LOG_FILE);
+    fs5.mkdirSync(logDir, { recursive: true });
+    const logFile = path7.join(logDir, DEFAULT_LOG_FILE);
     try {
-      const stat = fs4.statSync(logFile);
+      const stat = fs5.statSync(logFile);
       if (stat.size > MAX_BYTES) {
         try {
-          fs4.unlinkSync(logFile + ".old");
+          fs5.unlinkSync(logFile + ".old");
         } catch {
         }
-        fs4.renameSync(logFile, logFile + ".old");
+        fs5.renameSync(logFile, logFile + ".old");
       }
     } catch {
     }
     const prefix = projectPath ? `[${projectPath}] ` : "";
-    fs4.appendFileSync(logFile, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}
+    fs5.appendFileSync(logFile, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}
 `);
   } catch {
   }
 }
 function webviewLogPath() {
-  return path6.join(resolveLogDir(), DEFAULT_LOG_FILE);
+  return path7.join(resolveLogDir(), DEFAULT_LOG_FILE);
 }
 
 // src/logPaths.ts
-var path7 = __toESM(require("node:path"));
+var path8 = __toESM(require("node:path"));
 function resolveFeedbackLogPath(target) {
   const logDir = getLogsDir();
   switch (target) {
     case "extension":
-      return path7.join(logDir, "extension.log");
+      return path8.join(logDir, "extension.log");
     case "mcp-server":
-      return path7.join(logDir, "mcp-server.log");
+      return path8.join(logDir, "mcp-server.log");
     case "webview":
       return webviewLogPath();
     default:
@@ -20176,11 +20265,11 @@ function formatDeployStampLabel(stamp, runningVersion) {
 }
 
 // src/deployStampReader.ts
-var fs5 = __toESM(require("fs"));
+var fs6 = __toESM(require("fs"));
 function readDeployStamp() {
   try {
-    if (!fs5.existsSync(getDeployStampPath())) return null;
-    const raw = JSON.parse(fs5.readFileSync(getDeployStampPath(), "utf-8"));
+    if (!fs6.existsSync(getDeployStampPath())) return null;
+    const raw = JSON.parse(fs6.readFileSync(getDeployStampPath(), "utf-8"));
     if (!raw || typeof raw.version !== "string" || typeof raw.at !== "number") return null;
     return raw;
   } catch {
@@ -20189,12 +20278,12 @@ function readDeployStamp() {
 }
 
 // src/logTail.ts
-var fs6 = __toESM(require("node:fs"));
+var fs7 = __toESM(require("node:fs"));
 function readLogTailLines(filePath, maxLines = 50) {
   if (!filePath || maxLines <= 0) return [];
   try {
-    if (!fs6.existsSync(filePath)) return [];
-    const raw = fs6.readFileSync(filePath, "utf8");
+    if (!fs7.existsSync(filePath)) return [];
+    const raw = fs7.readFileSync(filePath, "utf8");
     const lines = raw.split(/\r?\n/).filter((line) => line.length > 0);
     return lines.slice(-maxLines);
   } catch {
@@ -20244,6 +20333,75 @@ function shouldReloadWebview(lastSyncedPort, nextPort) {
 function shouldReconnectWebview(lastSyncedPort, nextPort, bridgeActive) {
   if (shouldReloadWebview(lastSyncedPort, nextPort)) return true;
   return !bridgeActive;
+}
+
+// src/webviewMessageRouter.ts
+function createWebviewMessageRouter(handlers) {
+  return (message, view, ctx) => {
+    const type = String(message.type || "");
+    const handler = handlers[type];
+    if (handler) {
+      void handler(message, view, ctx);
+    }
+  };
+}
+function buildDefaultWebviewHandlers(vscodeApi) {
+  return {
+    "get-server-info": (_msg, view, ctx) => ctx.pushServerInfo(view),
+    "webview-ready": (_msg, view, ctx) => {
+      if (!ctx.hasBridge()) ctx.connectBridge(view);
+      else view.webview.postMessage(ctx.bridgePayload());
+    },
+    "hub-connect": (_msg, view, ctx) => ctx.connectBridge(view),
+    "request-debug": (_msg, view, ctx) => ctx.handleDebug(view),
+    "prune-test-registry": (_msg, view, ctx) => ctx.handlePrune(view),
+    "open-webview-devtools": () => {
+      void vscodeApi.commands.executeCommand("workbench.action.webview.openDeveloperTools");
+    },
+    "copy-debug-json": (msg) => {
+      if (typeof msg.json === "string") {
+        void vscodeApi.env.clipboard.writeText(msg.json).then(
+          () => vscodeApi.window.showInformationMessage("MCP Feedback: debug JSON copied"),
+          () => vscodeApi.window.showWarningMessage("MCP Feedback: copy failed")
+        );
+      }
+    },
+    "hub-message": (msg, _view, ctx) => {
+      if (msg.data) ctx.deliverHubMessage(msg.data);
+    },
+    "feedback-submitted": () => {
+      vscodeApi.window.setStatusBarMessage("Feedback submitted!", 1500);
+    },
+    "error": (msg) => {
+      vscodeApi.window.showErrorMessage(`MCP Feedback: ${msg.message}`);
+    },
+    "info": (msg) => {
+      vscodeApi.window.showInformationMessage(`MCP Feedback: ${msg.message}`);
+    },
+    "new-session": (_msg, _view, ctx) => ctx.focusPanel(),
+    "force-reset": (_msg, _view, ctx) => {
+      if (!ctx.forceReset) return;
+      void ctx.forceReset().then(
+        (port) => vscodeApi.window.showInformationMessage(`MCP Feedback: Reset! Port ${port}`),
+        (e) => vscodeApi.window.showErrorMessage(`MCP Feedback: Reset failed - ${e}`)
+      );
+    },
+    "open-in-editor": () => {
+      void vscodeApi.commands.executeCommand("mcp-feedback-enhanced.openInEditor");
+    },
+    "reload-webview": (_msg, _view, ctx) => ctx.recreate(),
+    "at-search": (msg, view, ctx) => {
+      ctx.handleAtSearch(String(msg.query || ""), view);
+    },
+    "open-log": (msg, _view, ctx) => {
+      void ctx.openLog(String(msg.target || ""));
+    },
+    "export-sessions": (msg, _view, ctx) => {
+      if (msg.data && typeof msg.data === "object") {
+        void ctx.exportSessions(msg.data);
+      }
+    }
+  };
 }
 
 // src/feedbackViewProvider.ts
@@ -20338,6 +20496,9 @@ var FeedbackViewProvider = class {
     const panelConnectionUri = view.webview.asWebviewUri(
       vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelConnection.js").with({ query: `v=${cacheKey}` })
     );
+    const panelAppUri = view.webview.asWebviewUri(
+      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelApp.js").with({ query: `v=${cacheKey}` })
+    );
     const themeContrastUri = view.webview.asWebviewUri(
       vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "themeContrast.js").with({ query: `v=${cacheKey}` })
     );
@@ -20346,6 +20507,7 @@ var FeedbackViewProvider = class {
     html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
     html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
+    html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
     html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
     html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
     return html;
@@ -20383,12 +20545,12 @@ var FeedbackViewProvider = class {
       return quickRepliesFromConfig(void 0);
     }
   }
-  _bridgePayload() {
+  _hostPayload(type) {
     const deployStamp = readDeployStamp();
     const version2 = this._getVersion();
     const memoryVersion = this._getMemoryVersion();
     return {
-      type: "bridge-connected",
+      type,
       port: this._getPort(),
       version: version2,
       memoryVersion,
@@ -20400,6 +20562,9 @@ var FeedbackViewProvider = class {
       quickReplies: this._quickRepliesFromSettings()
     };
   }
+  _bridgePayload() {
+    return this._hostPayload("bridge-connected");
+  }
   /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
   _connectBridge(view) {
     if (this._bridge) {
@@ -20410,21 +20575,7 @@ var FeedbackViewProvider = class {
     view.webview.postMessage(this._bridgePayload());
   }
   _pushServerInfo(view) {
-    const deployStamp = readDeployStamp();
-    const version2 = this._getVersion();
-    const memoryVersion = this._getMemoryVersion();
-    view.webview.postMessage({
-      type: "server-info",
-      port: this._getPort(),
-      version: version2,
-      memoryVersion,
-      pid: process.pid,
-      versionWarnings: this._versionWarnings(),
-      deployStamp,
-      deployLabel: formatDeployStampLabel(deployStamp, version2),
-      deployReloadBanner: deployReloadBannerText(memoryVersion, version2, deployStamp),
-      quickReplies: this._quickRepliesFromSettings()
-    });
+    view.webview.postMessage(this._hostPayload("server-info"));
   }
   _handleDebugRequest(view) {
     const hub = this._getHub();
@@ -20484,90 +20635,46 @@ var FeedbackViewProvider = class {
     void this._handleDebugRequest(view);
   }
   _setupMessageHandler(view) {
-    view.webview.onDidReceiveMessage((message) => {
-      switch (message.type) {
-        case "get-server-info":
-          this._pushServerInfo(view);
-          break;
-        case "webview-ready":
-          if (!this._bridge) {
-            this._connectBridge(view);
-          } else {
-            view.webview.postMessage(this._bridgePayload());
-          }
-          break;
-        case "hub-connect":
-          this._connectBridge(view);
-          break;
-        case "request-debug":
-          this._handleDebugRequest(view);
-          break;
-        case "prune-test-registry":
-          this._handlePruneTestRegistry(view);
-          break;
-        case "open-webview-devtools":
-          void vscode2.commands.executeCommand("workbench.action.webview.openDeveloperTools");
-          break;
-        case "copy-debug-json":
-          if (typeof message.json === "string") {
-            void vscode2.env.clipboard.writeText(message.json).then(
-              () => vscode2.window.showInformationMessage("MCP Feedback: debug JSON copied"),
-              () => vscode2.window.showWarningMessage("MCP Feedback: copy failed")
-            );
-          }
-          break;
-        case "hub-message":
-          if (this._bridge && message.data) {
-            this._bridge.deliver(JSON.stringify(message.data));
-          }
-          break;
-        case "feedback-submitted":
-          vscode2.window.setStatusBarMessage("Feedback submitted!", 1500);
-          break;
-        case "error":
-          vscode2.window.showErrorMessage(`MCP Feedback: ${message.message}`);
-          break;
-        case "info":
-          vscode2.window.showInformationMessage(`MCP Feedback: ${message.message}`);
-          break;
-        case "new-session":
-          this._focusPanel();
-          break;
-        case "force-reset":
-          if (this._forceResetCallback) {
-            this._forceResetCallback().then((newPort) => {
-              vscode2.window.showInformationMessage(`MCP Feedback: Reset! Port ${newPort}`);
-            }).catch((e) => {
-              vscode2.window.showErrorMessage(`MCP Feedback: Reset failed - ${e}`);
-            });
-          }
-          break;
-        case "open-in-editor":
-          vscode2.commands.executeCommand("mcp-feedback-enhanced.openInEditor");
-          break;
-        case "reload-webview":
-          this.recreate();
-          break;
-        case "at-search":
-          this._handleAtSearch(message.query, view);
-          break;
-        case "open-log":
-          void this._openLogFile(message.target);
-          break;
-        case "open-mcp-output":
-          void this._openMcpOutput();
-          break;
-        case "export-sessions":
-          void this._exportSessions(message.data);
-          break;
-        case "log":
-          if (typeof message.msg === "string") {
-            const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
-            const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
-            appendWebviewLog(message.msg, typeof projectPath === "string" ? projectPath : void 0);
-          }
-          break;
+    const handlers = {
+      ...buildDefaultWebviewHandlers(vscode2),
+      "request-debug": (_msg, v, ctx) => {
+        ctx.handleDebug(v);
+      },
+      "prune-test-registry": (_msg, v, ctx) => {
+        ctx.handlePrune(v);
+      },
+      "open-mcp-output": () => {
+        void this._openMcpOutput();
+      },
+      log: (message) => {
+        if (typeof message.msg === "string") {
+          const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+          const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
+          appendWebviewLog(message.msg, typeof projectPath === "string" ? projectPath : void 0);
+        }
       }
+    };
+    const route = createWebviewMessageRouter(handlers);
+    view.webview.onDidReceiveMessage((message) => {
+      route(message, view, {
+        pushServerInfo: (v) => this._pushServerInfo(v),
+        connectBridge: (v) => this._connectBridge(v),
+        bridgePayload: () => this._bridgePayload(),
+        hasBridge: () => this._bridge !== null,
+        deliverHubMessage: (data) => {
+          if (this._bridge && data) {
+            this._bridge.deliver(JSON.stringify(data));
+          }
+        },
+        handleDebug: (v) => this._handleDebugRequest(v),
+        handlePrune: (v) => this._handlePruneTestRegistry(v),
+        handleAtSearch: (q, v) => this._handleAtSearch(q, v),
+        openLog: (t) => this._openLogFile(t),
+        exportSessions: (d) => this._exportSessions(d),
+        forceReset: this._forceResetCallback,
+        recreate: () => this.recreate(),
+        focusPanel: () => this._focusPanel()
+      });
     });
   }
   async _handleAtSearch(query, view) {
@@ -20585,7 +20692,7 @@ var FeedbackViewProvider = class {
         const rel = workspaceRoot ? vscode2.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
           kind: "file",
-          label: path8.basename(file2.fsPath),
+          label: path9.basename(file2.fsPath),
           detail: rel,
           insertText: rel
         });
@@ -20628,11 +20735,11 @@ var FeedbackViewProvider = class {
       return;
     }
     try {
-      const htmlDir = path8.join(__dirname, "webview");
-      if (!fs7.existsSync(htmlDir)) {
+      const htmlDir = path9.join(__dirname, "webview");
+      if (!fs8.existsSync(htmlDir)) {
         return;
       }
-      this._fileWatcher = fs7.watch(htmlDir, () => {
+      this._fileWatcher = fs8.watch(htmlDir, () => {
         if (view.visible) {
           view.webview.html = this._injectWebviewResources(view);
         }
@@ -20654,9 +20761,9 @@ var FeedbackViewProvider = class {
     }
     const logPath = resolveFeedbackLogPath(target);
     try {
-      if (!fs7.existsSync(logPath)) {
-        fs7.mkdirSync(path8.dirname(logPath), { recursive: true });
-        fs7.writeFileSync(logPath, "", "utf8");
+      if (!fs8.existsSync(logPath)) {
+        fs8.mkdirSync(path9.dirname(logPath), { recursive: true });
+        fs8.writeFileSync(logPath, "", "utf8");
       }
       const doc = await vscode2.workspace.openTextDocument(vscode2.Uri.file(logPath));
       await vscode2.window.showTextDocument(doc, { preview: false });
@@ -20684,22 +20791,22 @@ var FeedbackViewProvider = class {
   async _exportSessions(data) {
     const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
     const uri = await vscode2.window.showSaveDialog({
-      defaultUri: vscode2.Uri.file(path8.join(os4.homedir(), "Downloads", defaultName)),
+      defaultUri: vscode2.Uri.file(path9.join(os4.homedir(), "Downloads", defaultName)),
       filters: { JSON: ["json"] }
     });
     if (!uri) return;
-    fs7.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
-    vscode2.window.showInformationMessage(`MCP Feedback: exported sessions to ${path8.basename(uri.fsPath)}`);
+    fs8.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
+    vscode2.window.showInformationMessage(`MCP Feedback: exported sessions to ${path9.basename(uri.fsPath)}`);
   }
 };
 
 // src/extensionVersion.ts
-var fs8 = __toESM(require("fs"));
-var path9 = __toESM(require("path"));
+var fs9 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
 function readExtensionVersion(extensionPath) {
   try {
     const pkg = JSON.parse(
-      fs8.readFileSync(path9.join(extensionPath, "package.json"), "utf-8")
+      fs9.readFileSync(path10.join(extensionPath, "package.json"), "utf-8")
     );
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
@@ -20715,6 +20822,58 @@ var EXTENSION_SYNC_DELAY_MS = 800;
 var EXTENSION_PANEL_FOCUS_DELAYS_MS = [1500, 3e3, 5e3];
 function extensionSyncDelaysMs() {
   return [EXTENSION_SYNC_DELAY_MS];
+}
+
+// src/deploy/nodeBin.ts
+var import_node_child_process2 = require("node:child_process");
+var cachedNodeBin = null;
+function resolveNodeBin(exec2 = import_node_child_process2.execSync) {
+  if (cachedNodeBin) return cachedNodeBin;
+  try {
+    if (process.platform === "win32") {
+      const out = exec2("where.exe node", { encoding: "utf-8", timeout: 5e3, env: process.env });
+      const first = out.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
+      if (first) {
+        cachedNodeBin = first;
+        return first;
+      }
+    } else {
+      const resolved = exec2("which node", { encoding: "utf-8", timeout: 5e3, env: process.env }).trim();
+      if (resolved) {
+        cachedNodeBin = resolved;
+        return resolved;
+      }
+    }
+  } catch {
+  }
+  cachedNodeBin = "node";
+  return cachedNodeBin;
+}
+
+// src/deploy/mcpConfig.ts
+var path11 = __toESM(require("node:path"));
+function planMcpConfigUpdate(extensionPath, version2, nodeBin, existing) {
+  const localServerPath = path11.join(extensionPath, "mcp-server", "dist", "index.js");
+  const entry = {
+    command: nodeBin,
+    args: [localServerPath],
+    env: { MCP_FEEDBACK_VERSION: version2 }
+  };
+  const existingEnv = existing?.env || {};
+  const unchanged = existing?.command === entry.command && JSON.stringify(existing?.args) === JSON.stringify(entry.args) && existingEnv.MCP_FEEDBACK_VERSION === version2;
+  return {
+    changed: !unchanged,
+    entry,
+    removeLegacy: ["mcp-feedback-v2"]
+  };
+}
+function applyMcpConfigPlan(config2, plan) {
+  const mcpServers = { ...config2.mcpServers || {} };
+  for (const legacy of plan.removeLegacy) {
+    delete mcpServers[legacy];
+  }
+  mcpServers["mcp-feedback-enhanced"] = plan.entry;
+  return { ...config2, mcpServers };
 }
 
 // src/extension.ts
@@ -20741,33 +20900,15 @@ function cancelFeedbackReminders() {
 function getWorkspaces() {
   return (vscode3.workspace.workspaceFolders || []).map((f) => f.uri.fsPath);
 }
-function resolveNodeBin() {
-  try {
-    if (process.platform === "win32") {
-      const out = (0, import_child_process.execSync)("where.exe node", { encoding: "utf-8", timeout: 5e3, env: process.env });
-      const first = out.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-      if (first) {
-        return first;
-      }
-    } else {
-      const resolved = (0, import_child_process.execSync)("which node", { encoding: "utf-8", timeout: 5e3, env: process.env }).trim();
-      if (resolved) {
-        return resolved;
-      }
-    }
-  } catch {
-  }
-  return "node";
-}
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path10.join(extensionPath, "out", "webview", "panel.html"),
-    path10.join(extensionPath, "static", "panel.html")
+    path12.join(extensionPath, "out", "webview", "panel.html"),
+    path12.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
-    if (fs9.existsSync(p)) {
-      html = fs9.readFileSync(p, "utf-8");
+    if (fs10.existsSync(p)) {
+      html = fs10.readFileSync(p, "utf-8");
       break;
     }
   }
@@ -20921,7 +21062,7 @@ function _openEditorPanel(context, port) {
     {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode3.Uri.file(path10.join(context.extensionPath, "out"))]
+      localResourceRoots: [vscode3.Uri.file(path12.join(context.extensionPath, "out"))]
     }
   );
   panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
@@ -20929,57 +21070,49 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path10.join(os5.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path12.join(os5.homedir(), ".cursor", "mcp.json");
     let config2 = {};
-    if (fs9.existsSync(mcpConfigPath)) {
-      config2 = JSON.parse(fs9.readFileSync(mcpConfigPath, "utf-8"));
+    if (fs10.existsSync(mcpConfigPath)) {
+      config2 = JSON.parse(fs10.readFileSync(mcpConfigPath, "utf-8"));
     }
     const mcpServers = config2.mcpServers || {};
-    const localServerPath = path10.join(extensionPath, "mcp-server", "dist", "index.js");
-    const expectedCommand = resolveNodeBin();
-    const expectedArgs = [localServerPath];
-    const expectedEnv = { MCP_FEEDBACK_VERSION: version2 };
-    const existing = mcpServers["mcp-feedback-enhanced"];
-    const existingEnv = existing?.env || {};
-    if (existing?.command === expectedCommand && JSON.stringify(existing?.args) === JSON.stringify(expectedArgs) && existingEnv.MCP_FEEDBACK_VERSION === version2) {
-      return;
-    }
-    mcpServers["mcp-feedback-enhanced"] = {
-      command: expectedCommand,
-      args: expectedArgs,
-      env: expectedEnv
-    };
-    delete mcpServers["mcp-feedback-v2"];
-    config2.mcpServers = mcpServers;
-    fs9.mkdirSync(path10.dirname(mcpConfigPath), { recursive: true });
-    fs9.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
+    const plan = planMcpConfigUpdate(
+      extensionPath,
+      version2,
+      resolveNodeBin(),
+      mcpServers["mcp-feedback-enhanced"]
+    );
+    if (!plan.changed) return;
+    config2 = applyMcpConfigPlan(config2, plan);
+    fs10.mkdirSync(path12.dirname(mcpConfigPath), { recursive: true });
+    fs10.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to update MCP config:", e);
   }
 }
 function deployCursorHooks(extensionPath) {
   try {
-    const hooksSourceDir = path10.join(extensionPath, "scripts", "hooks");
-    const targetDir = path10.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
-    fs9.mkdirSync(targetDir, { recursive: true });
+    const hooksSourceDir = path12.join(extensionPath, "scripts", "hooks");
+    const targetDir = path12.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    fs10.mkdirSync(targetDir, { recursive: true });
     const hookFiles = ["hook-utils.js", "consume-pending.js"];
     for (const file2 of hookFiles) {
-      const src = path10.join(hooksSourceDir, file2);
-      if (fs9.existsSync(src)) {
-        fs9.copyFileSync(src, path10.join(targetDir, file2));
+      const src = path12.join(hooksSourceDir, file2);
+      if (fs10.existsSync(src)) {
+        fs10.copyFileSync(src, path12.join(targetDir, file2));
       }
     }
     for (const old of ["check-pending.js", "agent-stop.js", "session-start.js", "enforce-feedback.js", "track-feedback.js", "compact-flag.js"]) {
       try {
-        fs9.unlinkSync(path10.join(targetDir, old));
+        fs10.unlinkSync(path12.join(targetDir, old));
       } catch {
       }
     }
-    const preToolUseHook = path10.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path10.join(os5.homedir(), ".cursor", "hooks.json");
+    const preToolUseHook = path12.join(targetDir, "consume-pending.js");
+    const hooksConfigPath = path12.join(os5.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
-    if (fs9.existsSync(hooksConfigPath)) {
-      hooksConfig = JSON.parse(fs9.readFileSync(hooksConfigPath, "utf-8"));
+    if (fs10.existsSync(hooksConfigPath)) {
+      hooksConfig = JSON.parse(fs10.readFileSync(hooksConfigPath, "utf-8"));
     }
     if (!hooksConfig.version) {
       hooksConfig.version = 1;
@@ -21015,8 +21148,8 @@ function deployCursorHooks(extensionPath) {
       }
     }
     hooksConfig.hooks = hooks;
-    fs9.mkdirSync(path10.dirname(hooksConfigPath), { recursive: true });
-    fs9.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
+    fs10.mkdirSync(path12.dirname(hooksConfigPath), { recursive: true });
+    fs10.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
   }
@@ -21051,23 +21184,23 @@ var RULES_CONTENT = [
 ].join("\n");
 function deployCursorRules() {
   try {
-    const rulesDir = path10.join(os5.homedir(), ".cursor", "rules");
-    const ruleFile = path10.join(rulesDir, "mcp-feedback-enhanced.mdc");
-    fs9.mkdirSync(rulesDir, { recursive: true });
+    const rulesDir = path12.join(os5.homedir(), ".cursor", "rules");
+    const ruleFile = path12.join(rulesDir, "mcp-feedback-enhanced.mdc");
+    fs10.mkdirSync(rulesDir, { recursive: true });
     let needsWrite = true;
-    if (fs9.existsSync(ruleFile)) {
-      const existing = fs9.readFileSync(ruleFile, "utf-8");
+    if (fs10.existsSync(ruleFile)) {
+      const existing = fs10.readFileSync(ruleFile, "utf-8");
       if (existing === RULES_CONTENT) {
         needsWrite = false;
       }
     }
     if (needsWrite) {
-      fs9.writeFileSync(ruleFile, RULES_CONTENT);
+      fs10.writeFileSync(ruleFile, RULES_CONTENT);
     }
     for (const ws of getWorkspaces()) {
-      const wsRuleFile = path10.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
+      const wsRuleFile = path12.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
       try {
-        fs9.unlinkSync(wsRuleFile);
+        fs10.unlinkSync(wsRuleFile);
       } catch {
       }
     }
@@ -21077,21 +21210,21 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path10.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
-    if (!fs9.existsSync(pendingDir)) return;
-    const files = fs9.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
+    const pendingDir = path12.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    if (!fs10.existsSync(pendingDir)) return;
+    const files = fs10.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) {
-      fs9.rmdirSync(pendingDir);
+      fs10.rmdirSync(pendingDir);
       return;
     }
     for (const f of files) {
       try {
-        fs9.unlinkSync(path10.join(pendingDir, f));
+        fs10.unlinkSync(path12.join(pendingDir, f));
       } catch {
       }
     }
     try {
-      fs9.rmdirSync(pendingDir);
+      fs10.rmdirSync(pendingDir);
     } catch {
     }
   } catch {

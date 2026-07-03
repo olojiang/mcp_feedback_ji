@@ -7,25 +7,26 @@ const root = join(import.meta.dirname, '..')
 
 describe('panel UX feature wiring (static integration)', () => {
   const html = readFileSync(join(root, 'static/panel.html'), 'utf8')
+  const panelApp = readFileSync(join(root, 'static/panelApp.js'), 'utf8')
 
   it('panel.html includes version skew banner, scroll button, and DBG trace map', () => {
     assert.match(html, /id="versionSkewBanner"/)
     assert.match(html, /id="scrollBottomBtn"/)
     assert.match(html, /id="debugSessionTraces"/)
-    assert.match(html, /function showVersionSkewBanner/)
-    assert.match(html, /function scrollMessagesToBottom/)
-    assert.match(html, /shouldSubmitOnCtrlEnter/)
+    assert.match(panelApp, /function showVersionSkewBanner/)
+    assert.match(panelApp, /function scrollMessagesToBottom/)
+    assert.match(panelApp, /shouldSubmitOnCtrlEnter/)
   })
 
-  it('panel.html wires Ctrl+Enter on input keydown', () => {
-    assert.match(html, /inputEl\.addEventListener\('keydown'/)
-    assert.match(html, /shouldSubmitOnCtrlEnter/)
+  it('panelApp wires Ctrl+Enter on input keydown', () => {
+    assert.match(panelApp, /inputEl\.addEventListener\('keydown'/)
+    assert.match(panelApp, /shouldSubmitOnCtrlEnter/)
   })
 
   it('input textarea stretches with bottom pane (splitter resize)', () => {
     assert.match(html, /\.input-row\{[^}]*align-items:stretch/)
     assert.match(html, /\.input-row textarea\{[^}]*height:100%/)
-    assert.match(html, /function applyInputPaneHeight/)
-    assert.match(html, /setupPaneSplitter/)
+    assert.match(panelApp, /function applyInputPaneHeight/)
+    assert.match(panelApp, /setupPaneSplitter/)
   })
 })
