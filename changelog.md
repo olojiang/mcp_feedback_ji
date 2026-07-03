@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.57] - 2026-07-03
+
+### Added
+- **Quick replies**: `Test Verify` button; `LGTM` renamed to **Looks Good**; Settings textarea to customize `label|text` lines.
+- **Draggable split bar** between messages and input pane (persisted to localStorage; double-click reset).
+- **Shift+click** quick reply fills input; **Ctrl+Enter** send; **Finished** confirm dialog.
+- **Scroll to bottom** floating button when messages scrolled up.
+- **Version skew banner** when DBG registry reports other windows on old builds.
+- **DBG Session traceId map** for open sessions.
+- E2E: `quick-ux.spec.cjs`; tests: `panelUx.test.js`.
+
 ## [2.5.1-ji.56] - 2026-07-03
 
 ### Added

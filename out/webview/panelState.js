@@ -58,6 +58,12 @@
       this.lastPendingSessionIds = []
       this.panelWorkspace = ''
       this.routingMismatch = null
+      this.quickReplies = PanelState.DEFAULT_QUICK_REPLIES.map(function (q) {
+        return { id: q.id, label: q.label, text: q.text, icon: q.icon || '', finished: !!q.finished }
+      })
+      this.inputPaneHeight = 220
+      this.ctrlEnterSend = true
+      this.confirmFinished = true
     }
 
     getActiveSession() {
@@ -564,6 +570,24 @@
       return active ? active.stagedImages : []
     }
 
+    setUxPrefs(prefs) {
+      if (prefs.quickReplies) this.quickReplies = PanelState.normalizeQuickReplies(prefs.quickReplies)
+      if (prefs.inputPaneHeight !== undefined) {
+        this.inputPaneHeight = PanelState.clampInputPaneHeight(prefs.inputPaneHeight, prefs.viewportHeight || 600)
+      }
+      if (prefs.ctrlEnterSend !== undefined) this.ctrlEnterSend = !!prefs.ctrlEnterSend
+      if (prefs.confirmFinished !== undefined) this.confirmFinished = !!prefs.confirmFinished
+      return [dom('save_state'), dom('render_quick_replies'), dom('apply_pane_height')]
+    }
+
+    fillInputFromQuickReply(text) {
+      return [
+        dom('set_input', text || ''),
+        dom('focus_input'),
+        dom('save_state'),
+      ]
+    }
+
     setAutoReply(enabled, text) {
       this.autoReply = !!enabled
       if (text !== undefined) this.autoReplyText = text
@@ -590,6 +614,10 @@
         globalPendingImages: this.globalPendingImages,
         autoReply: this.autoReply,
         autoReplyText: this.autoReplyText,
+        quickReplies: this.quickReplies,
+        inputPaneHeight: this.inputPaneHeight,
+        ctrlEnterSend: this.ctrlEnterSend,
+        confirmFinished: this.confirmFinished,
       }
     }
 
@@ -602,6 +630,14 @@
       this.globalPendingImages = data.globalPendingImages || []
       this.autoReply = data.autoReply || false
       this.autoReplyText = data.autoReplyText || 'Continue'
+      if (data.quickReplies) {
+        this.quickReplies = PanelState.normalizeQuickReplies(data.quickReplies)
+      }
+      if (data.inputPaneHeight) {
+        this.inputPaneHeight = PanelState.clampInputPaneHeight(data.inputPaneHeight, 600)
+      }
+      if (data.ctrlEnterSend !== undefined) this.ctrlEnterSend = !!data.ctrlEnterSend
+      if (data.confirmFinished !== undefined) this.confirmFinished = !!data.confirmFinished
       // waiting flags are authoritative from server sync, not localStorage
       for (var i = 0; i < this.sessionOrder.length; i++) {
         var sid = this.sessionOrder[i]
@@ -1016,6 +1052,7 @@
           summary: s.summary,
           waiting: s.waiting,
           project_directory: s.projectDirectory || '',
+          traceId: s.traceId || '',
           messages: s.messages,
         }
       }),
@@ -1032,6 +1069,96 @@
       ].join(' ').toLowerCase()
       return hay.indexOf(q) >= 0
     })
+  }
+  PanelState.DEFAULT_QUICK_REPLIES = [
+    { id: 'continue', label: 'Continue', text: 'Continue', icon: '\u25B6' },
+    { id: 'looks-good', label: 'Looks Good', text: 'Looks good, proceed', icon: '\u2713' },
+    { id: 'fix', label: 'Fix', text: 'Please fix the issues', icon: '\u26A1' },
+    { id: 'pause', label: 'Pause', text: 'Stop, let me review first', icon: '\u25A0' },
+    {
+      id: 'test-verify',
+      label: 'Test Verify',
+      text: 'TDD 充分了吗，测试覆盖全了吗，单测，集成测试，覆盖测试，性能测试，etc？',
+      icon: '\u2699',
+    },
+    { id: 'finished', label: 'Finished', text: 'Finished', icon: '', finished: true },
+  ]
+  PanelState.normalizeQuickReplies = function (custom) {
+    var base = PanelState.DEFAULT_QUICK_REPLIES
+    if (!custom || !custom.length) return base.map(function (q) { return Object.assign({}, q) })
+    var byId = {}
+    for (var i = 0; i < custom.length; i++) {
+      var c = custom[i]
+      if (c && c.id) byId[c.id] = c
+    }
+    return base.map(function (q) {
+      var o = byId[q.id]
+      if (!o) return Object.assign({}, q)
+      return {
+        id: q.id,
+        label: o.label || q.label,
+        text: o.text || q.text,
+        icon: o.icon !== undefined ? o.icon : q.icon,
+        finished: o.finished !== undefined ? !!o.finished : !!q.finished,
+      }
+    })
+  }
+  PanelState.parseQuickRepliesConfig = function (raw) {
+    var lines = String(raw || '').split('\n')
+    var out = []
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim()
+      if (!line) continue
+      var parts = line.split('|')
+      if (parts.length < 2) continue
+      out.push({
+        id: 'custom-' + i,
+        label: parts[0].trim(),
+        text: parts.slice(1).join('|').trim(),
+        icon: '',
+        finished: parts[0].trim().toLowerCase() === 'finished'
+          || parts.slice(1).join('|').trim().toLowerCase() === 'finished',
+      })
+    }
+    return out.length ? out : null
+  }
+  PanelState.clampInputPaneHeight = function (h, viewportH) {
+    var minH = 120
+    var maxH = Math.max(minH, Math.floor((viewportH || 600) * 0.7))
+    var n = Number(h)
+    if (!Number.isFinite(n)) return 220
+    return Math.min(maxH, Math.max(minH, Math.round(n)))
+  }
+  PanelState.parseStoredInputPaneHeight = function (raw, viewportH) {
+    if (raw === null || raw === undefined || raw === '') return 220
+    return PanelState.clampInputPaneHeight(raw, viewportH)
+  }
+  PanelState.shouldConfirmFinished = function (text, enabled) {
+    if (!enabled) return false
+    return String(text || '').trim().toLowerCase() === 'finished'
+  }
+  PanelState.shouldSubmitOnCtrlEnter = function (event, enabled) {
+    if (!enabled || !event) return false
+    if (event.key !== 'Enter') return false
+    return !!(event.ctrlKey || event.metaKey)
+  }
+  PanelState.resolveQuickReplyMode = function (event) {
+    return event && event.shiftKey ? 'fill' : 'send'
+  }
+  PanelState.versionSkewBannerText = function (warnings) {
+    if (!warnings || !warnings.length) return ''
+    return String(warnings[0])
+  }
+  PanelState.debugSessionTraces = function (state) {
+    return (state.sessionOrder || []).map(function (id) {
+      var s = state.sessions[id]
+      return { id: id, traceId: (s && s.traceId) || '' }
+    }).filter(function (row) { return row.traceId })
+  }
+  PanelState.messagesScrolledUp = function (el, threshold) {
+    if (!el) return false
+    threshold = threshold || 40
+    return (el.scrollHeight - el.scrollTop - el.clientHeight) > threshold
   }
   PanelState.cmd = { wsSend, render, dom, notify }
   exports.PanelState = PanelState
