@@ -14,10 +14,8 @@ const LOG_PATH = path.join(
 )
 
 function testClipboard() {
-  return {
-    writeText: async () => {},
-    readText: async () => 'plain-text',
-  }
+  const { createTestClipboard } = require('../out/testClipboard.js')
+  return createTestClipboard({ readText: async () => 'plain-text' })
 }
 
 describe('wsHub webview handlers', () => {

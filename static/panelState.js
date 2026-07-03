@@ -21,6 +21,19 @@
   var transportSendWithQueue = transport.transportSendWithQueue
   var ConnectionHealth = transport.ConnectionHealth
 
+  function loadModule(name, globalKey) {
+    if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
+      return require('./' + name + '.js')
+    }
+    if (typeof window !== 'undefined' && window[globalKey]) {
+      return window[globalKey]
+    }
+    throw new Error(name + '.js must load before panelState.js')
+  }
+
+  var uxModule = loadModule('panelStateUx', 'PanelStateUxModule')
+  var markdownModule = loadModule('panelStateMarkdown', 'PanelStateMarkdownModule')
+
   function wsSend(message) {
     return { type: 'ws_send', message }
   }
@@ -72,10 +85,11 @@
       this.globalPendingQueue = []
       this.globalPendingImages = []
       this.hubSnapshot = null
+      this.hubTimeline = []
       this.lastPendingSessionIds = []
       this.panelWorkspace = ''
       this.routingMismatch = null
-      this.quickReplies = PanelState.DEFAULT_QUICK_REPLIES.map(function (q) {
+      this.quickReplies = uxModule.DEFAULT_QUICK_REPLIES.map(function (q) {
         return { id: q.id, label: q.label, text: q.text, icon: q.icon || '', finished: !!q.finished }
       })
       this.inputPaneHeight = 220
@@ -236,7 +250,20 @@
       return null
     }
 
+    _applyMessagePatches(msg) {
+      if (!msg.message_patches || !msg.message_patches.length) return
+      for (var i = 0; i < msg.message_patches.length; i++) {
+        var patch = msg.message_patches[i]
+        if (patch && patch.op === 'append' && patch.messages) {
+          for (var j = 0; j < patch.messages.length; j++) {
+            this.hubTimeline.push(patch.messages[j])
+          }
+        }
+      }
+    }
+
     _onStateSync(msg) {
+      this._applyMessagePatches(msg)
       if (msg.pending_sessions_unchanged) {
         this.globalPendingQueue = msg.pending_comments || []
         this.globalPendingImages = msg.pending_images || []
@@ -865,6 +892,9 @@
 
     static tabTitle = tabTitle
   }
+
+  markdownModule.attachPanelStateMarkdown(PanelState)
+  uxModule.attachPanelStateUx(PanelState)
 
   PanelState.PING_COMMAND = PING_COMMAND
   PanelState.PONG_REPLY = PONG_REPLY

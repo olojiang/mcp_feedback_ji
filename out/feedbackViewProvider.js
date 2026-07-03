@@ -51,6 +51,7 @@ const webviewLog_1 = require("./webviewLog");
 const logPaths_1 = require("./logPaths");
 const fileStore_1 = require("./fileStore");
 const registrySnapshot_1 = require("./registrySnapshot");
+const webviewDiagnoseHandlers_1 = require("./webviewDiagnoseHandlers");
 const deployStamp_1 = require("./deployStamp");
 const deployStampReader_1 = require("./deployStampReader");
 const logTail_1 = require("./logTail");
@@ -139,6 +140,10 @@ class FeedbackViewProvider {
         const cacheKey = encodeURIComponent(this._getVersion());
         const erudaUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'static', 'vendor', 'eruda.js')
             .with({ query: `v=${cacheKey}` }));
+        const panelStateMarkdownUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelStateMarkdown.js')
+            .with({ query: `v=${cacheKey}` }));
+        const panelStateUxUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelStateUx.js')
+            .with({ query: `v=${cacheKey}` }));
         const panelStateTransportUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelStateTransport.js')
             .with({ query: `v=${cacheKey}` }));
         const panelStateUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelState.js')
@@ -154,6 +159,8 @@ class FeedbackViewProvider {
         const cspSource = view.webview.cspSource;
         html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
         html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
+        html = html.replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, panelStateMarkdownUri.toString());
+        html = html.replace(/\{\{PANELSTATE_UX_URI\}\}/g, panelStateUxUri.toString());
         html = html.replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, panelStateTransportUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
         html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
@@ -228,7 +235,7 @@ class FeedbackViewProvider {
     _pushServerInfo(view) {
         view.webview.postMessage(this._hostPayload('server-info'));
     }
-    _handleDebugRequest(view) {
+    _handleDebugRequest(view, traceId) {
         const hub = this._getHub();
         const rawRegistry = (0, fileStore_1.listAllServers)();
         const registry = (0, registrySnapshot_1.enrichRegistryEntries)(rawRegistry, (pid) => {
@@ -242,8 +249,8 @@ class FeedbackViewProvider {
         });
         const skew = (0, registrySnapshot_1.versionSkewWarnings)(registry, this._getVersion(), process.pid);
         const mcpLogPath = (0, logPaths_1.resolveFeedbackLogPath)('mcp-server');
-        const report = {
-            timestamp: new Date().toISOString(),
+        const report = (0, webviewDiagnoseHandlers_1.buildDebugReport)({
+            traceId,
             extension: {
                 pid: process.pid,
                 version: this._getVersion(),
@@ -264,11 +271,8 @@ class FeedbackViewProvider {
                 mcpServer: mcpLogPath,
                 webview: (0, logPaths_1.resolveFeedbackLogPath)('webview'),
             },
-            logTail: {
-                mcpServer: (0, logTail_1.readLogTailLines)(mcpLogPath, 50),
-            },
-        };
-        report.diagnoseBundle = (0, registrySnapshot_1.buildDiagnoseBundle)(report);
+            mcpLogLines: (0, logTail_1.readLogTailLines)(mcpLogPath, 50),
+        });
         view.webview.postMessage({ type: 'debug-report', report });
     }
     _handlePruneTestRegistry(view) {
@@ -290,8 +294,9 @@ class FeedbackViewProvider {
     _setupMessageHandler(view) {
         const handlers = {
             ...(0, webviewMessageRouter_1.buildDefaultWebviewHandlers)(vscode),
-            'request-debug': (_msg, v, ctx) => {
-                ctx.handleDebug(v);
+            'request-debug': (msg, v, ctx) => {
+                const traceId = typeof msg.trace_id === 'string' ? msg.trace_id : undefined;
+                ctx.handleDebug(v, traceId);
             },
             'prune-test-registry': (_msg, v, ctx) => {
                 ctx.handlePrune(v);
@@ -319,7 +324,7 @@ class FeedbackViewProvider {
                         this._bridge.deliver(JSON.stringify(data));
                     }
                 },
-                handleDebug: (v) => this._handleDebugRequest(v),
+                handleDebug: (v, traceId) => this._handleDebugRequest(v, traceId),
                 handlePrune: (v) => this._handlePruneTestRegistry(v),
                 handleAtSearch: (q, v) => this._handleAtSearch(q, v),
                 openLog: (t) => this._openLogFile(t),

@@ -19719,10 +19719,14 @@ function buildStateSyncPayload(input) {
     type: "state_sync",
     incremental,
     sync_generation: input.syncGeneration,
-    messages: incremental ? [] : input.messages,
     pending_comments: input.pendingComments,
     pending_images: input.pendingImages,
-    feedback_queue_size: input.feedbackQueueSize
+    feedback_queue_size: input.feedbackQueueSize,
+    ...buildMessageSync({
+      syncGeneration: input.syncGeneration,
+      messages: input.messages,
+      lastMessageCount: input.lastMessageCount
+    })
   };
   if (pendingUnchanged) {
     payload.pending_sessions_unchanged = true;
@@ -19735,6 +19739,26 @@ function buildStateSyncPayload(input) {
     payload.hub = input.hub;
   }
   return payload;
+}
+function buildMessageSync(input) {
+  const incremental = input.syncGeneration > 0;
+  const prevCount = input.lastMessageCount ?? 0;
+  const count = input.messages.length;
+  if (!incremental) {
+    return { messages: input.messages };
+  }
+  if (count === prevCount) {
+    return { messages_unchanged: true };
+  }
+  if (count > prevCount) {
+    return {
+      message_patches: [{
+        op: "append",
+        messages: input.messages.slice(prevCount)
+      }]
+    };
+  }
+  return { messages: input.messages };
 }
 
 // src/server/wsHub.ts
@@ -20119,6 +20143,7 @@ var WsHub = class {
     const pendingFp = pendingSessionsFingerprint(sessionWire);
     const hubFp = hubFingerprint(hub);
     const lastFp = this.stateSyncFingerprints.get(ws);
+    const messageCount = this.timeline.getMessages().length;
     wsLog(
       `stateSync: version=${this.version} port=${this.port} workspaces=${JSON.stringify(this.workspaces)} pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count} gen=${generation}`
     );
@@ -20137,9 +20162,10 @@ var WsHub = class {
       pendingSessions: sessionWire,
       hub,
       lastPendingFingerprint: lastFp?.pending,
-      lastHubFingerprint: lastFp?.hub
+      lastHubFingerprint: lastFp?.hub,
+      lastMessageCount: lastFp?.messageCount
     }));
-    this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp });
+    this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp, messageCount });
   }
   // ── Heartbeat ───────────────────────────────────────────
   _startHeartbeat() {
@@ -20303,6 +20329,46 @@ function buildDiagnoseBundle(payload) {
   }, null, 2);
 }
 
+// src/logTail.ts
+var fs6 = __toESM(require("node:fs"));
+function readLogTailLines(filePath, maxLines = 50) {
+  if (!filePath || maxLines <= 0) return [];
+  try {
+    if (!fs6.existsSync(filePath)) return [];
+    const raw = fs6.readFileSync(filePath, "utf8");
+    const lines = raw.split(/\r?\n/).filter((line) => line.length > 0);
+    return lines.slice(-maxLines);
+  } catch {
+    return [];
+  }
+}
+function filterLogLinesByTrace(lines, traceId) {
+  if (!traceId || !lines.length) return [];
+  const needle = `trace=${traceId}`;
+  return lines.filter((line) => line.includes(needle));
+}
+
+// src/webviewDiagnoseHandlers.ts
+function buildDebugReport(input) {
+  const filtered = input.traceId ? filterLogLinesByTrace(input.mcpLogLines, input.traceId) : input.mcpLogLines;
+  const report = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    traceId: input.traceId || "",
+    extension: input.extension,
+    registry: input.registry,
+    agentContext: input.agentContext,
+    versionSkew: input.versionSkew,
+    deployStamp: input.deployStamp,
+    logPaths: input.logPaths,
+    logTail: {
+      mcpServer: input.mcpLogLines,
+      mcpServerFiltered: filtered
+    }
+  };
+  report.diagnoseBundle = buildDiagnoseBundle(report);
+  return report;
+}
+
 // src/deployStamp.ts
 function shouldPromptReloadAfterDeploy(runningVersion, stamp) {
   if (!stamp) return false;
@@ -20330,29 +20396,15 @@ function formatDeployStampLabel(stamp, runningVersion) {
 }
 
 // src/deployStampReader.ts
-var fs6 = __toESM(require("fs"));
+var fs7 = __toESM(require("fs"));
 function readDeployStamp() {
   try {
-    if (!fs6.existsSync(getDeployStampPath())) return null;
-    const raw = JSON.parse(fs6.readFileSync(getDeployStampPath(), "utf-8"));
+    if (!fs7.existsSync(getDeployStampPath())) return null;
+    const raw = JSON.parse(fs7.readFileSync(getDeployStampPath(), "utf-8"));
     if (!raw || typeof raw.version !== "string" || typeof raw.at !== "number") return null;
     return raw;
   } catch {
     return null;
-  }
-}
-
-// src/logTail.ts
-var fs7 = __toESM(require("node:fs"));
-function readLogTailLines(filePath, maxLines = 50) {
-  if (!filePath || maxLines <= 0) return [];
-  try {
-    if (!fs7.existsSync(filePath)) return [];
-    const raw = fs7.readFileSync(filePath, "utf8");
-    const lines = raw.split(/\r?\n/).filter((line) => line.length > 0);
-    return lines.slice(-maxLines);
-  } catch {
-    return [];
   }
 }
 
@@ -20552,6 +20604,12 @@ var FeedbackViewProvider = class {
     const erudaUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "static", "vendor", "eruda.js").with({ query: `v=${cacheKey}` })
     );
+    const panelStateMarkdownUri = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateMarkdown.js").with({ query: `v=${cacheKey}` })
+    );
+    const panelStateUxUri = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateUx.js").with({ query: `v=${cacheKey}` })
+    );
     const panelStateTransportUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateTransport.js").with({ query: `v=${cacheKey}` })
     );
@@ -20573,6 +20631,8 @@ var FeedbackViewProvider = class {
     const cspSource = view.webview.cspSource;
     html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
     html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
+    html = html.replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, panelStateMarkdownUri.toString());
+    html = html.replace(/\{\{PANELSTATE_UX_URI\}\}/g, panelStateUxUri.toString());
     html = html.replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, panelStateTransportUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
     html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
@@ -20646,7 +20706,7 @@ var FeedbackViewProvider = class {
   _pushServerInfo(view) {
     view.webview.postMessage(this._hostPayload("server-info"));
   }
-  _handleDebugRequest(view) {
+  _handleDebugRequest(view, traceId) {
     const hub = this._getHub();
     const rawRegistry = listAllServers();
     const registry2 = enrichRegistryEntries(rawRegistry, (pid) => {
@@ -20659,8 +20719,8 @@ var FeedbackViewProvider = class {
     });
     const skew = versionSkewWarnings(registry2, this._getVersion(), process.pid);
     const mcpLogPath = resolveFeedbackLogPath("mcp-server");
-    const report = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    const report = buildDebugReport({
+      traceId,
       extension: {
         pid: process.pid,
         version: this._getVersion(),
@@ -20681,11 +20741,8 @@ var FeedbackViewProvider = class {
         mcpServer: mcpLogPath,
         webview: resolveFeedbackLogPath("webview")
       },
-      logTail: {
-        mcpServer: readLogTailLines(mcpLogPath, 50)
-      }
-    };
-    report.diagnoseBundle = buildDiagnoseBundle(report);
+      mcpLogLines: readLogTailLines(mcpLogPath, 50)
+    });
     view.webview.postMessage({ type: "debug-report", report });
   }
   _handlePruneTestRegistry(view) {
@@ -20706,8 +20763,9 @@ var FeedbackViewProvider = class {
   _setupMessageHandler(view) {
     const handlers = {
       ...buildDefaultWebviewHandlers(vscode),
-      "request-debug": (_msg, v, ctx) => {
-        ctx.handleDebug(v);
+      "request-debug": (msg, v, ctx) => {
+        const traceId = typeof msg.trace_id === "string" ? msg.trace_id : void 0;
+        ctx.handleDebug(v, traceId);
       },
       "prune-test-registry": (_msg, v, ctx) => {
         ctx.handlePrune(v);
@@ -20735,7 +20793,7 @@ var FeedbackViewProvider = class {
             this._bridge.deliver(JSON.stringify(data));
           }
         },
-        handleDebug: (v) => this._handleDebugRequest(v),
+        handleDebug: (v, traceId) => this._handleDebugRequest(v, traceId),
         handlePrune: (v) => this._handlePruneTestRegistry(v),
         handleAtSearch: (q, v) => this._handleAtSearch(q, v),
         openLog: (t) => this._openLogFile(t),
@@ -20949,6 +21007,14 @@ function applyMcpConfigPlan(config2, plan) {
 var SOURCE_TAG = "mcp-feedback-enhanced";
 var LEGACY_TAGS = ["mcp-feedback-v2"];
 var RETIRED_HOOKS = ["stop", "sessionStart", "preCompact"];
+function hooksCommandDrift(hooksConfig, nodeBin, preToolUseHookPath) {
+  const hooks = hooksConfig.hooks;
+  const entries = hooks?.preToolUse || [];
+  const ours = entries.find((h) => h._source === SOURCE_TAG);
+  if (!ours) return true;
+  const want = `${nodeBin} ${preToolUseHookPath}`;
+  return ours.command !== want;
+}
 function planHooksConfigUpdate(nodeBin, preToolUseHookPath, hooksConfig) {
   const next = { ...hooksConfig };
   if (!next.version) next.version = 1;
@@ -20972,7 +21038,8 @@ function planHooksConfigUpdate(nodeBin, preToolUseHookPath, hooksConfig) {
     }
   }
   next.hooks = hooks;
-  const changed = JSON.stringify(hooksConfig.hooks || {}) !== JSON.stringify(hooks);
+  const structuralChange = JSON.stringify(hooksConfig.hooks || {}) !== JSON.stringify(hooks);
+  const changed = structuralChange || hooksCommandDrift(hooksConfig, nodeBin, preToolUseHookPath);
   return { changed, existingHooks: hooks, hooksConfig: next };
 }
 function applyHooksConfigPlan(hooksConfig, plan) {
@@ -21054,6 +21121,21 @@ function substituteWebviewPlaceholders(html, replacements) {
   return out;
 }
 
+// src/webviewOptions.ts
+function resolveRetainContextWhenHidden(setting) {
+  return setting === true;
+}
+
+// src/postDeployReload.ts
+function buildPostDeployReloadSteps(version2) {
+  return [
+    `MCP Feedback ${version2} deployed to disk.`,
+    "1. Developer: Reload Window",
+    "2. Settings \u2192 MCP: toggle mcp-feedback-enhanced off, then on",
+    "3. Confirm panel shows the new version"
+  ];
+}
+
 // src/feedbackReminders.ts
 var DEFAULT_REMINDER_DELAYS_MS = [0, 6e4, 12e4, 3e5];
 function scheduleReminderDelays(delays, onFire, schedule = setTimeout) {
@@ -21064,6 +21146,17 @@ function clearScheduledTimers(timers) {
 }
 
 // src/extension.ts
+function retainContextWhenHidden() {
+  try {
+    const getConfiguration = vscode3.workspace?.getConfiguration;
+    if (typeof getConfiguration !== "function") return false;
+    return resolveRetainContextWhenHidden(
+      getConfiguration.call(vscode3.workspace, "mcpFeedback").get("retainContextWhenHidden")
+    );
+  } catch {
+    return false;
+  }
+}
 var wsServer;
 var bottomProvider;
 var disposables = [];
@@ -21159,7 +21252,7 @@ async function activate(context) {
     vscode3.window.registerWebviewViewProvider(
       "mcp-feedback-enhanced.feedbackPanelBottom",
       bottomProvider,
-      { webviewOptions: { retainContextWhenHidden: false } }
+      { webviewOptions: { retainContextWhenHidden: retainContextWhenHidden() } }
     )
   );
   disposables.push(
@@ -21189,6 +21282,17 @@ Webviews: ${clients.webviews}
 MCP Servers: ${clients.mcpServers}
 Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
       );
+    }),
+    vscode3.commands.registerCommand("mcp-feedback-enhanced.postDeployReload", () => {
+      const steps = buildPostDeployReloadSteps(pkgVersion);
+      void vscode3.window.showInformationMessage(
+        steps.join("\n"),
+        "Reload Window"
+      ).then((choice) => {
+        if (choice === "Reload Window") {
+          void vscode3.commands.executeCommand("workbench.action.reloadWindow");
+        }
+      });
     })
   );
   disposables.push(

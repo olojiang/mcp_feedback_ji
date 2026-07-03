@@ -12,7 +12,7 @@ export interface WebviewRouterContext {
     bridgePayload: () => Record<string, unknown>;
     hasBridge: () => boolean;
     deliverHubMessage: (data: unknown) => void;
-    handleDebug: (view: vscode.WebviewView) => void;
+    handleDebug: (view: vscode.WebviewView, traceId?: string) => void;
     handlePrune: (view: vscode.WebviewView) => void;
     handleAtSearch: (query: string, view: vscode.WebviewView) => void;
     openLog: (target: string) => void | Promise<void>;

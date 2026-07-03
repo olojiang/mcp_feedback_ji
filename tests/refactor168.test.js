@@ -87,8 +87,9 @@ describe('stateSyncPayload incremental', () => {
       feedbackQueueSize: 0,
       pendingSessions: [],
       hub: { port: 1 },
+      lastMessageCount: 1,
     })
-    assert.equal(inc.messages.length, 0)
+    assert.equal(inc.messages_unchanged, true)
     assert.equal(inc.incremental, true)
   })
 })

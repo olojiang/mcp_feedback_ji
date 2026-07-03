@@ -82,7 +82,11 @@ export class WsHub {
 
     private workspaces: string[] = [];
     private readonly stateSyncGenerations = new Map<WebSocket, number>();
-    private readonly stateSyncFingerprints = new Map<WebSocket, { pending: string; hub: string }>();
+    private readonly stateSyncFingerprints = new Map<WebSocket, {
+        pending: string;
+        hub: string;
+        messageCount: number;
+    }>();
     private readonly clipboard: ClipboardPort;
 
     constructor(version = '0.0.0', options: WsHubOptions = {}) {
@@ -495,6 +499,7 @@ export class WsHub {
         const pendingFp = pendingSessionsFingerprint(sessionWire);
         const hubFp = hubFingerprint(hub as unknown as Record<string, unknown>);
         const lastFp = this.stateSyncFingerprints.get(ws);
+        const messageCount = this.timeline.getMessages().length;
         wsLog(
             `stateSync: version=${this.version} port=${this.port} `
             + `workspaces=${JSON.stringify(this.workspaces)} `
@@ -517,8 +522,9 @@ export class WsHub {
             hub: hub as unknown as Record<string, unknown>,
             lastPendingFingerprint: lastFp?.pending,
             lastHubFingerprint: lastFp?.hub,
+            lastMessageCount: lastFp?.messageCount,
         }));
-        this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp });
+        this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp, messageCount });
     }
 
     // ── Heartbeat ───────────────────────────────────────────

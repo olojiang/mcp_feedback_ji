@@ -8,6 +8,19 @@ export interface HooksConfigPlan {
     hooksConfig: Record<string, unknown>;
 }
 
+export function hooksCommandDrift(
+    hooksConfig: Record<string, unknown>,
+    nodeBin: string,
+    preToolUseHookPath: string,
+): boolean {
+    const hooks = hooksConfig.hooks as Record<string, Array<Record<string, unknown>>> | undefined;
+    const entries = hooks?.preToolUse || [];
+    const ours = entries.find((h) => h._source === SOURCE_TAG);
+    if (!ours) return true;
+    const want = `${nodeBin} ${preToolUseHookPath}`;
+    return ours.command !== want;
+}
+
 /** Pure plan for ~/.cursor/hooks.json mcp-feedback-enhanced entries. */
 export function planHooksConfigUpdate(
     nodeBin: string,
@@ -40,7 +53,8 @@ export function planHooksConfigUpdate(
     }
 
     next.hooks = hooks;
-    const changed = JSON.stringify(hooksConfig.hooks || {}) !== JSON.stringify(hooks);
+    const structuralChange = JSON.stringify(hooksConfig.hooks || {}) !== JSON.stringify(hooks);
+    const changed = structuralChange || hooksCommandDrift(hooksConfig, nodeBin, preToolUseHookPath);
     return { changed, existingHooks: hooks, hooksConfig: next };
 }
 

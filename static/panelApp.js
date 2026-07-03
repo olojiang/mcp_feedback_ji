@@ -392,7 +392,13 @@
         settingsPanel.classList.remove('visible');
         if (debugBtn) debugBtn.classList.add('active');
         renderDebugPanel();
-        if (vscode) vscode.postMessage({ type: 'request-debug' });
+        if (vscode) {
+            var active = state.getActiveSession();
+            vscode.postMessage({
+                type: 'request-debug',
+                trace_id: active && active.traceId ? active.traceId : '',
+            });
+        }
     }
 
     function closeDebugPanel() {

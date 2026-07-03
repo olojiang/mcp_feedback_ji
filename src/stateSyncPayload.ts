@@ -10,6 +10,7 @@ export interface StateSyncInput {
     hub: Record<string, unknown>;
     lastPendingFingerprint?: string;
     lastHubFingerprint?: string;
+    lastMessageCount?: number;
 }
 
 export function pendingSessionsFingerprint(
@@ -54,10 +55,14 @@ export function buildStateSyncPayload(input: StateSyncInput): Record<string, unk
         type: 'state_sync',
         incremental,
         sync_generation: input.syncGeneration,
-        messages: incremental ? [] : input.messages,
         pending_comments: input.pendingComments,
         pending_images: input.pendingImages,
         feedback_queue_size: input.feedbackQueueSize,
+        ...buildMessageSync({
+            syncGeneration: input.syncGeneration,
+            messages: input.messages,
+            lastMessageCount: input.lastMessageCount,
+        }),
     };
 
     if (pendingUnchanged) {
@@ -73,4 +78,36 @@ export function buildStateSyncPayload(input: StateSyncInput): Record<string, unk
     }
 
     return payload;
+}
+
+export interface MessagePatch {
+    op: 'append';
+    messages: ConversationMessage[];
+}
+
+export interface MessageSyncInput {
+    syncGeneration: number;
+    messages: ConversationMessage[];
+    lastMessageCount?: number;
+}
+
+export function buildMessageSync(input: MessageSyncInput): Record<string, unknown> {
+    const incremental = input.syncGeneration > 0;
+    const prevCount = input.lastMessageCount ?? 0;
+    const count = input.messages.length;
+    if (!incremental) {
+        return { messages: input.messages };
+    }
+    if (count === prevCount) {
+        return { messages_unchanged: true };
+    }
+    if (count > prevCount) {
+        return {
+            message_patches: [{
+                op: 'append',
+                messages: input.messages.slice(prevCount),
+            }],
+        };
+    }
+    return { messages: input.messages };
 }

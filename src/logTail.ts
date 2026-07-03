@@ -12,3 +12,10 @@ export function readLogTailLines(filePath: string, maxLines = 50): string[] {
         return [];
     }
 }
+
+/** Keep lines that mention trace=ID (case-sensitive substring match). */
+export function filterLogLinesByTrace(lines: string[], traceId: string): string[] {
+    if (!traceId || !lines.length) return [];
+    const needle = `trace=${traceId}`;
+    return lines.filter((line) => line.includes(needle));
+}

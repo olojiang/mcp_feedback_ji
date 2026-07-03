@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.70] - 2026-07-03
+
+### Refactor (items 1–8)
+- **panelStateMarkdown.js / panelStateUx.js**: further split from `panelState.js`.
+- **webviewDiagnoseHandlers**: `buildDebugReport` with trace-filtered MCP log tail.
+- **hooks command drift**: rewrite hooks.json when node/hook path changes.
+- **createTestClipboard**: shared test double for WsHub integration tests.
+- **postDeployReload** command + **retainContextWhenHidden** setting.
+- **message_patch** incremental timeline sync + `hubTimeline` on panel.
+- **Tests**: `p570Features.test.js` (297 total).
+
 ## [2.5.1-ji.69] - 2026-07-03
 
 ### Refactor (P5–P7)

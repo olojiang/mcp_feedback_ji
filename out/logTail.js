@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.readLogTailLines = readLogTailLines;
+exports.filterLogLinesByTrace = filterLogLinesByTrace;
 const fs = __importStar(require("node:fs"));
 /** Read last N lines from a log file (best-effort; missing file returns []). */
 function readLogTailLines(filePath, maxLines = 50) {
@@ -49,5 +50,12 @@ function readLogTailLines(filePath, maxLines = 50) {
     catch {
         return [];
     }
+}
+/** Keep lines that mention trace=ID (case-sensitive substring match). */
+function filterLogLinesByTrace(lines, traceId) {
+    if (!traceId || !lines.length)
+        return [];
+    const needle = `trace=${traceId}`;
+    return lines.filter((line) => line.includes(needle));
 }
 //# sourceMappingURL=logTail.js.map

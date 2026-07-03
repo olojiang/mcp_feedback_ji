@@ -1,0 +1,1 @@
+{"version":3,"file":"testClipboard.js","sourceRoot":"","sources":["../src/testClipboard.ts"],"names":[],"mappings":";;AAEA,kDAKC;AALD,SAAgB,mBAAmB,CAAC,YAAoC,EAAE;IACtE,OAAO;QACH,SAAS,EAAE,SAAS,CAAC,SAAS,IAAI,CAAC,KAAK,IAAI,EAAE,GAAE,CAAC,CAAC;QAClD,QAAQ,EAAE,SAAS,CAAC,QAAQ,IAAI,CAAC,KAAK,IAAI,EAAE,CAAC,EAAE,CAAC;KACnD,CAAC;AACN,CAAC"}

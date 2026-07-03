@@ -22,6 +22,8 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{VERSION\}\}/g, '2.5.1-test')
     .replace(/\{\{ERUDA_URI\}\}/g, 'https://mock/eruda.js')
     .replace(/\{\{ERUDA_PANEL_URI\}\}/g, 'https://mock/erudaPanel.js')
+    .replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, 'https://mock/panelStateMarkdown.js')
+    .replace(/\{\{PANELSTATE_UX_URI\}\}/g, 'https://mock/panelStateUx.js')
     .replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, 'https://mock/panelStateTransport.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
     .replace(/\{\{PANELCONNECTION_URI\}\}/g, 'https://mock/panelConnection.js')
@@ -29,12 +31,20 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{THEMECONTRAST_URI\}\}/g, 'https://mock/themeContrast.js')
     .replace(/\{\{CSP_SOURCE\}\}/g, 'https://mock');
 
+const panelStateMarkdownFile = path.join(__dirname, '..', 'out', 'webview', 'panelStateMarkdown.js');
+const panelStateUxFile = path.join(__dirname, '..', 'out', 'webview', 'panelStateUx.js');
 const panelStateTransportFile = path.join(__dirname, '..', 'out', 'webview', 'panelStateTransport.js');
 const panelStateFile = path.join(__dirname, '..', 'out', 'webview', 'panelState.js');
 const erudaPanelFile = path.join(__dirname, '..', 'out', 'webview', 'erudaPanel.js');
 const themeContrastFile = path.join(__dirname, '..', 'out', 'webview', 'themeContrast.js');
 const panelConnectionFile = path.join(__dirname, '..', 'out', 'webview', 'panelConnection.js');
 const panelAppFile = path.join(__dirname, '..', 'out', 'webview', 'panelApp.js');
+const panelStateMarkdownCode = fs.existsSync(panelStateMarkdownFile)
+    ? fs.readFileSync(panelStateMarkdownFile, 'utf-8')
+    : null;
+const panelStateUxCode = fs.existsSync(panelStateUxFile)
+    ? fs.readFileSync(panelStateUxFile, 'utf-8')
+    : null;
 const panelStateTransportCode = fs.existsSync(panelStateTransportFile)
     ? fs.readFileSync(panelStateTransportFile, 'utf-8')
     : null;
@@ -232,17 +242,23 @@ if (unreplaced) {
     console.log('  OK  All placeholders replaced');
 }
 
-if (panelStateTransportCode) {
-    try {
-        vm.runInContext(panelStateTransportCode, ctx, { filename: 'panelStateTransport.js', timeout: 5000 });
-        console.log('  OK  External panelStateTransport.js loaded');
-    } catch (err) {
-        console.error(`  FAIL External panelStateTransport.js: ${err.message}`);
+for (const [label, code] of [
+    ['panelStateMarkdown', panelStateMarkdownCode],
+    ['panelStateUx', panelStateUxCode],
+    ['panelStateTransport', panelStateTransportCode],
+]) {
+    if (code) {
+        try {
+            vm.runInContext(code, ctx, { filename: label + '.js', timeout: 5000 });
+            console.log(`  OK  External ${label}.js loaded`);
+        } catch (err) {
+            console.error(`  FAIL External ${label}.js: ${err.message}`);
+            hadError = true;
+        }
+    } else {
+        console.error(`  FAIL External ${label}.js not found`);
         hadError = true;
     }
-} else {
-    console.error('  FAIL External panelStateTransport.js not found');
-    hadError = true;
 }
 
 if (panelStateCode) {

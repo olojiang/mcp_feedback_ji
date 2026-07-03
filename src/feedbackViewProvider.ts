@@ -22,8 +22,8 @@ import {
     enrichRegistryEntries,
     formatRegistryTable,
     versionSkewWarnings,
-    buildDiagnoseBundle,
 } from './registrySnapshot';
+import { buildDebugReport } from './webviewDiagnoseHandlers';
 import { formatDeployStampLabel, deployReloadBannerText } from './deployStamp';
 import { readDeployStamp } from './deployStampReader';
 import { readLogTailLines } from './logTail';
@@ -151,6 +151,14 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             vscode.Uri.joinPath(this._extensionUri, 'static', 'vendor', 'eruda.js')
                 .with({ query: `v=${cacheKey}` })
         );
+        const panelStateMarkdownUri = view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelStateMarkdown.js')
+                .with({ query: `v=${cacheKey}` })
+        );
+        const panelStateUxUri = view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelStateUx.js')
+                .with({ query: `v=${cacheKey}` })
+        );
         const panelStateTransportUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelStateTransport.js')
                 .with({ query: `v=${cacheKey}` })
@@ -178,6 +186,8 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         const cspSource = view.webview.cspSource;
         html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
         html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
+        html = html.replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, panelStateMarkdownUri.toString());
+        html = html.replace(/\{\{PANELSTATE_UX_URI\}\}/g, panelStateUxUri.toString());
         html = html.replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, panelStateTransportUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
         html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
@@ -261,7 +271,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         view.webview.postMessage(this._hostPayload('server-info'));
     }
 
-    private _handleDebugRequest(view: vscode.WebviewView): void {
+    private _handleDebugRequest(view: vscode.WebviewView, traceId?: string): void {
         const hub = this._getHub();
         const rawRegistry = listAllServers();
         const registry = enrichRegistryEntries(rawRegistry, (pid) => {
@@ -274,8 +284,8 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         });
         const skew = versionSkewWarnings(registry, this._getVersion(), process.pid);
         const mcpLogPath = resolveFeedbackLogPath('mcp-server');
-        const report: Record<string, unknown> = {
-            timestamp: new Date().toISOString(),
+        const report = buildDebugReport({
+            traceId,
             extension: {
                 pid: process.pid,
                 version: this._getVersion(),
@@ -296,11 +306,8 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                 mcpServer: mcpLogPath,
                 webview: resolveFeedbackLogPath('webview'),
             },
-            logTail: {
-                mcpServer: readLogTailLines(mcpLogPath, 50),
-            },
-        };
-        report.diagnoseBundle = buildDiagnoseBundle(report);
+            mcpLogLines: readLogTailLines(mcpLogPath, 50),
+        });
 
         view.webview.postMessage({ type: 'debug-report', report });
     }
@@ -325,8 +332,9 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _setupMessageHandler(view: vscode.WebviewView): void {
         const handlers = {
             ...buildDefaultWebviewHandlers(vscode),
-            'request-debug': (_msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
-                ctx.handleDebug(v);
+            'request-debug': (msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
+                const traceId = typeof msg.trace_id === 'string' ? msg.trace_id : undefined;
+                ctx.handleDebug(v, traceId);
             },
             'prune-test-registry': (_msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
                 ctx.handlePrune(v);
@@ -354,7 +362,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                         this._bridge.deliver(JSON.stringify(data));
                     }
                 },
-                handleDebug: (v) => this._handleDebugRequest(v),
+                handleDebug: (v, traceId) => this._handleDebugRequest(v, traceId),
                 handlePrune: (v) => this._handlePruneTestRegistry(v),
                 handleAtSearch: (q, v) => this._handleAtSearch(q, v),
                 openLog: (t) => this._openLogFile(t),

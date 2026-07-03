@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.pendingSessionsFingerprint = pendingSessionsFingerprint;
 exports.hubFingerprint = hubFingerprint;
 exports.buildStateSyncPayload = buildStateSyncPayload;
+exports.buildMessageSync = buildMessageSync;
 function pendingSessionsFingerprint(sessions) {
     return sessions.map((s) => [
         s.id,
@@ -40,10 +41,14 @@ function buildStateSyncPayload(input) {
         type: 'state_sync',
         incremental,
         sync_generation: input.syncGeneration,
-        messages: incremental ? [] : input.messages,
         pending_comments: input.pendingComments,
         pending_images: input.pendingImages,
         feedback_queue_size: input.feedbackQueueSize,
+        ...buildMessageSync({
+            syncGeneration: input.syncGeneration,
+            messages: input.messages,
+            lastMessageCount: input.lastMessageCount,
+        }),
     };
     if (pendingUnchanged) {
         payload.pending_sessions_unchanged = true;
@@ -58,5 +63,25 @@ function buildStateSyncPayload(input) {
         payload.hub = input.hub;
     }
     return payload;
+}
+function buildMessageSync(input) {
+    const incremental = input.syncGeneration > 0;
+    const prevCount = input.lastMessageCount ?? 0;
+    const count = input.messages.length;
+    if (!incremental) {
+        return { messages: input.messages };
+    }
+    if (count === prevCount) {
+        return { messages_unchanged: true };
+    }
+    if (count > prevCount) {
+        return {
+            message_patches: [{
+                    op: 'append',
+                    messages: input.messages.slice(prevCount),
+                }],
+        };
+    }
+    return { messages: input.messages };
 }
 //# sourceMappingURL=stateSyncPayload.js.map

@@ -445,6 +445,7 @@ class WsHub {
         const pendingFp = (0, stateSyncPayload_js_1.pendingSessionsFingerprint)(sessionWire);
         const hubFp = (0, stateSyncPayload_js_1.hubFingerprint)(hub);
         const lastFp = this.stateSyncFingerprints.get(ws);
+        const messageCount = this.timeline.getMessages().length;
         wsLog(`stateSync: version=${this.version} port=${this.port} `
             + `workspaces=${JSON.stringify(this.workspaces)} `
             + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} `
@@ -465,8 +466,9 @@ class WsHub {
             hub: hub,
             lastPendingFingerprint: lastFp?.pending,
             lastHubFingerprint: lastFp?.hub,
+            lastMessageCount: lastFp?.messageCount,
         }));
-        this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp });
+        this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp, messageCount });
     }
     // ── Heartbeat ───────────────────────────────────────────
     _startHeartbeat() {

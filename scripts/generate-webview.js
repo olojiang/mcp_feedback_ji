@@ -34,6 +34,14 @@ if (fs.existsSync(transportSrc)) {
     console.log('[generate-webview] Copied panelStateTransport.js to out/webview/ (loaded as external resource)');
 }
 
+for (const split of ['panelStateMarkdown', 'panelStateUx']) {
+    const splitSrc = path.join(__dirname, '..', 'static', split + '.js');
+    if (fs.existsSync(splitSrc)) {
+        fs.copyFileSync(splitSrc, path.join(outDir, split + '.js'));
+        console.log(`[generate-webview] Copied ${split}.js to out/webview/ (loaded as external resource)`);
+    }
+}
+
 const erudaPanelSrc = path.join(__dirname, '..', 'static', 'erudaPanel.js');
 if (fs.existsSync(erudaPanelSrc)) {
     fs.copyFileSync(erudaPanelSrc, path.join(outDir, 'erudaPanel.js'));

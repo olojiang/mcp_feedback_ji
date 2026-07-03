@@ -2,7 +2,7 @@
 	"name": "mcp-feedback-enhanced",
 	"displayName": "MCP Feedback Enhanced",
 	"description": "Interactive feedback collection for AI assistants with multi-session tabs (Hunter fork)",
-	"version": "2.5.1-ji.69",
+	"version": "2.5.1-ji.70",
 	"publisher": "mcp-feedback",
 	"license": "MIT",
 	"repository": {
@@ -73,11 +73,20 @@
 			{
 				"command": "mcp-feedback-enhanced.showStatus",
 				"title": "MCP Feedback Enhanced: Show Status"
+			},
+			{
+				"command": "mcp-feedback-enhanced.postDeployReload",
+				"title": "MCP Feedback Enhanced: Post-Deploy Reload Checklist"
 			}
 		],
 		"configuration": {
 			"title": "MCP Feedback Enhanced",
 			"properties": {
+				"mcpFeedback.retainContextWhenHidden": {
+					"type": "boolean",
+					"default": false,
+					"description": "Keep webview state when the bottom panel is hidden (uses more memory)."
+				},
 				"mcpFeedback.quickReplies": {
 					"type": "array",
 					"default": [],

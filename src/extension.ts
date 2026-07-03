@@ -31,11 +31,25 @@ import { RULES_CONTENT, planRulesDeploy } from './deploy/rules';
 import { planPendingMigration } from './deploy/pendingMigration';
 import { createVscodeClipboard } from './vscodeClipboard';
 import { workspacesFromFolders, substituteWebviewPlaceholders } from './extensionHelpers';
+import { resolveRetainContextWhenHidden } from './webviewOptions';
+import { buildPostDeployReloadSteps } from './postDeployReload';
 import {
     DEFAULT_REMINDER_DELAYS_MS,
     scheduleReminderDelays,
     clearScheduledTimers,
 } from './feedbackReminders';
+
+function retainContextWhenHidden(): boolean {
+    try {
+        const getConfiguration = vscode.workspace?.getConfiguration;
+        if (typeof getConfiguration !== 'function') return false;
+        return resolveRetainContextWhenHidden(
+            getConfiguration.call(vscode.workspace, 'mcpFeedback').get('retainContextWhenHidden'),
+        );
+    } catch {
+        return false;
+    }
+}
 
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
@@ -140,7 +154,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerWebviewViewProvider(
             'mcp-feedback-enhanced.feedbackPanelBottom',
             bottomProvider,
-            { webviewOptions: { retainContextWhenHidden: false } }
+            { webviewOptions: { retainContextWhenHidden: retainContextWhenHidden() } }
         ),
     );
 
@@ -167,6 +181,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             vscode.window.showInformationMessage(
                 `MCP Feedback Status:\nPort: ${port}\nWebviews: ${clients.webviews}\nMCP Servers: ${clients.mcpServers}\nPending requests: ${wsServer.hasPendingRequests() ? 'Yes' : 'No'}`
             );
+        }),
+        vscode.commands.registerCommand('mcp-feedback-enhanced.postDeployReload', () => {
+            const steps = buildPostDeployReloadSteps(pkgVersion);
+            void vscode.window.showInformationMessage(
+                steps.join('\n'),
+                'Reload Window',
+            ).then((choice) => {
+                if (choice === 'Reload Window') {
+                    void vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            });
         }),
     );
 
