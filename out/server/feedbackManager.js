@@ -76,21 +76,26 @@ class FeedbackManager {
         for (const entry of this.queue) {
             if (entry.traceId !== traceId)
                 continue;
-            if (!isMcpTransportOpen(entry.mcpClient)) {
+            if (entry.mcpClient === mcpWs) {
+                return { action: 'duplicate', sessionId: entry.sessionId };
+            }
+            const supersededWs = entry.mcpClient;
+            if (!isMcpTransportOpen(supersededWs)) {
                 entry.mcpClient = mcpWs;
                 entry.mcpDetached = false;
                 if (summary)
                     entry.summary = summary;
-                return { action: 'reuse', sessionId: entry.sessionId };
+                return {
+                    action: 'reuse',
+                    sessionId: entry.sessionId,
+                    supersededWs: supersededWs !== mcpWs ? supersededWs : undefined,
+                };
             }
-            if (entry.mcpClient !== mcpWs) {
-                entry.mcpClient = mcpWs;
-                entry.mcpDetached = false;
-                if (summary)
-                    entry.summary = summary;
-                return { action: 'steal', sessionId: entry.sessionId };
-            }
-            return { action: 'none', sessionId: entry.sessionId };
+            entry.mcpClient = mcpWs;
+            entry.mcpDetached = false;
+            if (summary)
+                entry.summary = summary;
+            return { action: 'steal', sessionId: entry.sessionId, supersededWs };
         }
         return { action: 'none' };
     }

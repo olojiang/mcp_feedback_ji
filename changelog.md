@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.89] - 2026-07-03
+
+### Fix
+- **Duplicate MCP wait waste**: trace_steal/reuse now `sendError` on superseded MCP WebSocket (releases hung tool call instead of 24h timeout).
+- **Same ws duplicate request**: ignored (`trace_duplicate_blocked`) — no second fb- tab.
+- **Tests**: `sessionDedupe.test.js` covers 5-call storm, supersede error, parallel traces, resolve-then-new.
+
 ## [2.5.1-ji.88] - 2026-07-03
 
 ### Feature

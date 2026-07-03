@@ -32,6 +32,7 @@ export declare class FeedbackFlow {
     setOnFeedbackRequested(cb?: () => void): void;
     setOnFeedbackResolved(cb?: () => void): void;
     setOnFeedbackError(cb?: (reason: string) => void): void;
+    private _releaseSupersededMcp;
     private _auditSession;
     handleFeedbackRequest(mcpWs: WebSocket, req: {
         summary: string;

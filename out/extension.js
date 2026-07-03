@@ -4012,19 +4012,24 @@ var FeedbackManager = class {
     if (!traceId) return { action: "none" };
     for (const entry of this.queue) {
       if (entry.traceId !== traceId) continue;
-      if (!isMcpTransportOpen(entry.mcpClient)) {
+      if (entry.mcpClient === mcpWs) {
+        return { action: "duplicate", sessionId: entry.sessionId };
+      }
+      const supersededWs = entry.mcpClient;
+      if (!isMcpTransportOpen(supersededWs)) {
         entry.mcpClient = mcpWs;
         entry.mcpDetached = false;
         if (summary) entry.summary = summary;
-        return { action: "reuse", sessionId: entry.sessionId };
+        return {
+          action: "reuse",
+          sessionId: entry.sessionId,
+          supersededWs: supersededWs !== mcpWs ? supersededWs : void 0
+        };
       }
-      if (entry.mcpClient !== mcpWs) {
-        entry.mcpClient = mcpWs;
-        entry.mcpDetached = false;
-        if (summary) entry.summary = summary;
-        return { action: "steal", sessionId: entry.sessionId };
-      }
-      return { action: "none", sessionId: entry.sessionId };
+      entry.mcpClient = mcpWs;
+      entry.mcpDetached = false;
+      if (summary) entry.summary = summary;
+      return { action: "steal", sessionId: entry.sessionId, supersededWs };
     }
     return { action: "none" };
   }
@@ -4598,6 +4603,9 @@ function appendSessionJournalRecord(record2, logDir = getLogsDir()) {
 `, "utf8");
 }
 
+// src/feedbackSuperseded.ts
+var DUPLICATE_FEEDBACK_SUPERSEDED_MSG = "Duplicate interactive_feedback superseded (same cursor trace). Use the existing panel tab; this MCP call was released to avoid a hung wait.";
+
 // src/server/feedbackFlow.ts
 var FeedbackFlow = class {
   constructor(deps) {
@@ -4611,6 +4619,13 @@ var FeedbackFlow = class {
   }
   setOnFeedbackError(cb) {
     this.deps.onFeedbackError = cb;
+  }
+  _releaseSupersededMcp(supersededWs, sessionId, traceId) {
+    if (!supersededWs || supersededWs.readyState !== import_websocket.default.OPEN) return;
+    this.deps.log(
+      `feedbackRequest: superseded duplicate mcp ws session=${sessionId ?? "(unknown)"}` + (traceId ? ` trace=${traceId}` : "")
+    );
+    this.deps.sendError(supersededWs, new Error(DUPLICATE_FEEDBACK_SUPERSEDED_MSG));
   }
   _auditSession(event, input) {
     const agentCtx = readAgentContext();
@@ -4705,6 +4720,21 @@ var FeedbackFlow = class {
       });
     }
     const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
+    if (traceReuse.action === "duplicate") {
+      this._auditSession("trace_duplicate_blocked", {
+        sessionId: traceReuse.sessionId,
+        project: req.project_directory,
+        traceId,
+        mcpReadyState: mcpWs.readyState,
+        pendingCount: this.deps.feedback.pendingCount(),
+        reason: "same_mcp_ws_same_trace",
+        summaryPreview: req.summary
+      });
+      this.deps.log(
+        `feedbackRequest: duplicate ignored session=${traceReuse.sessionId ?? "unknown"}`
+      );
+      return;
+    }
     if (traceReuse.action === "reuse" || traceReuse.action === "steal") {
       this._auditSession(traceReuse.action === "steal" ? "trace_steal" : "trace_reuse", {
         sessionId: traceReuse.sessionId,
@@ -4718,6 +4748,7 @@ var FeedbackFlow = class {
       this.deps.log(
         `feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? "unknown"}`
       );
+      this._releaseSupersededMcp(traceReuse.supersededWs, traceReuse.sessionId, traceId);
       this.deps.addMessage({
         role: "ai",
         content: req.summary,

@@ -21,8 +21,10 @@ export type TransportUpdateResult = {
     blockedSessionId?: string;
 };
 export type TraceReuseResult = {
-    action: 'none' | 'reuse' | 'steal';
+    action: 'none' | 'reuse' | 'steal' | 'duplicate';
     sessionId?: string;
+    /** Prior MCP WebSocket replaced by steal/reuse — caller should sendError to release the wait. */
+    supersededWs?: WebSocket;
 };
 export interface PendingSessionSnapshot {
     id: string;

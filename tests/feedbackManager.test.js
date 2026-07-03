@@ -50,6 +50,7 @@ describe('FeedbackManager', () => {
     const reuse = fm.reuseByTraceId(ws2, trace, 'second summary')
     assert.equal(reuse.action, 'steal')
     assert.equal(reuse.sessionId, first.sessionId)
+    assert.equal(reuse.supersededWs, ws1)
     assert.equal(fm.pendingCount(), 1)
     assert.equal(fm.pendingSessions()[0].summary, 'second summary')
   })

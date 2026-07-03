@@ -9,6 +9,7 @@ const traceContext_1 = require("../traceContext");
 const sessionLifecycleLog_1 = require("../sessionLifecycleLog");
 const fileStore_1 = require("../fileStore");
 const sessionJournal_1 = require("../sessionJournal");
+const feedbackSuperseded_1 = require("../feedbackSuperseded");
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -21,6 +22,13 @@ class FeedbackFlow {
     }
     setOnFeedbackError(cb) {
         this.deps.onFeedbackError = cb;
+    }
+    _releaseSupersededMcp(supersededWs, sessionId, traceId) {
+        if (!supersededWs || supersededWs.readyState !== ws_1.WebSocket.OPEN)
+            return;
+        this.deps.log(`feedbackRequest: superseded duplicate mcp ws session=${sessionId ?? '(unknown)'}`
+            + (traceId ? ` trace=${traceId}` : ''));
+        this.deps.sendError(supersededWs, new Error(feedbackSuperseded_1.DUPLICATE_FEEDBACK_SUPERSEDED_MSG));
     }
     _auditSession(event, input) {
         const agentCtx = (0, fileStore_1.readAgentContext)();
@@ -102,6 +110,19 @@ class FeedbackFlow {
             });
         }
         const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
+        if (traceReuse.action === 'duplicate') {
+            this._auditSession('trace_duplicate_blocked', {
+                sessionId: traceReuse.sessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+                reason: 'same_mcp_ws_same_trace',
+                summaryPreview: req.summary,
+            });
+            this.deps.log(`feedbackRequest: duplicate ignored session=${traceReuse.sessionId ?? 'unknown'}`);
+            return;
+        }
         if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {
             this._auditSession(traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse', {
                 sessionId: traceReuse.sessionId,
@@ -113,6 +134,7 @@ class FeedbackFlow {
                 summaryPreview: req.summary,
             });
             this.deps.log(`feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`);
+            this._releaseSupersededMcp(traceReuse.supersededWs, traceReuse.sessionId, traceId);
             this.deps.addMessage({
                 role: 'ai',
                 content: req.summary,
