@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.50] - 2026-07-03
+
+### Added
+- **Debug panel log shortcuts**: Ext log / MCP log / Panel log buttons open `extension.log`, `mcp-server.log`, `webview.log` in editor.
+- **`logPaths.ts`**: shared log path resolver + `formatAgentLinkStatus`.
+
+### Changed
+- Status bar **`MCP:0`** → **`Agent: idle`** when no active call (normal); **`Agent: offline`** only when pending feedback exists.
+- Unified **`.mcp-toolbar-btn`** (24px height) for DBG, settings, reconnect, debug actions, Close resolved.
+
 ## [2.5.1-ji.49] - 2026-07-03
 
 ### Added

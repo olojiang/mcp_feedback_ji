@@ -3718,8 +3718,8 @@ __export(extension_exports, {
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
 var fs7 = __toESM(require("fs"));
-var path8 = __toESM(require("path"));
-var os6 = __toESM(require("os"));
+var path9 = __toESM(require("path"));
+var os7 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
 // src/server/wsHub.ts
@@ -5272,10 +5272,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path9) {
-  if (!path9)
+function getElementAtPath(obj, path10) {
+  if (!path10)
     return obj;
-  return path9.reduce((acc, key) => acc?.[key], obj);
+  return path10.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5684,11 +5684,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path9, issues) {
+function prefixIssues(path10, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path9);
+    iss.path.unshift(path10);
     return iss;
   });
 }
@@ -5835,16 +5835,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path9 = []) => {
+  const processError = (error52, path10 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else {
-        const fullpath = [...path9, ...issue2.path];
+        const fullpath = [...path10, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -5871,17 +5871,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path9 = []) => {
+  const processError = (error52, path10 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else {
-        const fullpath = [...path9, ...issue2.path];
+        const fullpath = [...path10, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -5913,8 +5913,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path9 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path9) {
+  const path10 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path10) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -18606,13 +18606,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path9 = ref.slice(1).split("/").filter(Boolean);
-  if (path9.length === 0) {
+  const path10 = ref.slice(1).split("/").filter(Boolean);
+  if (path10.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path9[0] === defsKey) {
-    const key = path9[1];
+  if (path10[0] === defsKey) {
+    const key = path10[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -19785,8 +19785,8 @@ var WsHub = class {
 // src/feedbackViewProvider.ts
 var vscode2 = __toESM(require("vscode"));
 var fs5 = __toESM(require("fs"));
-var path6 = __toESM(require("path"));
-var os5 = __toESM(require("os"));
+var path7 = __toESM(require("path"));
+var os6 = __toESM(require("os"));
 
 // src/webviewLog.ts
 var fs4 = __toESM(require("fs"));
@@ -19823,6 +19823,23 @@ function appendWebviewLog(msg, projectPath) {
 }
 function webviewLogPath() {
   return path5.join(resolveLogDir(), DEFAULT_LOG_FILE);
+}
+
+// src/logPaths.ts
+var os5 = __toESM(require("node:os"));
+var path6 = __toESM(require("node:path"));
+var LOG_DIR3 = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+function resolveFeedbackLogPath(target) {
+  switch (target) {
+    case "extension":
+      return path6.join(LOG_DIR3, "extension.log");
+    case "mcp-server":
+      return path6.join(LOG_DIR3, "mcp-server.log");
+    case "webview":
+      return webviewLogPath();
+    default:
+      return LOG_DIR3;
+  }
 }
 
 // src/webviewSyncPolicy.ts
@@ -19969,7 +19986,7 @@ var FeedbackViewProvider = class {
   }
   _handleDebugRequest(view) {
     const hub = this._getHub();
-    const logDir = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+    const logDir = path7.join(os6.homedir(), ".config", "mcp-feedback-enhanced", "logs");
     const report = {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       extension: {
@@ -19981,9 +19998,9 @@ var FeedbackViewProvider = class {
         ...hub?.getDebugInfo() ?? {}
       },
       logPaths: {
-        extension: path6.join(logDir, "extension.log"),
-        mcpServer: path6.join(logDir, "mcp-server.log"),
-        webview: webviewLogPath()
+        extension: resolveFeedbackLogPath("extension"),
+        mcpServer: resolveFeedbackLogPath("mcp-server"),
+        webview: resolveFeedbackLogPath("webview")
       }
     };
     view.webview.postMessage({ type: "debug-report", report });
@@ -20058,6 +20075,9 @@ var FeedbackViewProvider = class {
         case "at-search":
           this._handleAtSearch(message.query, view);
           break;
+        case "open-log":
+          this._openLogFile(message.target);
+          break;
         case "log":
           if (typeof message.msg === "string") {
             const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
@@ -20083,7 +20103,7 @@ var FeedbackViewProvider = class {
         const rel = workspaceRoot ? vscode2.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
           kind: "file",
-          label: path6.basename(file2.fsPath),
+          label: path7.basename(file2.fsPath),
           detail: rel,
           insertText: rel
         });
@@ -20126,7 +20146,7 @@ var FeedbackViewProvider = class {
       return;
     }
     try {
-      const htmlDir = path6.join(__dirname, "webview");
+      const htmlDir = path7.join(__dirname, "webview");
       if (!fs5.existsSync(htmlDir)) {
         return;
       }
@@ -20144,15 +20164,33 @@ var FeedbackViewProvider = class {
       this._fileWatcher = void 0;
     }
   }
+  async _openLogFile(target) {
+    const allowed = /* @__PURE__ */ new Set(["extension", "mcp-server", "webview"]);
+    if (!allowed.has(target)) {
+      vscode2.window.showWarningMessage(`MCP Feedback: unknown log target "${target}"`);
+      return;
+    }
+    const logPath = resolveFeedbackLogPath(target);
+    try {
+      if (!fs5.existsSync(logPath)) {
+        fs5.mkdirSync(path7.dirname(logPath), { recursive: true });
+        fs5.writeFileSync(logPath, "", "utf8");
+      }
+      const doc = await vscode2.workspace.openTextDocument(vscode2.Uri.file(logPath));
+      await vscode2.window.showTextDocument(doc, { preview: false });
+    } catch (e) {
+      vscode2.window.showErrorMessage(`MCP Feedback: cannot open log \u2014 ${e}`);
+    }
+  }
 };
 
 // src/extensionVersion.ts
 var fs6 = __toESM(require("fs"));
-var path7 = __toESM(require("path"));
+var path8 = __toESM(require("path"));
 function readExtensionVersion(extensionPath) {
   try {
     const pkg = JSON.parse(
-      fs6.readFileSync(path7.join(extensionPath, "package.json"), "utf-8")
+      fs6.readFileSync(path8.join(extensionPath, "package.json"), "utf-8")
     );
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
@@ -20211,8 +20249,8 @@ function resolveNodeBin() {
 }
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path8.join(extensionPath, "out", "webview", "panel.html"),
-    path8.join(extensionPath, "static", "panel.html")
+    path9.join(extensionPath, "out", "webview", "panel.html"),
+    path9.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
@@ -20350,7 +20388,7 @@ function _openEditorPanel(context, port) {
     {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode3.Uri.file(path8.join(context.extensionPath, "out"))]
+      localResourceRoots: [vscode3.Uri.file(path9.join(context.extensionPath, "out"))]
     }
   );
   panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
@@ -20358,13 +20396,13 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path8.join(os6.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path9.join(os7.homedir(), ".cursor", "mcp.json");
     let config2 = {};
     if (fs7.existsSync(mcpConfigPath)) {
       config2 = JSON.parse(fs7.readFileSync(mcpConfigPath, "utf-8"));
     }
     const mcpServers = config2.mcpServers || {};
-    const localServerPath = path8.join(extensionPath, "mcp-server", "dist", "index.js");
+    const localServerPath = path9.join(extensionPath, "mcp-server", "dist", "index.js");
     const expectedCommand = resolveNodeBin();
     const expectedArgs = [localServerPath];
     const expectedEnv = { MCP_FEEDBACK_VERSION: version2 };
@@ -20380,7 +20418,7 @@ function ensureMcpConfig(extensionPath) {
     };
     delete mcpServers["mcp-feedback-v2"];
     config2.mcpServers = mcpServers;
-    fs7.mkdirSync(path8.dirname(mcpConfigPath), { recursive: true });
+    fs7.mkdirSync(path9.dirname(mcpConfigPath), { recursive: true });
     fs7.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to update MCP config:", e);
@@ -20388,24 +20426,24 @@ function ensureMcpConfig(extensionPath) {
 }
 function deployCursorHooks(extensionPath) {
   try {
-    const hooksSourceDir = path8.join(extensionPath, "scripts", "hooks");
-    const targetDir = path8.join(os6.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    const hooksSourceDir = path9.join(extensionPath, "scripts", "hooks");
+    const targetDir = path9.join(os7.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
     fs7.mkdirSync(targetDir, { recursive: true });
     const hookFiles = ["hook-utils.js", "consume-pending.js"];
     for (const file2 of hookFiles) {
-      const src = path8.join(hooksSourceDir, file2);
+      const src = path9.join(hooksSourceDir, file2);
       if (fs7.existsSync(src)) {
-        fs7.copyFileSync(src, path8.join(targetDir, file2));
+        fs7.copyFileSync(src, path9.join(targetDir, file2));
       }
     }
     for (const old of ["check-pending.js", "agent-stop.js", "session-start.js", "enforce-feedback.js", "track-feedback.js", "compact-flag.js"]) {
       try {
-        fs7.unlinkSync(path8.join(targetDir, old));
+        fs7.unlinkSync(path9.join(targetDir, old));
       } catch {
       }
     }
-    const preToolUseHook = path8.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path8.join(os6.homedir(), ".cursor", "hooks.json");
+    const preToolUseHook = path9.join(targetDir, "consume-pending.js");
+    const hooksConfigPath = path9.join(os7.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
     if (fs7.existsSync(hooksConfigPath)) {
       hooksConfig = JSON.parse(fs7.readFileSync(hooksConfigPath, "utf-8"));
@@ -20444,7 +20482,7 @@ function deployCursorHooks(extensionPath) {
       }
     }
     hooksConfig.hooks = hooks;
-    fs7.mkdirSync(path8.dirname(hooksConfigPath), { recursive: true });
+    fs7.mkdirSync(path9.dirname(hooksConfigPath), { recursive: true });
     fs7.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
@@ -20480,8 +20518,8 @@ var RULES_CONTENT = [
 ].join("\n");
 function deployCursorRules() {
   try {
-    const rulesDir = path8.join(os6.homedir(), ".cursor", "rules");
-    const ruleFile = path8.join(rulesDir, "mcp-feedback-enhanced.mdc");
+    const rulesDir = path9.join(os7.homedir(), ".cursor", "rules");
+    const ruleFile = path9.join(rulesDir, "mcp-feedback-enhanced.mdc");
     fs7.mkdirSync(rulesDir, { recursive: true });
     let needsWrite = true;
     if (fs7.existsSync(ruleFile)) {
@@ -20494,7 +20532,7 @@ function deployCursorRules() {
       fs7.writeFileSync(ruleFile, RULES_CONTENT);
     }
     for (const ws of getWorkspaces()) {
-      const wsRuleFile = path8.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
+      const wsRuleFile = path9.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
       try {
         fs7.unlinkSync(wsRuleFile);
       } catch {
@@ -20506,7 +20544,7 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path8.join(os6.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    const pendingDir = path9.join(os7.homedir(), ".config", "mcp-feedback-enhanced", "pending");
     if (!fs7.existsSync(pendingDir)) return;
     const files = fs7.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) {
@@ -20515,7 +20553,7 @@ function migratePendingFiles() {
     }
     for (const f of files) {
       try {
-        fs7.unlinkSync(path8.join(pendingDir, f));
+        fs7.unlinkSync(path9.join(pendingDir, f));
       } catch {
       }
     }

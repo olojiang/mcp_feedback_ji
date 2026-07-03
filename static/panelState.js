@@ -904,6 +904,15 @@
       return parts[parts.length - 1] || p
     }
 
+    static formatAgentLink(mcpServers, pendingCount, mcpDetached) {
+      if (mcpDetached > 0) return 'Agent: waiting (link lost)'
+      if (mcpServers > 0) {
+        return mcpServers === 1 ? 'Agent: live' : ('Agent: live×' + mcpServers)
+      }
+      if (pendingCount > 0) return 'Agent: offline'
+      return 'Agent: idle'
+    }
+
     static evaluate(opts) {
       var issues = []
       var bridgeReady = !!opts.bridgeReady
@@ -941,8 +950,10 @@
       var wsLabel = ConnectionHealth.workspaceLabel(hub && hub.workspaces)
       var detailParts = []
       if (wsLabel) detailParts.push('WS:' + wsLabel)
-      detailParts.push('MCP:' + mcpServers)
-      detailParts.push('Pending:' + pendingCount)
+      detailParts.push(ConnectionHealth.formatAgentLink(
+        mcpServers, pendingCount, mcpDetached
+      ))
+      if (pendingCount > 0) detailParts.push('Pending:' + pendingCount)
       if (mcpDetached > 0) detailParts.push('Detached:' + mcpDetached)
 
       var label = level === 'ok' ? 'Connected' : (level === 'degraded' ? 'Degraded' : 'Disconnected')

@@ -44,5 +44,6 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     private _focusPanel;
     private _setupHotReload;
     private _stopHotReload;
+    private _openLogFile;
 }
 export {};

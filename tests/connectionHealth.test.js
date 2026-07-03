@@ -24,6 +24,7 @@ describe('ConnectionHealth', () => {
     assert.equal(health.level, 'ok')
     assert.equal(health.label, 'Connected')
     assert.match(health.detail, /WS:spatial-smart-cc/)
+    assert.match(health.detail, /Agent: live/)
     assert.equal(health.issues.length, 0)
   })
 

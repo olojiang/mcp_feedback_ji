@@ -16,6 +16,7 @@ import * as os from 'os';
 import type { FeedbackWSServer } from './wsServer';
 import type { WebviewBridge } from './server/webviewBridge';
 import { appendWebviewLog, webviewLogPath } from './webviewLog';
+import { resolveFeedbackLogPath } from './logPaths';
 import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
 
 type HtmlGetter = () => string;
@@ -202,9 +203,9 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                 ...(hub?.getDebugInfo() ?? {}),
             },
             logPaths: {
-                extension: path.join(logDir, 'extension.log'),
-                mcpServer: path.join(logDir, 'mcp-server.log'),
-                webview: webviewLogPath(),
+                extension: resolveFeedbackLogPath('extension'),
+                mcpServer: resolveFeedbackLogPath('mcp-server'),
+                webview: resolveFeedbackLogPath('webview'),
             },
         };
 
@@ -294,6 +295,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
                 case 'at-search':
                     this._handleAtSearch(message.query as string, view);
+                    break;
+
+                case 'open-log':
+                    this._openLogFile(message.target as string);
                     break;
 
                 case 'log':
@@ -386,6 +391,25 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         if (this._fileWatcher) {
             this._fileWatcher.close();
             this._fileWatcher = undefined;
+        }
+    }
+
+    private async _openLogFile(target: string): Promise<void> {
+        const allowed = new Set(['extension', 'mcp-server', 'webview']);
+        if (!allowed.has(target)) {
+            vscode.window.showWarningMessage(`MCP Feedback: unknown log target "${target}"`);
+            return;
+        }
+        const logPath = resolveFeedbackLogPath(target as 'extension' | 'mcp-server' | 'webview');
+        try {
+            if (!fs.existsSync(logPath)) {
+                fs.mkdirSync(path.dirname(logPath), { recursive: true });
+                fs.writeFileSync(logPath, '', 'utf8');
+            }
+            const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(logPath));
+            await vscode.window.showTextDocument(doc, { preview: false });
+        } catch (e) {
+            vscode.window.showErrorMessage(`MCP Feedback: cannot open log — ${e}`);
         }
     }
 }

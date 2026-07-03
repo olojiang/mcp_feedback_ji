@@ -290,6 +290,21 @@ body{
 }
 .lightbox.visible{display:flex}
 .lightbox img{max-width:95vw;max-height:95vh;border-radius:10px;box-shadow:0 0 60px rgba(0,0,0,.7)}
+.mcp-toolbar-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  height:24px;min-width:24px;padding:0 8px;box-sizing:border-box;
+  background:var(--surface);border:1px solid var(--border);color:var(--fg-dim);
+  cursor:pointer;font-size:10px;font-weight:600;line-height:1;
+  transition:all .2s;border-radius:6px;letter-spacing:.3px;
+}
+.mcp-toolbar-btn:hover{
+  color:var(--fg);border-color:rgba(124,58,237,0.4);
+  background:rgba(124,58,237,0.08);
+}
+.mcp-toolbar-btn--warn:hover{
+  color:#fbbf24;border-color:rgba(251,191,36,0.5);
+  background:rgba(251,191,36,0.1);
+}
 .settings-toggle{margin-left:auto;flex-shrink:0}
 .settings-toggle button{
   background:var(--surface);border:1px solid var(--border);color:var(--fg-dim);
@@ -507,20 +522,23 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
     </div>
     <span class="ws-port" id="wsPort"></span>
     <span class="connection-detail" id="connectionDetail" data-level="disconnected" title=""></span>
-    <button class="ws-reconnect-btn" id="wsReconnectBtn" title="Force reconnect">&#8635;</button>
+    <button class="ws-reconnect-btn mcp-toolbar-btn" id="wsReconnectBtn" title="Force reconnect">&#8635;</button>
   </div>
   <div style="flex:1"></div>
-  <div class="debug-toggle"><button id="debugBtn" title="Debug / Inspect connection state">DBG</button></div>
-  <div class="settings-toggle"><button id="settingsBtn" title="Settings">&#9881;</button></div>
+  <div class="debug-toggle"><button id="debugBtn" class="mcp-toolbar-btn mcp-toolbar-btn--warn" title="Debug / Inspect connection state">DBG</button></div>
+  <div class="settings-toggle"><button id="settingsBtn" class="mcp-toolbar-btn" title="Settings">&#9881;</button></div>
 </div>
 <div class="debug-panel" id="debugPanel">
   <div class="debug-panel-title">
     <span>Debug / Inspect</span>
     <div class="debug-panel-actions">
-      <button type="button" id="debugDevToolsBtn" title="Open Webview DevTools">DevTools</button>
-      <button type="button" id="debugReconnectBtn" title="Force hub-connect">Reconnect</button>
-      <button type="button" id="debugCopyBtn" title="Copy full diagnostic JSON">Copy JSON</button>
-      <button type="button" id="debugCloseBtn" title="Close">Close</button>
+      <button type="button" id="debugLogExtBtn" class="mcp-toolbar-btn" title="Open extension.log (Extension / Hub)">Ext log</button>
+      <button type="button" id="debugLogMcpBtn" class="mcp-toolbar-btn" title="Open mcp-server.log (MCP routing)">MCP log</button>
+      <button type="button" id="debugLogPanelBtn" class="mcp-toolbar-btn" title="Open webview.log (Panel UI)">Panel log</button>
+      <button type="button" id="debugDevToolsBtn" class="mcp-toolbar-btn" title="Open Webview DevTools">DevTools</button>
+      <button type="button" id="debugReconnectBtn" class="mcp-toolbar-btn" title="Force hub-connect">Reconnect</button>
+      <button type="button" id="debugCopyBtn" class="mcp-toolbar-btn" title="Copy full diagnostic JSON">Copy JSON</button>
+      <button type="button" id="debugCloseBtn" class="mcp-toolbar-btn" title="Close">Close</button>
     </div>
   </div>
   <div class="debug-panel-body">
@@ -542,7 +560,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 <div class="session-tabs-row">
   <div class="session-tabs" id="sessionTabs"></div>
   <div class="session-tabs-actions" id="sessionTabsActions">
-    <button type="button" id="closeResolvedBtn" title="Close all resolved tabs">Close resolved</button>
+    <button type="button" class="mcp-toolbar-btn" id="closeResolvedBtn" title="Close all resolved tabs">Close resolved</button>
   </div>
 </div>
 <div class="tab-context-menu" id="tabContextMenu"></div>
@@ -1550,6 +1568,17 @@ window.onerror = function (msg, src, line, col, err) {
             navigator.clipboard.writeText(text);
         }
     });
+    function bindLogOpenBtn(id, target) {
+        var btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            debugLog('open-log ' + target);
+            if (vscode) vscode.postMessage({ type: 'open-log', target: target });
+        });
+    }
+    bindLogOpenBtn('debugLogExtBtn', 'extension');
+    bindLogOpenBtn('debugLogMcpBtn', 'mcp-server');
+    bindLogOpenBtn('debugLogPanelBtn', 'webview');
     autoReplyCheck.addEventListener('change', function () {
         exec(state.setAutoReply(autoReplyCheck.checked, autoReplyText.value));
     });
