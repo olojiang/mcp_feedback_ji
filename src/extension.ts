@@ -21,12 +21,27 @@ import { extensionSyncDelaysMs, EXTENSION_PANEL_FOCUS_DELAYS_MS } from './activa
 import { shouldPromptReloadAfterVersionChange } from './deployStamp';
 import { resolveNodeBin } from './deploy/nodeBin';
 import { planMcpConfigUpdate, applyMcpConfigPlan } from './deploy/mcpConfig';
+import {
+    planHooksConfigUpdate,
+    applyHooksConfigPlan,
+    HOOK_FILES,
+    RETIRED_HOOK_FILES,
+} from './deploy/hooks';
+import { RULES_CONTENT, planRulesDeploy } from './deploy/rules';
+import { planPendingMigration } from './deploy/pendingMigration';
+import { createVscodeClipboard } from './vscodeClipboard';
+import { workspacesFromFolders, substituteWebviewPlaceholders } from './extensionHelpers';
+import {
+    DEFAULT_REMINDER_DELAYS_MS,
+    scheduleReminderDelays,
+    clearScheduledTimers,
+} from './feedbackReminders';
 
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
 const disposables: vscode.Disposable[] = [];
 
-const REMINDER_DELAYS = [0, 60_000, 120_000, 300_000];
+const REMINDER_DELAYS = DEFAULT_REMINDER_DELAYS_MS;
 let reminderTimers: ReturnType<typeof setTimeout>[] = [];
 
 function playSystemSound(): void {
@@ -37,18 +52,16 @@ function playSystemSound(): void {
 
 function startFeedbackReminders(): void {
     cancelFeedbackReminders();
-    for (const delay of REMINDER_DELAYS) {
-        reminderTimers.push(setTimeout(playSystemSound, delay));
-    }
+    reminderTimers = scheduleReminderDelays(REMINDER_DELAYS, () => playSystemSound());
 }
 
 function cancelFeedbackReminders(): void {
-    for (const t of reminderTimers) clearTimeout(t);
+    clearScheduledTimers(reminderTimers);
     reminderTimers = [];
 }
 
 function getWorkspaces(): string[] {
-    return (vscode.workspace.workspaceFolders || []).map(f => f.uri.fsPath);
+    return workspacesFromFolders(vscode.workspace.workspaceFolders);
 }
 
 function _loadWebviewHtml(extensionPath: string, serverPort: number, version: string): string {
@@ -64,9 +77,11 @@ function _loadWebviewHtml(extensionPath: string, serverPort: number, version: st
     if (!html) {
         return '<html><body><h3>Webview not found. Check static/panel.html.</h3></body></html>';
     }
-    html = html.replace(/\{\{SERVER_URL\}\}/g, `ws://127.0.0.1:${serverPort}`);
-    html = html.replace(/\{\{PROJECT_PATH\}\}/g, getWorkspaces()[0] || '');
-    html = html.replace(/\{\{VERSION\}\}/g, version);
+    html = substituteWebviewPlaceholders(html, {
+        SERVER_URL: `ws://127.0.0.1:${serverPort}`,
+        PROJECT_PATH: getWorkspaces()[0] || '',
+        VERSION: version,
+    });
     return html;
 }
 
@@ -78,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const getMemoryVersion = () => readMemoryExtensionVersion(context.extension.packageJSON);
     const pkgVersion = getVersion();
     const memoryVersion = getMemoryVersion();
-    wsServer = new FeedbackWSServer(pkgVersion);
+    wsServer = new FeedbackWSServer(pkgVersion, { clipboard: createVscodeClipboard() });
     wsServer.setWorkspaces(getWorkspaces());
 
     let port: number;
@@ -256,15 +271,14 @@ function deployCursorHooks(extensionPath: string): void {
         const targetDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'hooks');
         fs.mkdirSync(targetDir, { recursive: true });
 
-        const hookFiles = ['hook-utils.js', 'consume-pending.js'];
-        for (const file of hookFiles) {
+        for (const file of HOOK_FILES) {
             const src = path.join(hooksSourceDir, file);
             if (fs.existsSync(src)) {
                 fs.copyFileSync(src, path.join(targetDir, file));
             }
         }
 
-        for (const old of ['check-pending.js', 'agent-stop.js', 'session-start.js', 'enforce-feedback.js', 'track-feedback.js', 'compact-flag.js']) {
+        for (const old of RETIRED_HOOK_FILES) {
             try { fs.unlinkSync(path.join(targetDir, old)); } catch { /* already gone */ }
         }
 
@@ -276,74 +290,16 @@ function deployCursorHooks(extensionPath: string): void {
             hooksConfig = JSON.parse(fs.readFileSync(hooksConfigPath, 'utf-8'));
         }
 
-        if (!hooksConfig.version) { hooksConfig.version = 1; }
+        const plan = planHooksConfigUpdate(resolveNodeBin(), preToolUseHook, hooksConfig);
+        if (!plan.changed) return;
 
-        const hooks = (hooksConfig.hooks || {}) as Record<string, Array<Record<string, unknown>>>;
-        const SOURCE_TAG = 'mcp-feedback-enhanced';
-        const LEGACY_TAGS = ['mcp-feedback-v2'];
-
-        const nodeBin = resolveNodeBin();
-        const hookEntries: Record<string, Record<string, unknown>> = {
-            preToolUse: { command: `${nodeBin} ${preToolUseHook}` },
-        };
-
-        for (const [event, entry] of Object.entries(hookEntries)) {
-            if (!hooks[event]) { hooks[event] = []; }
-            hooks[event] = hooks[event].filter(h =>
-                h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source as string)
-            );
-            hooks[event].push({
-                ...entry,
-                _source: SOURCE_TAG,
-            });
-        }
-
-        const RETIRED_HOOKS = ['stop', 'sessionStart', 'preCompact'];
-        for (const event of RETIRED_HOOKS) {
-            if (hooks[event]) {
-                hooks[event] = hooks[event].filter(h =>
-                    h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source as string)
-                );
-                if (hooks[event].length === 0) { delete hooks[event]; }
-            }
-        }
-
-        hooksConfig.hooks = hooks;
+        hooksConfig = applyHooksConfigPlan(hooksConfig, plan);
         fs.mkdirSync(path.dirname(hooksConfigPath), { recursive: true });
-        fs.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
+        fs.writeFileSync(hooksConfigPath, JSON.stringify(plan.hooksConfig, null, 2));
     } catch (e) {
         console.error('[MCP Feedback] Failed to deploy hooks:', e);
     }
 }
-
-const RULES_CONTENT = [
-    '---',
-    'alwaysApply: true',
-    '---',
-    '',
-    '[MCP Feedback Enhanced] USAGE RULES:',
-    'These rules apply ONLY to the main agent in Agent mode (direct user conversation).',
-    'Do NOT call interactive_feedback if you are a subagent, or in Plan/Ask/Debug mode.',
-    '',
-    'WHY: User responses through feedback are FREE, but each user message in Cursor costs a request.',
-    'Always prefer feedback over ending your turn with plain text alone.',
-    '',
-    'HARD GATE — turn completion:',
-    '- If you are about to end your turn and you have NOT called interactive_feedback in this turn, you are NOT done. Call it first.',
-    '- MUST use interactive_feedback as your LAST tool call when wrapping up (hand off, summarize, or ask the user).',
-    '- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.',
-    '',
-    'You have access to the interactive_feedback MCP tool for communicating with the user:',
-    '- Use it to present results, ask questions, or check in with the user.',
-    '- You do not need to call it between every tool call during multi-step execution.',
-    '- When blocked, uncertain, or facing a decision with trade-offs, call feedback immediately to ask the user — do NOT guess or make assumptions on your own.',
-    '',
-    'SESSION LOOP — ends only when user sends Finished:',
-    '- After EVERY meaningful stage (or before ending your turn), call interactive_feedback as your LAST tool.',
-    '- If the user reply is NOT exactly "Finished" (case-insensitive), keep working and call interactive_feedback again before your next turn ends.',
-    '- Only when the user explicitly sends "Finished" may you treat the task as complete and stop calling interactive_feedback.',
-    '',
-].join('\n');
 
 function deployCursorRules(): void {
     try {
@@ -352,18 +308,16 @@ function deployCursorRules(): void {
 
         fs.mkdirSync(rulesDir, { recursive: true });
 
-        let needsWrite = true;
-        if (fs.existsSync(ruleFile)) {
-            const existing = fs.readFileSync(ruleFile, 'utf-8');
-            if (existing === RULES_CONTENT) { needsWrite = false; }
-        }
+        const existing = fs.existsSync(ruleFile)
+            ? fs.readFileSync(ruleFile, 'utf-8')
+            : null;
+        const plan = planRulesDeploy(existing, getWorkspaces());
 
-        if (needsWrite) {
+        if (plan.writeGlobal) {
             fs.writeFileSync(ruleFile, RULES_CONTENT);
         }
 
-        for (const ws of getWorkspaces()) {
-            const wsRuleFile = path.join(ws, '.cursor', 'rules', 'mcp-feedback-enhanced.mdc');
+        for (const wsRuleFile of plan.removeWorkspaceRules) {
             try { fs.unlinkSync(wsRuleFile); } catch { /* already gone */ }
         }
     } catch (e) {
@@ -376,14 +330,13 @@ function migratePendingFiles(): void {
         const pendingDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'pending');
         if (!fs.existsSync(pendingDir)) return;
         const files = fs.readdirSync(pendingDir).filter(f => f.endsWith('.json'));
-        if (files.length === 0) {
-            fs.rmdirSync(pendingDir);
-            return;
-        }
-        for (const f of files) {
+        const plan = planPendingMigration(files);
+        for (const f of plan.unlinkFiles) {
             try { fs.unlinkSync(path.join(pendingDir, f)); } catch { /* ignore */ }
         }
-        try { fs.rmdirSync(pendingDir); } catch { /* ignore */ }
+        if (plan.removeDir) {
+            try { fs.rmdirSync(pendingDir); } catch { /* ignore */ }
+        }
     } catch { /* ignore */ }
 }
 

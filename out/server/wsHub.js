@@ -61,7 +61,7 @@ const hubSnapshot_1 = require("../hubSnapshot");
 const disconnectReason_1 = require("../disconnectReason");
 const feedbackDelivery_1 = require("../feedbackDelivery");
 const clipboardImage_1 = require("../utils/clipboardImage");
-const vscode = __importStar(require("vscode"));
+const clipboardHandlers_js_1 = require("./clipboardHandlers.js");
 const extensionFileLog_js_1 = require("../extensionFileLog.js");
 const stateSyncPayload_js_1 = require("../stateSyncPayload.js");
 function wsLog(msg) {
@@ -73,7 +73,7 @@ const HEARTBEAT_INTERVAL = 30000;
 const CLIENT_TIMEOUT = 90000;
 const MESSAGE_CAP = 500;
 class WsHub {
-    constructor(version = '0.0.0') {
+    constructor(version = '0.0.0', options = {}) {
         this.server = null;
         this.wss = null;
         this.port = 0;
@@ -81,7 +81,12 @@ class WsHub {
         this.heartbeatTimer = null;
         this.workspaces = [];
         this.stateSyncGenerations = new Map();
+        this.stateSyncFingerprints = new Map();
         this.version = version;
+        this.clipboard = options.clipboard ?? {
+            writeText: async () => { throw new Error('clipboard port not configured'); },
+            readText: async () => '',
+        };
         this.feedback = new feedbackManager_1.FeedbackManager();
         this.pending = new pendingManager_1.PendingManager();
         this.timeline = new projectTimeline_1.ProjectTimeline(MESSAGE_CAP);
@@ -321,11 +326,18 @@ class WsHub {
                 }
                 this.clients.remove(ws);
                 this.stateSyncGenerations.delete(ws);
+                this.stateSyncFingerprints.delete(ws);
             },
         });
         return client;
     }
     _routeMessage(ws, client, msg) {
+        const clipboardHandlers = (0, clipboardHandlers_js_1.createClipboardHandlers)({
+            clipboard: this.clipboard,
+            readImageBase64: clipboardImage_1.readClipboardImageBase64,
+            log: wsLog,
+            send: (targetWs, data) => this._send(targetWs, data),
+        });
         (0, routeAdapter_1.dispatchRouteMessage)(ws, client, msg, {
             onRegister: (clientType) => {
                 client.clientType = clientType;
@@ -346,34 +358,11 @@ class WsHub {
                 const snap = this.feedback.pendingSessions().find((s) => s.id === sessionId);
                 wsLog((0, feedbackDelivery_1.sessionDisplayedLogLine)(sessionId, snap?.projectDir, snap?.traceId));
             },
-            onClipboardWrite: (targetWs, msg) => {
-                const text = msg.text || '';
-                void Promise.resolve(vscode.env.clipboard.writeText(text))
-                    .then(() => {
-                    wsLog(`clipboard-write ok len=${text.length}`);
-                    this._send(targetWs, { type: 'clipboard_write_ok', length: text.length });
-                })
-                    .catch((err) => {
-                    wsLog(`clipboard-write err ${err}`);
-                    this._send(targetWs, { type: 'clipboard_write_err', error: String(err) });
-                });
+            onClipboardWrite: (targetWs, clipMsg) => {
+                clipboardHandlers.onClipboardWrite(targetWs, clipMsg);
             },
-            onClipboardPaste: async (targetWs, msg) => {
-                const image = await (0, clipboardImage_1.readClipboardImageBase64)();
-                let text = '';
-                if (!image) {
-                    try {
-                        text = await vscode.env.clipboard.readText();
-                    }
-                    catch { /* ignore */ }
-                }
-                wsLog(`clipboard-paste ok image=${!!image} textLen=${text.length}`);
-                this._send(targetWs, {
-                    type: 'clipboard_paste_result',
-                    request_id: msg.request_id,
-                    text,
-                    image,
-                });
+            onClipboardPaste: (targetWs, clipMsg) => {
+                void clipboardHandlers.onClipboardPaste(targetWs, clipMsg);
             },
             sendPong: (targetWs) => this._send(targetWs, {
                 type: 'pong',
@@ -444,6 +433,18 @@ class WsHub {
         const hub = this._hubSnapshot();
         const generation = this.stateSyncGenerations.get(ws) ?? 0;
         this.stateSyncGenerations.set(ws, generation + 1);
+        const sessionWire = pendingSessions.map((s) => ({
+            id: s.id,
+            label: s.label,
+            summary: s.summary,
+            waiting: s.waiting,
+            mcp_detached: s.mcp_detached,
+            ...(s.projectDir ? { project_directory: s.projectDir } : {}),
+            ...(s.traceId ? { trace_id: s.traceId } : {}),
+        }));
+        const pendingFp = (0, stateSyncPayload_js_1.pendingSessionsFingerprint)(sessionWire);
+        const hubFp = (0, stateSyncPayload_js_1.hubFingerprint)(hub);
+        const lastFp = this.stateSyncFingerprints.get(ws);
         wsLog(`stateSync: version=${this.version} port=${this.port} `
             + `workspaces=${JSON.stringify(this.workspaces)} `
             + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} `
@@ -460,17 +461,12 @@ class WsHub {
             pendingComments: entry?.comments ?? [],
             pendingImages: entry?.images ?? [],
             feedbackQueueSize: this.feedback.pendingCount(),
-            pendingSessions: pendingSessions.map((s) => ({
-                id: s.id,
-                label: s.label,
-                summary: s.summary,
-                waiting: s.waiting,
-                mcp_detached: s.mcp_detached,
-                ...(s.projectDir ? { project_directory: s.projectDir } : {}),
-                ...(s.traceId ? { trace_id: s.traceId } : {}),
-            })),
+            pendingSessions: sessionWire,
             hub: hub,
+            lastPendingFingerprint: lastFp?.pending,
+            lastHubFingerprint: lastFp?.hub,
         }));
+        this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp });
     }
     // ── Heartbeat ───────────────────────────────────────────
     _startHeartbeat() {

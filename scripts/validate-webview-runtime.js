@@ -22,17 +22,22 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{VERSION\}\}/g, '2.5.1-test')
     .replace(/\{\{ERUDA_URI\}\}/g, 'https://mock/eruda.js')
     .replace(/\{\{ERUDA_PANEL_URI\}\}/g, 'https://mock/erudaPanel.js')
+    .replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, 'https://mock/panelStateTransport.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
     .replace(/\{\{PANELCONNECTION_URI\}\}/g, 'https://mock/panelConnection.js')
     .replace(/\{\{PANELAPP_URI\}\}/g, 'https://mock/panelApp.js')
     .replace(/\{\{THEMECONTRAST_URI\}\}/g, 'https://mock/themeContrast.js')
     .replace(/\{\{CSP_SOURCE\}\}/g, 'https://mock');
 
+const panelStateTransportFile = path.join(__dirname, '..', 'out', 'webview', 'panelStateTransport.js');
 const panelStateFile = path.join(__dirname, '..', 'out', 'webview', 'panelState.js');
 const erudaPanelFile = path.join(__dirname, '..', 'out', 'webview', 'erudaPanel.js');
 const themeContrastFile = path.join(__dirname, '..', 'out', 'webview', 'themeContrast.js');
 const panelConnectionFile = path.join(__dirname, '..', 'out', 'webview', 'panelConnection.js');
 const panelAppFile = path.join(__dirname, '..', 'out', 'webview', 'panelApp.js');
+const panelStateTransportCode = fs.existsSync(panelStateTransportFile)
+    ? fs.readFileSync(panelStateTransportFile, 'utf-8')
+    : null;
 const panelStateCode = fs.existsSync(panelStateFile)
     ? fs.readFileSync(panelStateFile, 'utf-8')
     : null;
@@ -225,6 +230,19 @@ if (unreplaced) {
     hadError = true;
 } else {
     console.log('  OK  All placeholders replaced');
+}
+
+if (panelStateTransportCode) {
+    try {
+        vm.runInContext(panelStateTransportCode, ctx, { filename: 'panelStateTransport.js', timeout: 5000 });
+        console.log('  OK  External panelStateTransport.js loaded');
+    } catch (err) {
+        console.error(`  FAIL External panelStateTransport.js: ${err.message}`);
+        hadError = true;
+    }
+} else {
+    console.error('  FAIL External panelStateTransport.js not found');
+    hadError = true;
 }
 
 if (panelStateCode) {

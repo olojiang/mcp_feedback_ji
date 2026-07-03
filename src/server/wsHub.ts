@@ -47,10 +47,11 @@ import {
     sessionUpdatedLogLine,
 } from '../feedbackDelivery';
 import { readClipboardImageBase64 } from '../utils/clipboardImage';
-import * as vscode from 'vscode';
+import type { ClipboardPort } from '../clipboardPort.js';
+import { createClipboardHandlers } from './clipboardHandlers.js';
 import { getLogsDir } from '../configPaths.js';
 import { hubLog, hubStructuredLog } from '../extensionFileLog.js';
-import { buildStateSyncPayload } from '../stateSyncPayload.js';
+import { buildStateSyncPayload, hubFingerprint, pendingSessionsFingerprint } from '../stateSyncPayload.js';
 
 function wsLog(msg: string): void {
     hubLog(msg);
@@ -61,6 +62,10 @@ const PORT_RANGE_END = 48300;
 const HEARTBEAT_INTERVAL = 30_000;
 const CLIENT_TIMEOUT = 90_000;
 const MESSAGE_CAP = 500;
+
+export interface WsHubOptions {
+    clipboard?: ClipboardPort;
+}
 
 export class WsHub {
     private server: http.Server | null = null;
@@ -77,9 +82,15 @@ export class WsHub {
 
     private workspaces: string[] = [];
     private readonly stateSyncGenerations = new Map<WebSocket, number>();
+    private readonly stateSyncFingerprints = new Map<WebSocket, { pending: string; hub: string }>();
+    private readonly clipboard: ClipboardPort;
 
-    constructor(version = '0.0.0') {
+    constructor(version = '0.0.0', options: WsHubOptions = {}) {
         this.version = version;
+        this.clipboard = options.clipboard ?? {
+            writeText: async () => { throw new Error('clipboard port not configured'); },
+            readText: async () => '',
+        };
         this.feedback = new FeedbackManager();
         this.pending = new PendingManager();
         this.timeline = new ProjectTimeline(MESSAGE_CAP);
@@ -347,12 +358,19 @@ export class WsHub {
                 }
                 this.clients.remove(ws);
                 this.stateSyncGenerations.delete(ws);
+                this.stateSyncFingerprints.delete(ws);
             },
         });
         return client;
     }
 
     private _routeMessage(ws: WebSocket, client: ConnectedClient, msg: WSMessage): void {
+        const clipboardHandlers = createClipboardHandlers({
+            clipboard: this.clipboard,
+            readImageBase64: readClipboardImageBase64,
+            log: wsLog,
+            send: (targetWs, data) => this._send(targetWs, data),
+        });
         dispatchRouteMessage(ws, client, msg, {
             onRegister: (clientType) => {
                 client.clientType = clientType;
@@ -373,33 +391,11 @@ export class WsHub {
                 const snap = this.feedback.pendingSessions().find((s) => s.id === sessionId);
                 wsLog(sessionDisplayedLogLine(sessionId, snap?.projectDir, snap?.traceId));
             },
-            onClipboardWrite: (targetWs, msg) => {
-                const text = msg.text || '';
-                void Promise.resolve(vscode.env.clipboard.writeText(text))
-                    .then(() => {
-                        wsLog(`clipboard-write ok len=${text.length}`);
-                        this._send(targetWs, { type: 'clipboard_write_ok', length: text.length });
-                    })
-                    .catch((err: unknown) => {
-                        wsLog(`clipboard-write err ${err}`);
-                        this._send(targetWs, { type: 'clipboard_write_err', error: String(err) });
-                    });
+            onClipboardWrite: (targetWs, clipMsg) => {
+                clipboardHandlers.onClipboardWrite(targetWs, clipMsg);
             },
-            onClipboardPaste: async (targetWs, msg) => {
-                const image = await readClipboardImageBase64();
-                let text = '';
-                if (!image) {
-                    try {
-                        text = await vscode.env.clipboard.readText();
-                    } catch { /* ignore */ }
-                }
-                wsLog(`clipboard-paste ok image=${!!image} textLen=${text.length}`);
-                this._send(targetWs, {
-                    type: 'clipboard_paste_result',
-                    request_id: msg.request_id,
-                    text,
-                    image,
-                });
+            onClipboardPaste: (targetWs, clipMsg) => {
+                void clipboardHandlers.onClipboardPaste(targetWs, clipMsg);
             },
             sendPong: (targetWs) => this._send(targetWs, {
                 type: 'pong',
@@ -487,6 +483,18 @@ export class WsHub {
         const hub = this._hubSnapshot();
         const generation = this.stateSyncGenerations.get(ws) ?? 0;
         this.stateSyncGenerations.set(ws, generation + 1);
+        const sessionWire = pendingSessions.map((s) => ({
+            id: s.id,
+            label: s.label,
+            summary: s.summary,
+            waiting: s.waiting,
+            mcp_detached: s.mcp_detached,
+            ...(s.projectDir ? { project_directory: s.projectDir } : {}),
+            ...(s.traceId ? { trace_id: s.traceId } : {}),
+        }));
+        const pendingFp = pendingSessionsFingerprint(sessionWire);
+        const hubFp = hubFingerprint(hub as unknown as Record<string, unknown>);
+        const lastFp = this.stateSyncFingerprints.get(ws);
         wsLog(
             `stateSync: version=${this.version} port=${this.port} `
             + `workspaces=${JSON.stringify(this.workspaces)} `
@@ -505,17 +513,12 @@ export class WsHub {
             pendingComments: entry?.comments ?? [],
             pendingImages: entry?.images ?? [],
             feedbackQueueSize: this.feedback.pendingCount(),
-            pendingSessions: pendingSessions.map((s) => ({
-                id: s.id,
-                label: s.label,
-                summary: s.summary,
-                waiting: s.waiting,
-                mcp_detached: s.mcp_detached,
-                ...(s.projectDir ? { project_directory: s.projectDir } : {}),
-                ...(s.traceId ? { trace_id: s.traceId } : {}),
-            })),
+            pendingSessions: sessionWire,
             hub: hub as unknown as Record<string, unknown>,
+            lastPendingFingerprint: lastFp?.pending,
+            lastHubFingerprint: lastFp?.hub,
         }));
+        this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp });
     }
 
     // ── Heartbeat ───────────────────────────────────────────

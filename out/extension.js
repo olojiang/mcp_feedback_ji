@@ -19572,8 +19572,38 @@ async function readClipboardImageBase64() {
   return null;
 }
 
-// src/server/wsHub.ts
-var vscode = __toESM(require("vscode"));
+// src/server/clipboardHandlers.ts
+function createClipboardHandlers(deps) {
+  return {
+    onClipboardWrite: (targetWs, msg) => {
+      const text = msg.text || "";
+      void Promise.resolve(deps.clipboard.writeText(text)).then(() => {
+        deps.log(`clipboard-write ok len=${text.length}`);
+        deps.send(targetWs, { type: "clipboard_write_ok", length: text.length });
+      }).catch((err) => {
+        deps.log(`clipboard-write err ${err}`);
+        deps.send(targetWs, { type: "clipboard_write_err", error: String(err) });
+      });
+    },
+    onClipboardPaste: async (targetWs, msg) => {
+      const image = await deps.readImageBase64();
+      let text = "";
+      if (!image) {
+        try {
+          text = await deps.clipboard.readText();
+        } catch {
+        }
+      }
+      deps.log(`clipboard-paste ok image=${!!image} textLen=${text.length}`);
+      deps.send(targetWs, {
+        type: "clipboard_paste_result",
+        request_id: msg.request_id,
+        text,
+        image
+      });
+    }
+  };
+}
 
 // src/extensionFileLog.ts
 var fs4 = __toESM(require("node:fs"));
@@ -19657,19 +19687,54 @@ function hubStructuredLog(event, fields = {}, component = "hub") {
 }
 
 // src/stateSyncPayload.ts
+function pendingSessionsFingerprint(sessions) {
+  return sessions.map((s) => [
+    s.id,
+    s.waiting,
+    s.summary,
+    s.mcp_detached,
+    s.project_directory,
+    s.trace_id
+  ].join(":")).join("|");
+}
+function hubFingerprint(hub) {
+  return JSON.stringify({
+    port: hub.port,
+    pid: hub.pid,
+    version: hub.version,
+    webviews: hub.webviews,
+    mcp_servers: hub.mcp_servers,
+    pending_count: hub.pending_count,
+    mcp_detached_count: hub.mcp_detached_count,
+    workspaces: hub.workspaces
+  });
+}
 function buildStateSyncPayload(input) {
   const incremental = input.syncGeneration > 0;
-  return {
+  const pendingFp = pendingSessionsFingerprint(input.pendingSessions);
+  const hubFp = hubFingerprint(input.hub);
+  const pendingUnchanged = incremental && input.lastPendingFingerprint !== void 0 && input.lastPendingFingerprint === pendingFp;
+  const hubUnchanged = incremental && input.lastHubFingerprint !== void 0 && input.lastHubFingerprint === hubFp;
+  const payload = {
     type: "state_sync",
     incremental,
     sync_generation: input.syncGeneration,
     messages: incremental ? [] : input.messages,
     pending_comments: input.pendingComments,
     pending_images: input.pendingImages,
-    feedback_queue_size: input.feedbackQueueSize,
-    pending_sessions: input.pendingSessions,
-    hub: input.hub
+    feedback_queue_size: input.feedbackQueueSize
   };
+  if (pendingUnchanged) {
+    payload.pending_sessions_unchanged = true;
+  } else {
+    payload.pending_sessions = input.pendingSessions;
+  }
+  if (hubUnchanged) {
+    payload.hub_unchanged = true;
+  } else {
+    payload.hub = input.hub;
+  }
+  return payload;
 }
 
 // src/server/wsHub.ts
@@ -19682,7 +19747,7 @@ var HEARTBEAT_INTERVAL = 3e4;
 var CLIENT_TIMEOUT = 9e4;
 var MESSAGE_CAP = 500;
 var WsHub = class {
-  constructor(version2 = "0.0.0") {
+  constructor(version2 = "0.0.0", options = {}) {
     this.server = null;
     this.wss = null;
     this.port = 0;
@@ -19690,7 +19755,14 @@ var WsHub = class {
     this.heartbeatTimer = null;
     this.workspaces = [];
     this.stateSyncGenerations = /* @__PURE__ */ new Map();
+    this.stateSyncFingerprints = /* @__PURE__ */ new Map();
     this.version = version2;
+    this.clipboard = options.clipboard ?? {
+      writeText: async () => {
+        throw new Error("clipboard port not configured");
+      },
+      readText: async () => ""
+    };
     this.feedback = new FeedbackManager();
     this.pending = new PendingManager();
     this.timeline = new ProjectTimeline(MESSAGE_CAP);
@@ -19928,11 +20000,18 @@ var WsHub = class {
         }
         this.clients.remove(ws);
         this.stateSyncGenerations.delete(ws);
+        this.stateSyncFingerprints.delete(ws);
       }
     });
     return client;
   }
   _routeMessage(ws, client, msg) {
+    const clipboardHandlers = createClipboardHandlers({
+      clipboard: this.clipboard,
+      readImageBase64: readClipboardImageBase64,
+      log: wsLog,
+      send: (targetWs, data) => this._send(targetWs, data)
+    });
     dispatchRouteMessage(ws, client, msg, {
       onRegister: (clientType) => {
         client.clientType = clientType;
@@ -19953,32 +20032,11 @@ var WsHub = class {
         const snap = this.feedback.pendingSessions().find((s) => s.id === sessionId);
         wsLog(sessionDisplayedLogLine(sessionId, snap?.projectDir, snap?.traceId));
       },
-      onClipboardWrite: (targetWs, msg2) => {
-        const text = msg2.text || "";
-        void Promise.resolve(vscode.env.clipboard.writeText(text)).then(() => {
-          wsLog(`clipboard-write ok len=${text.length}`);
-          this._send(targetWs, { type: "clipboard_write_ok", length: text.length });
-        }).catch((err) => {
-          wsLog(`clipboard-write err ${err}`);
-          this._send(targetWs, { type: "clipboard_write_err", error: String(err) });
-        });
+      onClipboardWrite: (targetWs, clipMsg) => {
+        clipboardHandlers.onClipboardWrite(targetWs, clipMsg);
       },
-      onClipboardPaste: async (targetWs, msg2) => {
-        const image = await readClipboardImageBase64();
-        let text = "";
-        if (!image) {
-          try {
-            text = await vscode.env.clipboard.readText();
-          } catch {
-          }
-        }
-        wsLog(`clipboard-paste ok image=${!!image} textLen=${text.length}`);
-        this._send(targetWs, {
-          type: "clipboard_paste_result",
-          request_id: msg2.request_id,
-          text,
-          image
-        });
+      onClipboardPaste: (targetWs, clipMsg) => {
+        void clipboardHandlers.onClipboardPaste(targetWs, clipMsg);
       },
       sendPong: (targetWs) => this._send(targetWs, {
         type: "pong",
@@ -20049,6 +20107,18 @@ var WsHub = class {
     const hub = this._hubSnapshot();
     const generation = this.stateSyncGenerations.get(ws) ?? 0;
     this.stateSyncGenerations.set(ws, generation + 1);
+    const sessionWire = pendingSessions.map((s) => ({
+      id: s.id,
+      label: s.label,
+      summary: s.summary,
+      waiting: s.waiting,
+      mcp_detached: s.mcp_detached,
+      ...s.projectDir ? { project_directory: s.projectDir } : {},
+      ...s.traceId ? { trace_id: s.traceId } : {}
+    }));
+    const pendingFp = pendingSessionsFingerprint(sessionWire);
+    const hubFp = hubFingerprint(hub);
+    const lastFp = this.stateSyncFingerprints.get(ws);
     wsLog(
       `stateSync: version=${this.version} port=${this.port} workspaces=${JSON.stringify(this.workspaces)} pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count} gen=${generation}`
     );
@@ -20064,17 +20134,12 @@ var WsHub = class {
       pendingComments: entry?.comments ?? [],
       pendingImages: entry?.images ?? [],
       feedbackQueueSize: this.feedback.pendingCount(),
-      pendingSessions: pendingSessions.map((s) => ({
-        id: s.id,
-        label: s.label,
-        summary: s.summary,
-        waiting: s.waiting,
-        mcp_detached: s.mcp_detached,
-        ...s.projectDir ? { project_directory: s.projectDir } : {},
-        ...s.traceId ? { trace_id: s.traceId } : {}
-      })),
-      hub
+      pendingSessions: sessionWire,
+      hub,
+      lastPendingFingerprint: lastFp?.pending,
+      lastHubFingerprint: lastFp?.hub
     }));
+    this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp });
   }
   // ── Heartbeat ───────────────────────────────────────────
   _startHeartbeat() {
@@ -20138,7 +20203,7 @@ var WsHub = class {
 };
 
 // src/feedbackViewProvider.ts
-var vscode2 = __toESM(require("vscode"));
+var vscode = __toESM(require("vscode"));
 var fs8 = __toESM(require("fs"));
 var path9 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
@@ -20428,8 +20493,8 @@ var FeedbackViewProvider = class {
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
-        vscode2.Uri.joinPath(this._extensionUri, "static"),
-        vscode2.Uri.joinPath(this._extensionUri, "out", "webview")
+        vscode.Uri.joinPath(this._extensionUri, "static"),
+        vscode.Uri.joinPath(this._extensionUri, "out", "webview")
       ]
     };
     this._setupMessageHandler(webviewView);
@@ -20485,26 +20550,30 @@ var FeedbackViewProvider = class {
     let html = this._getHtml();
     const cacheKey = encodeURIComponent(this._getVersion());
     const erudaUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "static", "vendor", "eruda.js").with({ query: `v=${cacheKey}` })
+      vscode.Uri.joinPath(this._extensionUri, "static", "vendor", "eruda.js").with({ query: `v=${cacheKey}` })
+    );
+    const panelStateTransportUri = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateTransport.js").with({ query: `v=${cacheKey}` })
     );
     const panelStateUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelState.js").with({ query: `v=${cacheKey}` })
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelState.js").with({ query: `v=${cacheKey}` })
     );
     const erudaPanelUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "erudaPanel.js").with({ query: `v=${cacheKey}` })
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "erudaPanel.js").with({ query: `v=${cacheKey}` })
     );
     const panelConnectionUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelConnection.js").with({ query: `v=${cacheKey}` })
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelConnection.js").with({ query: `v=${cacheKey}` })
     );
     const panelAppUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelApp.js").with({ query: `v=${cacheKey}` })
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelApp.js").with({ query: `v=${cacheKey}` })
     );
     const themeContrastUri = view.webview.asWebviewUri(
-      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "themeContrast.js").with({ query: `v=${cacheKey}` })
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "themeContrast.js").with({ query: `v=${cacheKey}` })
     );
     const cspSource = view.webview.cspSource;
     html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
     html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
+    html = html.replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, panelStateTransportUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
     html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
     html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
@@ -20534,12 +20603,12 @@ var FeedbackViewProvider = class {
   }
   _quickRepliesFromSettings() {
     try {
-      const getConfiguration = vscode2.workspace?.getConfiguration;
+      const getConfiguration = vscode.workspace?.getConfiguration;
       if (typeof getConfiguration !== "function") {
         return quickRepliesFromConfig(void 0);
       }
       return quickRepliesFromConfig(
-        getConfiguration.call(vscode2.workspace, "mcpFeedback").get("quickReplies")
+        getConfiguration.call(vscode.workspace, "mcpFeedback").get("quickReplies")
       );
     } catch {
       return quickRepliesFromConfig(void 0);
@@ -20636,7 +20705,7 @@ var FeedbackViewProvider = class {
   }
   _setupMessageHandler(view) {
     const handlers = {
-      ...buildDefaultWebviewHandlers(vscode2),
+      ...buildDefaultWebviewHandlers(vscode),
       "request-debug": (_msg, v, ctx) => {
         ctx.handleDebug(v);
       },
@@ -20686,10 +20755,10 @@ var FeedbackViewProvider = class {
     try {
       const filePattern = `**/*${query}*`;
       const excludePattern = "{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}";
-      const files = await vscode2.workspace.findFiles(filePattern, excludePattern, 15);
-      const workspaceRoot = vscode2.workspace.workspaceFolders?.[0]?.uri;
+      const files = await vscode.workspace.findFiles(filePattern, excludePattern, 15);
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
       for (const file2 of files) {
-        const rel = workspaceRoot ? vscode2.workspace.asRelativePath(file2, false) : file2.fsPath;
+        const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
           kind: "file",
           label: path9.basename(file2.fsPath),
@@ -20700,14 +20769,14 @@ var FeedbackViewProvider = class {
     } catch {
     }
     try {
-      const symbols = await vscode2.commands.executeCommand(
+      const symbols = await vscode.commands.executeCommand(
         "vscode.executeWorkspaceSymbolProvider",
         query
       );
       if (symbols) {
-        const workspaceRoot = vscode2.workspace.workspaceFolders?.[0]?.uri;
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
         for (const sym of symbols.slice(0, 10)) {
-          const rel = workspaceRoot ? vscode2.workspace.asRelativePath(sym.location.uri, false) : sym.location.uri.fsPath;
+          const rel = workspaceRoot ? vscode.workspace.asRelativePath(sym.location.uri, false) : sym.location.uri.fsPath;
           const line = sym.location.range.start.line + 1;
           items.push({
             kind: "symbol",
@@ -20728,7 +20797,7 @@ var FeedbackViewProvider = class {
     view.webview.postMessage({ type: "at-results", items: unique });
   }
   _focusPanel() {
-    vscode2.commands.executeCommand("mcp-feedback-enhanced.feedbackPanelBottom.focus");
+    vscode.commands.executeCommand("mcp-feedback-enhanced.feedbackPanelBottom.focus");
   }
   _setupHotReload(view) {
     if (!process.env.MCP_FEEDBACK_DEV) {
@@ -20756,7 +20825,7 @@ var FeedbackViewProvider = class {
   async _openLogFile(target) {
     const allowed = /* @__PURE__ */ new Set(["extension", "mcp-server", "webview"]);
     if (!allowed.has(target)) {
-      vscode2.window.showWarningMessage(`MCP Feedback: unknown log target "${target}"`);
+      vscode.window.showWarningMessage(`MCP Feedback: unknown log target "${target}"`);
       return;
     }
     const logPath = resolveFeedbackLogPath(target);
@@ -20765,10 +20834,10 @@ var FeedbackViewProvider = class {
         fs8.mkdirSync(path9.dirname(logPath), { recursive: true });
         fs8.writeFileSync(logPath, "", "utf8");
       }
-      const doc = await vscode2.workspace.openTextDocument(vscode2.Uri.file(logPath));
-      await vscode2.window.showTextDocument(doc, { preview: false });
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(logPath));
+      await vscode.window.showTextDocument(doc, { preview: false });
     } catch (e) {
-      vscode2.window.showErrorMessage(`MCP Feedback: cannot open log \u2014 ${e}`);
+      vscode.window.showErrorMessage(`MCP Feedback: cannot open log \u2014 ${e}`);
     }
   }
   async _openMcpOutput() {
@@ -20778,8 +20847,8 @@ var FeedbackViewProvider = class {
     ];
     for (const cmd of tried) {
       try {
-        await vscode2.commands.executeCommand(cmd);
-        vscode2.window.showInformationMessage(
+        await vscode.commands.executeCommand(cmd);
+        vscode.window.showInformationMessage(
           'MCP Feedback: Output panel opened \u2014 select "MCP: user-mcp-feedback-enhanced" if needed'
         );
         return;
@@ -20790,13 +20859,13 @@ var FeedbackViewProvider = class {
   }
   async _exportSessions(data) {
     const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
-    const uri = await vscode2.window.showSaveDialog({
-      defaultUri: vscode2.Uri.file(path9.join(os4.homedir(), "Downloads", defaultName)),
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path9.join(os4.homedir(), "Downloads", defaultName)),
       filters: { JSON: ["json"] }
     });
     if (!uri) return;
     fs8.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
-    vscode2.window.showInformationMessage(`MCP Feedback: exported sessions to ${path9.basename(uri.fsPath)}`);
+    vscode.window.showInformationMessage(`MCP Feedback: exported sessions to ${path9.basename(uri.fsPath)}`);
   }
 };
 
@@ -20876,11 +20945,129 @@ function applyMcpConfigPlan(config2, plan) {
   return { ...config2, mcpServers };
 }
 
+// src/deploy/hooks.ts
+var SOURCE_TAG = "mcp-feedback-enhanced";
+var LEGACY_TAGS = ["mcp-feedback-v2"];
+var RETIRED_HOOKS = ["stop", "sessionStart", "preCompact"];
+function planHooksConfigUpdate(nodeBin, preToolUseHookPath, hooksConfig) {
+  const next = { ...hooksConfig };
+  if (!next.version) next.version = 1;
+  const hooks = { ...next.hooks || {} };
+  const hookEntries = {
+    preToolUse: { command: `${nodeBin} ${preToolUseHookPath}` }
+  };
+  for (const [event, entry] of Object.entries(hookEntries)) {
+    if (!hooks[event]) hooks[event] = [];
+    hooks[event] = hooks[event].filter(
+      (h) => h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source)
+    );
+    hooks[event].push({ ...entry, _source: SOURCE_TAG });
+  }
+  for (const event of RETIRED_HOOKS) {
+    if (hooks[event]) {
+      hooks[event] = hooks[event].filter(
+        (h) => h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source)
+      );
+      if (hooks[event].length === 0) delete hooks[event];
+    }
+  }
+  next.hooks = hooks;
+  const changed = JSON.stringify(hooksConfig.hooks || {}) !== JSON.stringify(hooks);
+  return { changed, existingHooks: hooks, hooksConfig: next };
+}
+function applyHooksConfigPlan(hooksConfig, plan) {
+  return { ...hooksConfig, hooks: plan.existingHooks };
+}
+var HOOK_FILES = ["hook-utils.js", "consume-pending.js"];
+var RETIRED_HOOK_FILES = [
+  "check-pending.js",
+  "agent-stop.js",
+  "session-start.js",
+  "enforce-feedback.js",
+  "track-feedback.js",
+  "compact-flag.js"
+];
+
+// src/deploy/rules.ts
+var RULES_CONTENT = [
+  "---",
+  "alwaysApply: true",
+  "---",
+  "",
+  "[MCP Feedback Enhanced] USAGE RULES:",
+  "These rules apply ONLY to the main agent in Agent mode (direct user conversation).",
+  "Do NOT call interactive_feedback if you are a subagent, or in Plan/Ask/Debug mode.",
+  "",
+  "WHY: User responses through feedback are FREE, but each user message in Cursor costs a request.",
+  "Always prefer feedback over ending your turn with plain text alone.",
+  "",
+  "HARD GATE \u2014 turn completion:",
+  "- If you are about to end your turn and you have NOT called interactive_feedback in this turn, you are NOT done. Call it first.",
+  "- MUST use interactive_feedback as your LAST tool call when wrapping up (hand off, summarize, or ask the user).",
+  "- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.",
+  "",
+  "You have access to the interactive_feedback MCP tool for communicating with the user:",
+  "- Use it to present results, ask questions, or check in with the user.",
+  "- You do not need to call it between every tool call during multi-step execution.",
+  "- When blocked, uncertain, or facing a decision with trade-offs, call feedback immediately to ask the user \u2014 do NOT guess or make assumptions on your own.",
+  "",
+  "SESSION LOOP \u2014 ends only when user sends Finished:",
+  "- After EVERY meaningful stage (or before ending your turn), call interactive_feedback as your LAST tool.",
+  '- If the user reply is NOT exactly "Finished" (case-insensitive), keep working and call interactive_feedback again before your next turn ends.',
+  '- Only when the user explicitly sends "Finished" may you treat the task as complete and stop calling interactive_feedback.',
+  ""
+].join("\n");
+function planRulesDeploy(existingGlobalContent, workspacePaths) {
+  const writeGlobal = existingGlobalContent !== RULES_CONTENT;
+  const removeWorkspaceRules = workspacePaths.map(
+    (ws) => `${ws}/.cursor/rules/mcp-feedback-enhanced.mdc`
+  );
+  return { writeGlobal, removeWorkspaceRules };
+}
+
+// src/deploy/pendingMigration.ts
+function planPendingMigration(jsonFiles) {
+  if (jsonFiles.length === 0) {
+    return { unlinkFiles: [], removeDir: true };
+  }
+  return { unlinkFiles: jsonFiles.slice(), removeDir: false };
+}
+
+// src/vscodeClipboard.ts
+var vscode2 = __toESM(require("vscode"));
+function createVscodeClipboard() {
+  return {
+    writeText: (text) => Promise.resolve(vscode2.env.clipboard.writeText(text)),
+    readText: () => Promise.resolve(vscode2.env.clipboard.readText())
+  };
+}
+
+// src/extensionHelpers.ts
+function workspacesFromFolders(folders) {
+  return (folders || []).map((f) => f.uri.fsPath);
+}
+function substituteWebviewPlaceholders(html, replacements) {
+  let out = html;
+  for (const [key, value] of Object.entries(replacements)) {
+    out = out.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
+  }
+  return out;
+}
+
+// src/feedbackReminders.ts
+var DEFAULT_REMINDER_DELAYS_MS = [0, 6e4, 12e4, 3e5];
+function scheduleReminderDelays(delays, onFire, schedule = setTimeout) {
+  return delays.map((delay) => schedule(() => onFire(delay), delay));
+}
+function clearScheduledTimers(timers) {
+  for (const t of timers) clearTimeout(t);
+}
+
 // src/extension.ts
 var wsServer;
 var bottomProvider;
 var disposables = [];
-var REMINDER_DELAYS = [0, 6e4, 12e4, 3e5];
+var REMINDER_DELAYS = DEFAULT_REMINDER_DELAYS_MS;
 var reminderTimers = [];
 function playSystemSound() {
   if (process.platform === "darwin") {
@@ -20889,16 +21076,14 @@ function playSystemSound() {
 }
 function startFeedbackReminders() {
   cancelFeedbackReminders();
-  for (const delay of REMINDER_DELAYS) {
-    reminderTimers.push(setTimeout(playSystemSound, delay));
-  }
+  reminderTimers = scheduleReminderDelays(REMINDER_DELAYS, () => playSystemSound());
 }
 function cancelFeedbackReminders() {
-  for (const t of reminderTimers) clearTimeout(t);
+  clearScheduledTimers(reminderTimers);
   reminderTimers = [];
 }
 function getWorkspaces() {
-  return (vscode3.workspace.workspaceFolders || []).map((f) => f.uri.fsPath);
+  return workspacesFromFolders(vscode3.workspace.workspaceFolders);
 }
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
@@ -20915,9 +21100,11 @@ function _loadWebviewHtml(extensionPath, serverPort, version2) {
   if (!html) {
     return "<html><body><h3>Webview not found. Check static/panel.html.</h3></body></html>";
   }
-  html = html.replace(/\{\{SERVER_URL\}\}/g, `ws://127.0.0.1:${serverPort}`);
-  html = html.replace(/\{\{PROJECT_PATH\}\}/g, getWorkspaces()[0] || "");
-  html = html.replace(/\{\{VERSION\}\}/g, version2);
+  html = substituteWebviewPlaceholders(html, {
+    SERVER_URL: `ws://127.0.0.1:${serverPort}`,
+    PROJECT_PATH: getWorkspaces()[0] || "",
+    VERSION: version2
+  });
   return html;
 }
 async function activate(context) {
@@ -20926,7 +21113,7 @@ async function activate(context) {
   const getMemoryVersion = () => readMemoryExtensionVersion(context.extension.packageJSON);
   const pkgVersion = getVersion();
   const memoryVersion = getMemoryVersion();
-  wsServer = new WsHub(pkgVersion);
+  wsServer = new WsHub(pkgVersion, { clipboard: createVscodeClipboard() });
   wsServer.setWorkspaces(getWorkspaces());
   let port;
   try {
@@ -21095,14 +21282,13 @@ function deployCursorHooks(extensionPath) {
     const hooksSourceDir = path12.join(extensionPath, "scripts", "hooks");
     const targetDir = path12.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
     fs10.mkdirSync(targetDir, { recursive: true });
-    const hookFiles = ["hook-utils.js", "consume-pending.js"];
-    for (const file2 of hookFiles) {
+    for (const file2 of HOOK_FILES) {
       const src = path12.join(hooksSourceDir, file2);
       if (fs10.existsSync(src)) {
         fs10.copyFileSync(src, path12.join(targetDir, file2));
       }
     }
-    for (const old of ["check-pending.js", "agent-stop.js", "session-start.js", "enforce-feedback.js", "track-feedback.js", "compact-flag.js"]) {
+    for (const old of RETIRED_HOOK_FILES) {
       try {
         fs10.unlinkSync(path12.join(targetDir, old));
       } catch {
@@ -21114,91 +21300,26 @@ function deployCursorHooks(extensionPath) {
     if (fs10.existsSync(hooksConfigPath)) {
       hooksConfig = JSON.parse(fs10.readFileSync(hooksConfigPath, "utf-8"));
     }
-    if (!hooksConfig.version) {
-      hooksConfig.version = 1;
-    }
-    const hooks = hooksConfig.hooks || {};
-    const SOURCE_TAG = "mcp-feedback-enhanced";
-    const LEGACY_TAGS = ["mcp-feedback-v2"];
-    const nodeBin = resolveNodeBin();
-    const hookEntries = {
-      preToolUse: { command: `${nodeBin} ${preToolUseHook}` }
-    };
-    for (const [event, entry] of Object.entries(hookEntries)) {
-      if (!hooks[event]) {
-        hooks[event] = [];
-      }
-      hooks[event] = hooks[event].filter(
-        (h) => h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source)
-      );
-      hooks[event].push({
-        ...entry,
-        _source: SOURCE_TAG
-      });
-    }
-    const RETIRED_HOOKS = ["stop", "sessionStart", "preCompact"];
-    for (const event of RETIRED_HOOKS) {
-      if (hooks[event]) {
-        hooks[event] = hooks[event].filter(
-          (h) => h._source !== SOURCE_TAG && !LEGACY_TAGS.includes(h._source)
-        );
-        if (hooks[event].length === 0) {
-          delete hooks[event];
-        }
-      }
-    }
-    hooksConfig.hooks = hooks;
+    const plan = planHooksConfigUpdate(resolveNodeBin(), preToolUseHook, hooksConfig);
+    if (!plan.changed) return;
+    hooksConfig = applyHooksConfigPlan(hooksConfig, plan);
     fs10.mkdirSync(path12.dirname(hooksConfigPath), { recursive: true });
-    fs10.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
+    fs10.writeFileSync(hooksConfigPath, JSON.stringify(plan.hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
   }
 }
-var RULES_CONTENT = [
-  "---",
-  "alwaysApply: true",
-  "---",
-  "",
-  "[MCP Feedback Enhanced] USAGE RULES:",
-  "These rules apply ONLY to the main agent in Agent mode (direct user conversation).",
-  "Do NOT call interactive_feedback if you are a subagent, or in Plan/Ask/Debug mode.",
-  "",
-  "WHY: User responses through feedback are FREE, but each user message in Cursor costs a request.",
-  "Always prefer feedback over ending your turn with plain text alone.",
-  "",
-  "HARD GATE \u2014 turn completion:",
-  "- If you are about to end your turn and you have NOT called interactive_feedback in this turn, you are NOT done. Call it first.",
-  "- MUST use interactive_feedback as your LAST tool call when wrapping up (hand off, summarize, or ask the user).",
-  "- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.",
-  "",
-  "You have access to the interactive_feedback MCP tool for communicating with the user:",
-  "- Use it to present results, ask questions, or check in with the user.",
-  "- You do not need to call it between every tool call during multi-step execution.",
-  "- When blocked, uncertain, or facing a decision with trade-offs, call feedback immediately to ask the user \u2014 do NOT guess or make assumptions on your own.",
-  "",
-  "SESSION LOOP \u2014 ends only when user sends Finished:",
-  "- After EVERY meaningful stage (or before ending your turn), call interactive_feedback as your LAST tool.",
-  '- If the user reply is NOT exactly "Finished" (case-insensitive), keep working and call interactive_feedback again before your next turn ends.',
-  '- Only when the user explicitly sends "Finished" may you treat the task as complete and stop calling interactive_feedback.',
-  ""
-].join("\n");
 function deployCursorRules() {
   try {
     const rulesDir = path12.join(os5.homedir(), ".cursor", "rules");
     const ruleFile = path12.join(rulesDir, "mcp-feedback-enhanced.mdc");
     fs10.mkdirSync(rulesDir, { recursive: true });
-    let needsWrite = true;
-    if (fs10.existsSync(ruleFile)) {
-      const existing = fs10.readFileSync(ruleFile, "utf-8");
-      if (existing === RULES_CONTENT) {
-        needsWrite = false;
-      }
-    }
-    if (needsWrite) {
+    const existing = fs10.existsSync(ruleFile) ? fs10.readFileSync(ruleFile, "utf-8") : null;
+    const plan = planRulesDeploy(existing, getWorkspaces());
+    if (plan.writeGlobal) {
       fs10.writeFileSync(ruleFile, RULES_CONTENT);
     }
-    for (const ws of getWorkspaces()) {
-      const wsRuleFile = path12.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
+    for (const wsRuleFile of plan.removeWorkspaceRules) {
       try {
         fs10.unlinkSync(wsRuleFile);
       } catch {
@@ -21213,19 +21334,18 @@ function migratePendingFiles() {
     const pendingDir = path12.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
     if (!fs10.existsSync(pendingDir)) return;
     const files = fs10.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
-    if (files.length === 0) {
-      fs10.rmdirSync(pendingDir);
-      return;
-    }
-    for (const f of files) {
+    const plan = planPendingMigration(files);
+    for (const f of plan.unlinkFiles) {
       try {
         fs10.unlinkSync(path12.join(pendingDir, f));
       } catch {
       }
     }
-    try {
-      fs10.rmdirSync(pendingDir);
-    } catch {
+    if (plan.removeDir) {
+      try {
+        fs10.rmdirSync(pendingDir);
+      } catch {
+      }
     }
   } catch {
   }

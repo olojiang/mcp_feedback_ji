@@ -7,6 +7,10 @@
  */
 import { WebSocket } from 'ws';
 import { type WebviewBridge } from './webviewBridge';
+import type { ClipboardPort } from '../clipboardPort.js';
+export interface WsHubOptions {
+    clipboard?: ClipboardPort;
+}
 export declare class WsHub {
     private server;
     private wss;
@@ -20,7 +24,9 @@ export declare class WsHub {
     private readonly feedbackFlow;
     private workspaces;
     private readonly stateSyncGenerations;
-    constructor(version?: string);
+    private readonly stateSyncFingerprints;
+    private readonly clipboard;
+    constructor(version?: string, options?: WsHubOptions);
     setWorkspaces(workspaces: string[]): void;
     onFeedbackRequest(cb: () => void): void;
     onFeedbackResolved(cb: () => void): void;

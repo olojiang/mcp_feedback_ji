@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.69] - 2026-07-03
+
+### Refactor (P5–P7)
+- **wsHub decoupled from vscode**: `ClipboardPort` + `createClipboardHandlers`; extension injects `createVscodeClipboard()`.
+- **deploy/hooks, rules, pendingMigration**: pure planning + TDD (`p569Refactor.test.js`).
+- **panelStateTransport.js**: split transport/connection classes from `panelState.js`.
+- **stateSyncPayload**: incremental sync skips unchanged `pending_sessions` / `hub` (fingerprints per WS).
+- **extensionHelpers + feedbackReminders**: workspaces, webview placeholders, reminder scheduling smoke tests.
+
 ## [2.5.1-ji.68] - 2026-07-03
 
 ### Refactor (recommendations 1–4)

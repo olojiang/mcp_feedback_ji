@@ -1,28 +1,22 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import Module from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { WebSocket } from 'ws'
 
 const require = createRequire(import.meta.url)
-const origLoad = Module._load
 const LOG_PATH = path.join(
   process.env.MCP_FEEDBACK_CONFIG_DIR || path.join(os.homedir(), '.config', 'mcp-feedback-enhanced'),
   'logs',
   'extension.log',
 )
 
-function vscodeStub() {
+function testClipboard() {
   return {
-    env: {
-      clipboard: {
-        writeText: async () => {},
-        readText: async () => 'plain-text',
-      },
-    },
+    writeText: async () => {},
+    readText: async () => 'plain-text',
   }
 }
 
@@ -31,20 +25,13 @@ describe('wsHub webview handlers', () => {
   let port = 0
 
   before(async () => {
-    Module._load = function (request, parent, isMain) {
-      if (request === 'vscode') return vscodeStub()
-      return origLoad.call(this, request, parent, isMain)
-    }
-    const hubPath = require.resolve('../out/server/wsHub.js')
-    delete require.cache[hubPath]
     const { WsHub } = require('../out/server/wsHub.js')
-    hub = new WsHub('hub-handlers')
+    hub = new WsHub('hub-handlers', { clipboard: testClipboard() })
     hub.setWorkspaces(['/tmp/hub-handlers'])
     port = await hub.start()
   })
 
   after(async () => {
-    Module._load = origLoad
     if (hub) await hub.stop()
     hub = null
   })
