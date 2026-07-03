@@ -20521,6 +20521,21 @@ function buildDefaultWebviewHandlers(vscodeApi) {
   };
 }
 
+// src/extensionHelpers.ts
+function workspacesFromFolders(folders) {
+  return (folders || []).map((f) => f.uri.fsPath);
+}
+function substituteWebviewPlaceholders(html, replacements) {
+  let out = html;
+  for (const [key, value] of Object.entries(replacements)) {
+    out = out.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
+  }
+  return out;
+}
+function sanitizeUnreplacedWebviewPlaceholders(html) {
+  return html.replace(/<script\b[^>]*\{\{[A-Z0-9_]+\}\}[^>]*>\s*<\/script>\s*/gi, "");
+}
+
 // src/feedbackViewProvider.ts
 var FeedbackViewProvider = class {
   constructor(getHtml, getPort, getVersion, getHub, extensionUri, getMemoryVersion) {
@@ -20639,6 +20654,7 @@ var FeedbackViewProvider = class {
     html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
     html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
     html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
+    html = sanitizeUnreplacedWebviewPlaceholders(html);
     return html;
   }
   _attachBridge(view) {
@@ -21109,18 +21125,6 @@ function createVscodeClipboard() {
   };
 }
 
-// src/extensionHelpers.ts
-function workspacesFromFolders(folders) {
-  return (folders || []).map((f) => f.uri.fsPath);
-}
-function substituteWebviewPlaceholders(html, replacements) {
-  let out = html;
-  for (const [key, value] of Object.entries(replacements)) {
-    out = out.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
-  }
-  return out;
-}
-
 // src/webviewOptions.ts
 function resolveRetainContextWhenHidden(setting) {
   return setting === true;
@@ -21198,6 +21202,7 @@ function _loadWebviewHtml(extensionPath, serverPort, version2) {
     PROJECT_PATH: getWorkspaces()[0] || "",
     VERSION: version2
   });
+  html = sanitizeUnreplacedWebviewPlaceholders(html);
   return html;
 }
 async function activate(context) {

@@ -30,6 +30,7 @@ import { readLogTailLines } from './logTail';
 import { quickRepliesFromConfig } from './quickReplySettings';
 import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
 import { buildDefaultWebviewHandlers, createWebviewMessageRouter } from './webviewMessageRouter';
+import { sanitizeUnreplacedWebviewPlaceholders } from './extensionHelpers';
 
 type HtmlGetter = () => string;
 type PortGetter = () => number;
@@ -194,6 +195,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
+        html = sanitizeUnreplacedWebviewPlaceholders(html);
         return html;
     }
 

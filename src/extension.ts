@@ -30,7 +30,7 @@ import {
 import { RULES_CONTENT, planRulesDeploy } from './deploy/rules';
 import { planPendingMigration } from './deploy/pendingMigration';
 import { createVscodeClipboard } from './vscodeClipboard';
-import { workspacesFromFolders, substituteWebviewPlaceholders } from './extensionHelpers';
+import { workspacesFromFolders, substituteWebviewPlaceholders, sanitizeUnreplacedWebviewPlaceholders } from './extensionHelpers';
 import { resolveRetainContextWhenHidden } from './webviewOptions';
 import { buildPostDeployReloadSteps } from './postDeployReload';
 import {
@@ -96,6 +96,7 @@ function _loadWebviewHtml(extensionPath: string, serverPort: number, version: st
         PROJECT_PATH: getWorkspaces()[0] || '',
         VERSION: version,
     });
+    html = sanitizeUnreplacedWebviewPlaceholders(html);
     return html;
 }
 

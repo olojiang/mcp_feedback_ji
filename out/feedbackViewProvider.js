@@ -58,6 +58,7 @@ const logTail_1 = require("./logTail");
 const quickReplySettings_1 = require("./quickReplySettings");
 const webviewSyncPolicy_1 = require("./webviewSyncPolicy");
 const webviewMessageRouter_1 = require("./webviewMessageRouter");
+const extensionHelpers_1 = require("./extensionHelpers");
 class FeedbackViewProvider {
     constructor(getHtml, getPort, getVersion, getHub, extensionUri, getMemoryVersion) {
         this._view = null;
@@ -167,6 +168,7 @@ class FeedbackViewProvider {
         html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
+        html = (0, extensionHelpers_1.sanitizeUnreplacedWebviewPlaceholders)(html);
         return html;
     }
     _attachBridge(view) {

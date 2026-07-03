@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.71] - 2026-07-03
+
+### Fix
+- **Deploy without Reload**: strip unreplaced `{{PLACEHOLDER}}` script tags so old extension memory + new panel.html does not brick the panel.
+- **panelState**: graceful fallback when split modules fail to load.
+
 ## [2.5.1-ji.70] - 2026-07-03
 
 ### Refactor (items 1–8)

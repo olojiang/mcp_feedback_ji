@@ -23,16 +23,32 @@
 
   function loadModule(name, globalKey) {
     if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
-      return require('./' + name + '.js')
+      try {
+        return require('./' + name + '.js')
+      } catch (e) {
+        return null
+      }
     }
     if (typeof window !== 'undefined' && window[globalKey]) {
       return window[globalKey]
     }
-    throw new Error(name + '.js must load before panelState.js')
+    return null
   }
 
   var uxModule = loadModule('panelStateUx', 'PanelStateUxModule')
   var markdownModule = loadModule('panelStateMarkdown', 'PanelStateMarkdownModule')
+  if (!uxModule || !uxModule.DEFAULT_QUICK_REPLIES || !uxModule.DEFAULT_QUICK_REPLIES.length) {
+    uxModule = {
+      DEFAULT_QUICK_REPLIES: [
+        { id: 'continue', label: 'Continue', text: 'Continue', icon: '' },
+        { id: 'finished', label: 'Finished', text: 'Finished', icon: '', finished: true },
+      ],
+      attachPanelStateUx: function () {},
+    }
+  }
+  if (!markdownModule) {
+    markdownModule = { attachPanelStateMarkdown: function () {} }
+  }
 
   function wsSend(message) {
     return { type: 'ws_send', message }

@@ -18,3 +18,8 @@ export function substituteWebviewPlaceholders(
     }
     return out;
 }
+
+/** Prevent broken panel when extension memory is older than disk panel.html after deploy. */
+export function sanitizeUnreplacedWebviewPlaceholders(html: string): string {
+    return html.replace(/<script\b[^>]*\{\{[A-Z0-9_]+\}\}[^>]*>\s*<\/script>\s*/gi, '');
+}
