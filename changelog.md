@@ -27,8 +27,17 @@ All notable changes to this project will be documented in this file.
 - **Sleep 检测**: WS Hub 心跳检测系统休眠（gap > 2min），合盖恢复时弹出 VS Code 警告
 - **PASSTHROUGH_TOOLS 扩展**: 新增 `websearch`, `webfetch`, `fetchmcpresource` 为只读直通工具
 
+### Fix
+- **Textarea 输入越来越矮**: `autoGrowTextareaHeight` 测量 `scrollHeight` 前先重置 `height=0`，消除反馈循环；`input` 事件中增加 maxPx 回退
+
+### Test
+- 修复 `sessionDedupe` 断言（`duplicate ignored` → `already_pending`）并增强 `sendResult` 行为验证
+- 修复 `p569Refactor` 断言（stop hook 已重新启用，非退役）
+- 新增 `cursorRequestWaste.test.js`：timeout/status 处理、already_pending sendResult、workspaceKey、stop 注册
+
 ### 文档
 - `local_docs/compare_implement_for_waste_cursor_request.md`: 完整的对比分析文档
+- `local_docs/fix_cursor_req_1.md`: 问题分析文档（含 Mermaid 架构图和时序图）
 
 ## [2.5.1-ji.89] - 2026-07-03
 
