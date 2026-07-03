@@ -62,20 +62,21 @@ describe('P5-1 clipboardPort', () => {
 })
 
 describe('P5-2 deploy hooks and rules', () => {
-  it('planHooksConfigUpdate merges preToolUse and strips legacy', () => {
+  it('planHooksConfigUpdate merges preToolUse and stop, strips legacy', () => {
     const { planHooksConfigUpdate, applyHooksConfigPlan, SOURCE_TAG } = require('../out/deploy/hooks.js')
     const input = {
       version: 1,
       hooks: {
         preToolUse: [{ command: 'old', _source: SOURCE_TAG }],
-        stop: [{ command: 'retired', _source: SOURCE_TAG }],
+        stop: [{ command: 'old-stop', _source: SOURCE_TAG }],
       },
     }
     const plan = planHooksConfigUpdate('/node', '/hook/consume-pending.js', input)
     assert.equal(plan.changed, true)
     const next = applyHooksConfigPlan(input, plan)
     assert.match(next.hooks.preToolUse[0].command, /consume-pending\.js/)
-    assert.equal(next.hooks.stop, undefined)
+    assert.ok(next.hooks.stop, 'stop hook should be registered')
+    assert.match(next.hooks.stop[0].command, /consume-pending\.js/)
   })
 
   it('planRulesDeploy skips write when content unchanged', () => {

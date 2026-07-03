@@ -69,8 +69,24 @@ describe('session dedupe — waste prevention', () => {
     assert.equal(errors[0].message, DUPLICATE_FEEDBACK_SUPERSEDED_MSG)
   })
 
-  it('duplicate feedback_request on same mcp ws is ignored (no second tab)', () => {
-    const { flow, feedback, logs } = createFlow()
+  it('duplicate feedback_request on same mcp ws sends already_pending result (no second tab)', () => {
+    const feedback = new FeedbackManager()
+    const logs = []
+    const results = []
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => [PROJECT],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => {},
+      sendResult: (ws, result) => { results.push({ ws, result }) },
+      sendError: (ws, err) => {},
+      log: (msg) => logs.push(msg),
+      getHubMeta: () => ({ port: 48201, pid: 1 }),
+    })
     const ws = { id: 'ws1', readyState: 1 }
 
     flow.handleFeedbackRequest(ws, {
@@ -85,8 +101,11 @@ describe('session dedupe — waste prevention', () => {
     })
 
     assert.equal(feedback.pendingCount(), 1)
-    assert.ok(logs.some((l) => l.includes('duplicate ignored')))
+    assert.ok(logs.some((l) => l.includes('already_pending')))
     assert.ok(logs.some((l) => l.includes('trace_duplicate_blocked')))
+    assert.equal(results.length, 1)
+    assert.equal(results[0].result.status, 'already_pending')
+    assert.equal(results[0].result.feedback, '')
   })
 
   it('different trace same project → legitimate parallel tabs (2 pending)', () => {
