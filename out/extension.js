@@ -3822,6 +3822,18 @@ function cleanupStaleServers() {
   return cleaned;
 }
 var AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, "agent-context.json");
+function readAgentContext() {
+  return safeReadJSON(AGENT_CONTEXT_FILE);
+}
+function listAllServers() {
+  const out = [];
+  for (const f of listJSONFiles(SERVERS_DIR)) {
+    const hash2 = f.replace(/\.json$/, "");
+    const info = readServerByHash(hash2);
+    if (info) out.push({ ...info, hash: hash2 });
+  }
+  return out.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+}
 
 // src/server/feedbackManager.ts
 function newSessionId() {
@@ -19842,6 +19854,32 @@ function resolveFeedbackLogPath(target) {
   }
 }
 
+// src/registrySnapshot.ts
+function enrichRegistryEntries(servers, isAlive) {
+  return servers.map((s) => ({
+    ...s,
+    alive: isAlive(s.pid)
+  }));
+}
+function versionSkewWarnings(entries, localVersion, localPid) {
+  const warnings = [];
+  for (const e of entries) {
+    if (!e.alive || e.pid === localPid) continue;
+    if (e.version !== localVersion) {
+      const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
+      warnings.push(`${ws} pid=${e.pid} runs ${e.version} (this window: ${localVersion})`);
+    }
+  }
+  return warnings;
+}
+function formatRegistryTable(entries) {
+  return entries.map((e) => {
+    const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
+    const status = e.alive ? "live" : "stale";
+    return `${status} | ${ws} | :${e.port} pid=${e.pid} | ${e.version}`;
+  });
+}
+
 // src/webviewSyncPolicy.ts
 function shouldReloadWebview(lastSyncedPort, nextPort) {
   return lastSyncedPort !== nextPort;
@@ -19986,7 +20024,16 @@ var FeedbackViewProvider = class {
   }
   _handleDebugRequest(view) {
     const hub = this._getHub();
-    const logDir = path7.join(os6.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+    const rawRegistry = listAllServers();
+    const registry2 = enrichRegistryEntries(rawRegistry, (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const skew = versionSkewWarnings(registry2, this._getVersion(), process.pid);
     const report = {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       extension: {
@@ -19997,6 +20044,12 @@ var FeedbackViewProvider = class {
         viewVisible: view.visible,
         ...hub?.getDebugInfo() ?? {}
       },
+      registry: {
+        entries: registry2,
+        table: formatRegistryTable(registry2)
+      },
+      agentContext: readAgentContext(),
+      versionSkew: skew,
       logPaths: {
         extension: resolveFeedbackLogPath("extension"),
         mcpServer: resolveFeedbackLogPath("mcp-server"),
@@ -20076,7 +20129,13 @@ var FeedbackViewProvider = class {
           this._handleAtSearch(message.query, view);
           break;
         case "open-log":
-          this._openLogFile(message.target);
+          void this._openLogFile(message.target);
+          break;
+        case "open-mcp-output":
+          void this._openMcpOutput();
+          break;
+        case "export-sessions":
+          void this._exportSessions(message.data);
           break;
         case "log":
           if (typeof message.msg === "string") {
@@ -20182,6 +20241,33 @@ var FeedbackViewProvider = class {
       vscode2.window.showErrorMessage(`MCP Feedback: cannot open log \u2014 ${e}`);
     }
   }
+  async _openMcpOutput() {
+    const tried = [
+      "mcp.showOutput",
+      "workbench.action.output.show"
+    ];
+    for (const cmd of tried) {
+      try {
+        await vscode2.commands.executeCommand(cmd);
+        vscode2.window.showInformationMessage(
+          'MCP Feedback: Output panel opened \u2014 select "MCP: user-mcp-feedback-enhanced" if needed'
+        );
+        return;
+      } catch {
+      }
+    }
+    await this._openLogFile("mcp-server");
+  }
+  async _exportSessions(data) {
+    const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
+    const uri = await vscode2.window.showSaveDialog({
+      defaultUri: vscode2.Uri.file(path7.join(os6.homedir(), "Downloads", defaultName)),
+      filters: { JSON: ["json"] }
+    });
+    if (!uri) return;
+    fs5.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
+    vscode2.window.showInformationMessage(`MCP Feedback: exported sessions to ${path7.basename(uri.fsPath)}`);
+  }
 };
 
 // src/extensionVersion.ts
@@ -20203,6 +20289,11 @@ var EXTENSION_SYNC_DELAY_MS = 800;
 var EXTENSION_PANEL_FOCUS_DELAYS_MS = [1500, 3e3, 5e3];
 function extensionSyncDelaysMs() {
   return [EXTENSION_SYNC_DELAY_MS];
+}
+
+// src/deployStamp.ts
+function shouldPromptReloadAfterVersionChange(previousActivated, diskVersion) {
+  return !!previousActivated && previousActivated !== diskVersion;
 }
 
 // src/extension.ts
@@ -20370,6 +20461,18 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
   for (const delay of extensionSyncDelaysMs()) {
     setTimeout(syncWebview, delay);
   }
+  const prevActivated = context.globalState.get("mcpFeedback.lastActivatedVersion");
+  if (shouldPromptReloadAfterVersionChange(prevActivated, pkgVersion)) {
+    void vscode3.window.showInformationMessage(
+      `MCP Feedback ${pkgVersion} is on disk \u2014 Reload Window to load it (was ${prevActivated})`,
+      "Reload Window"
+    ).then((choice) => {
+      if (choice === "Reload Window") {
+        void vscode3.commands.executeCommand("workbench.action.reloadWindow");
+      }
+    });
+  }
+  void context.globalState.update("mcpFeedback.lastActivatedVersion", pkgVersion);
 }
 function deactivate() {
   cancelFeedbackReminders();

@@ -26,4 +26,8 @@ export interface AgentContextFile {
     updatedAt: number;
 }
 export declare function writeAgentContext(workspaceRoots: string[], traceId?: string): void;
+export declare function readAgentContext(): AgentContextFile | null;
+export declare function listAllServers(): Array<ServerInfo & {
+    hash: string;
+}>;
 export { CONFIG_DIR, PROJECTS_DIR, SERVERS_DIR };

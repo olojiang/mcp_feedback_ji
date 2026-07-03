@@ -18,6 +18,7 @@ import { FeedbackWSServer } from './wsServer';
 import { FeedbackViewProvider } from './feedbackViewProvider';
 import { readExtensionVersion } from './extensionVersion';
 import { extensionSyncDelaysMs, EXTENSION_PANEL_FOCUS_DELAYS_MS } from './activateSyncPolicy';
+import { shouldPromptReloadAfterVersionChange } from './deployStamp';
 
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
@@ -194,6 +195,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const delay of extensionSyncDelaysMs()) {
         setTimeout(syncWebview, delay);
     }
+
+    const prevActivated = context.globalState.get<string>('mcpFeedback.lastActivatedVersion');
+    if (shouldPromptReloadAfterVersionChange(prevActivated, pkgVersion)) {
+        void vscode.window.showInformationMessage(
+            `MCP Feedback ${pkgVersion} is on disk — Reload Window to load it (was ${prevActivated})`,
+            'Reload Window',
+        ).then((choice) => {
+            if (choice === 'Reload Window') {
+                void vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        });
+    }
+    void context.globalState.update('mcpFeedback.lastActivatedVersion', pkgVersion);
 }
 
 export function deactivate(): void {

@@ -305,6 +305,25 @@ body{
   color:#fbbf24;border-color:rgba(251,191,36,0.5);
   background:rgba(251,191,36,0.1);
 }
+.routing-mismatch-banner{
+  display:none;margin:6px 10px 0;padding:8px 12px;border-radius:8px;
+  background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.35);
+  color:#fca5a5;font-size:11px;line-height:1.45;
+}
+.routing-mismatch-banner.visible{display:block}
+.routing-mismatch-banner code{font-size:10px;color:#fecaca}
+.tab-project-badge{
+  font-size:8px;padding:1px 5px;border-radius:6px;margin-left:4px;
+  background:rgba(124,58,237,0.15);color:#c4b5fd;max-width:72px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;
+}
+.waiting-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:16px;height:16px;padding:0 4px;border-radius:8px;
+  background:var(--accent);color:#111;font-size:9px;font-weight:700;margin-left:4px;
+}
+.waiting-badge:empty{display:none}
+.settings-panel label input[type="text"]#sessionSearchInput{margin-top:4px}
 .settings-toggle{margin-left:auto;flex-shrink:0}
 .settings-toggle button{
   background:var(--surface);border:1px solid var(--border);color:var(--fg-dim);
@@ -527,6 +546,12 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
   <div style="flex:1"></div>
   <div class="debug-toggle"><button id="debugBtn" class="mcp-toolbar-btn mcp-toolbar-btn--warn" title="Debug / Inspect connection state">DBG</button></div>
   <div class="settings-toggle"><button id="settingsBtn" class="mcp-toolbar-btn" title="Settings">&#9881;</button></div>
+  <span class="waiting-badge" id="waitingBadge" title="Sessions waiting for reply"></span>
+</div>
+<div class="routing-mismatch-banner" id="routingBanner">
+  <strong>Routing mismatch:</strong> Agent targeted
+  <code id="routingProject"></code>
+  but this panel serves another workspace. Switch to the matching Cursor window or fix <code>project_directory</code>.
 </div>
 <div class="debug-panel" id="debugPanel">
   <div class="debug-panel-title">
@@ -535,6 +560,8 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
       <button type="button" id="debugLogExtBtn" class="mcp-toolbar-btn" title="Open extension.log (Extension / Hub)">Ext log</button>
       <button type="button" id="debugLogMcpBtn" class="mcp-toolbar-btn" title="Open mcp-server.log (MCP routing)">MCP log</button>
       <button type="button" id="debugLogPanelBtn" class="mcp-toolbar-btn" title="Open webview.log (Panel UI)">Panel log</button>
+      <button type="button" id="debugMcpOutputBtn" class="mcp-toolbar-btn" title="Open Cursor MCP Output">MCP Output</button>
+      <button type="button" id="debugExportBtn" class="mcp-toolbar-btn" title="Export session history JSON">Export</button>
       <button type="button" id="debugDevToolsBtn" class="mcp-toolbar-btn" title="Open Webview DevTools">DevTools</button>
       <button type="button" id="debugReconnectBtn" class="mcp-toolbar-btn" title="Force hub-connect">Reconnect</button>
       <button type="button" id="debugCopyBtn" class="mcp-toolbar-btn" title="Copy full diagnostic JSON">Copy JSON</button>
@@ -544,6 +571,14 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
   <div class="debug-panel-body">
     <div class="debug-hint">Bridge 诊断 JSON。Eruda 在页面加载时独立初始化，用右下角浮动按钮打开/关闭。</div>
     <details style="margin-bottom:4px">
+      <summary style="cursor:pointer;font-size:10px;color:var(--fg-dim);user-select:none">Cross-window registry</summary>
+      <pre id="debugRegistry" style="margin-top:4px;font-size:10px">Open DBG to load...</pre>
+    </details>
+    <details style="margin-bottom:4px">
+      <summary style="cursor:pointer;font-size:10px;color:var(--fg-dim);user-select:none">agent-context.json</summary>
+      <pre id="debugAgentContext" style="margin-top:4px;font-size:10px">Open DBG to load...</pre>
+    </details>
+    <details style="margin-bottom:4px">
       <summary style="cursor:pointer;font-size:10px;color:var(--fg-dim);user-select:none">Bridge Diagnostic JSON</summary>
       <pre id="debugJson" style="margin-top:4px">Loading...</pre>
     </details>
@@ -552,6 +587,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 <div class="settings-panel" id="settingsPanel">
   <div class="settings-panel-title">&#9881; Settings</div>
   <div class="settings-panel-body">
+    <label>Search sessions<input type="text" id="sessionSearchInput" placeholder="label, summary, project..."></label>
     <label><input type="checkbox" id="autoReplyCheck"> Auto-reply when agent asks</label>
     <input type="text" id="autoReplyText" placeholder="Auto-reply text" value="Continue">
   </div>
@@ -721,6 +757,13 @@ window.onerror = function (msg, src, line, col, err) {
     var debugBtn = document.getElementById('debugBtn');
     var debugPanel = document.getElementById('debugPanel');
     var debugJsonEl = document.getElementById('debugJson');
+    var debugRegistryEl = document.getElementById('debugRegistry');
+    var debugAgentContextEl = document.getElementById('debugAgentContext');
+    var routingBannerEl = document.getElementById('routingBanner');
+    var routingProjectEl = document.getElementById('routingProject');
+    var waitingBadgeEl = document.getElementById('waitingBadge');
+    var sessionSearchInput = document.getElementById('sessionSearchInput');
+    var sessionSearchQuery = '';
     var debugDevToolsBtn = document.getElementById('debugDevToolsBtn');
     var debugReconnectBtn = document.getElementById('debugReconnectBtn');
     var debugCopyBtn = document.getElementById('debugCopyBtn');
@@ -831,6 +874,49 @@ window.onerror = function (msg, src, line, col, err) {
             extension: lastExtensionDebugReport || { note: 'waiting for extension debug-report...' },
         };
         debugJsonEl.textContent = JSON.stringify(payload, null, 2);
+        if (debugRegistryEl && lastExtensionDebugReport && lastExtensionDebugReport.registry) {
+            var reg = lastExtensionDebugReport.registry;
+            debugRegistryEl.textContent = (reg.table || []).join('\n') || '(no registry entries)';
+        }
+        if (debugAgentContextEl) {
+            debugAgentContextEl.textContent = JSON.stringify(
+                (lastExtensionDebugReport && lastExtensionDebugReport.agentContext) || null,
+                null,
+                2,
+            );
+        }
+    }
+
+    function showRoutingBanner(project) {
+        if (!routingBannerEl || !routingProjectEl) return;
+        if (!project) {
+            routingBannerEl.classList.remove('visible');
+            return;
+        }
+        routingProjectEl.textContent = project;
+        routingBannerEl.classList.add('visible');
+    }
+
+    function playFeedbackChime() {
+        try {
+            var Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) return;
+            var ctx = new Ctx();
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            gain.gain.value = 0.04;
+            osc.start();
+            osc.stop(ctx.currentTime + 0.15);
+        } catch (_e) { /* ignore */ }
+    }
+
+    function updateWaitingBadge() {
+        if (!waitingBadgeEl) return;
+        var n = state.waitingCount || 0;
+        waitingBadgeEl.textContent = n > 0 ? String(n) : '';
     }
 
     function openDebugPanel() {
@@ -915,6 +1001,12 @@ window.onerror = function (msg, src, line, col, err) {
         connectionDetailEl.title = health.issues.length
             ? health.issues.join('\n')
             : health.detail;
+        if (lastExtensionDebugReport && lastExtensionDebugReport.versionSkew
+            && lastExtensionDebugReport.versionSkew.length) {
+            connectionDetailEl.title += '\n' + lastExtensionDebugReport.versionSkew.join('\n');
+        }
+        updateWaitingBadge();
+        showRoutingBanner(state.routingMismatch && state.routingMismatch.project);
     }
 
     function applyConnectionInfo(msg) {
@@ -994,6 +1086,10 @@ window.onerror = function (msg, src, line, col, err) {
                     }
                     break;
                 case 'notify':
+                    if (cmd.message) {
+                        if (cmd.message.type === 'feedback-arrived') playFeedbackChime();
+                        if (cmd.message.type === 'routing-mismatch') showRoutingBanner(cmd.message.project);
+                    }
                     if (vscode && cmd.message) vscode.postMessage(cmd.message);
                     break;
             }
@@ -1076,8 +1172,9 @@ window.onerror = function (msg, src, line, col, err) {
 
     function renderTabs() {
         sessionTabsEl.innerHTML = '';
-        if (!state.sessionOrder.length) return;
-        for (var i = 0; i < state.sessionOrder.length; i++) {
+        var order = PS.PanelState.filterSessionsByQuery(state, sessionSearchQuery);
+        if (!order.length) return;
+        for (var i = 0; i < order.length; i++) {
             (function (sid) {
                 var sess = state.sessions[sid];
                 if (!sess) return;
@@ -1090,6 +1187,14 @@ window.onerror = function (msg, src, line, col, err) {
                 label.className = 'tab-label';
                 label.textContent = PS.PanelState.tabTitle(sess);
                 label.title = sess.summary || sid;
+                var proj = PS.PanelState.tabProjectBadge(sess);
+                if (proj) {
+                    var badge = document.createElement('span');
+                    badge.className = 'tab-project-badge';
+                    badge.textContent = proj;
+                    badge.title = sess.projectDirectory;
+                    label.appendChild(badge);
+                }
                 var closeBtn = document.createElement('button');
                 closeBtn.type = 'button';
                 closeBtn.className = 'tab-close';
@@ -1108,7 +1213,7 @@ window.onerror = function (msg, src, line, col, err) {
                     showTabContextMenu(ev, sid);
                 };
                 sessionTabsEl.appendChild(tab);
-            })(state.sessionOrder[i]);
+            })(order[i]);
         }
     }
 
@@ -1579,6 +1684,28 @@ window.onerror = function (msg, src, line, col, err) {
     bindLogOpenBtn('debugLogExtBtn', 'extension');
     bindLogOpenBtn('debugLogMcpBtn', 'mcp-server');
     bindLogOpenBtn('debugLogPanelBtn', 'webview');
+    var debugMcpOutputBtn = document.getElementById('debugMcpOutputBtn');
+    if (debugMcpOutputBtn) {
+        debugMcpOutputBtn.addEventListener('click', function () {
+            if (vscode) vscode.postMessage({ type: 'open-mcp-output' });
+        });
+    }
+    var debugExportBtn = document.getElementById('debugExportBtn');
+    if (debugExportBtn) {
+        debugExportBtn.addEventListener('click', function () {
+            if (!vscode) return;
+            vscode.postMessage({
+                type: 'export-sessions',
+                data: PS.PanelState.exportSessionsSnapshot(state),
+            });
+        });
+    }
+    if (sessionSearchInput) {
+        sessionSearchInput.addEventListener('input', function () {
+            sessionSearchQuery = sessionSearchInput.value || '';
+            renderTabs();
+        });
+    }
     autoReplyCheck.addEventListener('change', function () {
         exec(state.setAutoReply(autoReplyCheck.checked, autoReplyText.value));
     });

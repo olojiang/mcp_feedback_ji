@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.52] - 2026-07-03
+
+### Added
+- **Cross-window registry** in DBG panel (all `servers/*.json` with port/pid/version).
+- **agent-context.json** viewer in DBG; **MCP Output** + **Export** session JSON buttons.
+- **Tab project badge**; **routing mismatch** banner; **session search** in Settings.
+- **Feedback chime** + waiting count badge on new `session_updated`.
+- **Reload prompt** when package version on disk changes between activations; `deploy-stamp.json` on deploy.
+
 ## [2.5.1-ji.50] - 2026-07-03
 
 ### Added

@@ -49,6 +49,8 @@ const path = __importStar(require("path"));
 const os = __importStar(require("os"));
 const webviewLog_1 = require("./webviewLog");
 const logPaths_1 = require("./logPaths");
+const fileStore_1 = require("./fileStore");
+const registrySnapshot_1 = require("./registrySnapshot");
 const webviewSyncPolicy_1 = require("./webviewSyncPolicy");
 class FeedbackViewProvider {
     constructor(getHtml, getPort, getVersion, getHub, extensionUri) {
@@ -182,7 +184,17 @@ class FeedbackViewProvider {
     }
     _handleDebugRequest(view) {
         const hub = this._getHub();
-        const logDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
+        const rawRegistry = (0, fileStore_1.listAllServers)();
+        const registry = (0, registrySnapshot_1.enrichRegistryEntries)(rawRegistry, (pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            }
+            catch {
+                return false;
+            }
+        });
+        const skew = (0, registrySnapshot_1.versionSkewWarnings)(registry, this._getVersion(), process.pid);
         const report = {
             timestamp: new Date().toISOString(),
             extension: {
@@ -193,6 +205,12 @@ class FeedbackViewProvider {
                 viewVisible: view.visible,
                 ...(hub?.getDebugInfo() ?? {}),
             },
+            registry: {
+                entries: registry,
+                table: (0, registrySnapshot_1.formatRegistryTable)(registry),
+            },
+            agentContext: (0, fileStore_1.readAgentContext)(),
+            versionSkew: skew,
             logPaths: {
                 extension: (0, logPaths_1.resolveFeedbackLogPath)('extension'),
                 mcpServer: (0, logPaths_1.resolveFeedbackLogPath)('mcp-server'),
@@ -270,7 +288,13 @@ class FeedbackViewProvider {
                     this._handleAtSearch(message.query, view);
                     break;
                 case 'open-log':
-                    this._openLogFile(message.target);
+                    void this._openLogFile(message.target);
+                    break;
+                case 'open-mcp-output':
+                    void this._openMcpOutput();
+                    break;
+                case 'export-sessions':
+                    void this._exportSessions(message.data);
                     break;
                 case 'log':
                     if (typeof message.msg === 'string') {
@@ -376,6 +400,34 @@ class FeedbackViewProvider {
         catch (e) {
             vscode.window.showErrorMessage(`MCP Feedback: cannot open log — ${e}`);
         }
+    }
+    async _openMcpOutput() {
+        const tried = [
+            'mcp.showOutput',
+            'workbench.action.output.show',
+        ];
+        for (const cmd of tried) {
+            try {
+                await vscode.commands.executeCommand(cmd);
+                vscode.window.showInformationMessage('MCP Feedback: Output panel opened — select "MCP: user-mcp-feedback-enhanced" if needed');
+                return;
+            }
+            catch {
+                // try next
+            }
+        }
+        await this._openLogFile('mcp-server');
+    }
+    async _exportSessions(data) {
+        const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', defaultName)),
+            filters: { JSON: ['json'] },
+        });
+        if (!uri)
+            return;
+        fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), 'utf8');
+        vscode.window.showInformationMessage(`MCP Feedback: exported sessions to ${path.basename(uri.fsPath)}`);
     }
 }
 exports.FeedbackViewProvider = FeedbackViewProvider;

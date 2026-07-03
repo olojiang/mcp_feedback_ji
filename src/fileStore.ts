@@ -132,4 +132,18 @@ export function writeAgentContext(workspaceRoots: string[], traceId = ''): void 
     } satisfies AgentContextFile);
 }
 
+export function readAgentContext(): AgentContextFile | null {
+    return safeReadJSON<AgentContextFile>(AGENT_CONTEXT_FILE);
+}
+
+export function listAllServers(): Array<ServerInfo & { hash: string }> {
+    const out: Array<ServerInfo & { hash: string }> = [];
+    for (const f of listJSONFiles(SERVERS_DIR)) {
+        const hash = f.replace(/\.json$/, '');
+        const info = readServerByHash(hash);
+        if (info) out.push({ ...info, hash });
+    }
+    return out.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+}
+
 export { CONFIG_DIR, PROJECTS_DIR, SERVERS_DIR };

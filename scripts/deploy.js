@@ -130,6 +130,14 @@ function syncToExtDir(version) {
 
     syncMcpConfig(version);
 
+    const configDir = path.join(require('os').homedir(), '.config', 'mcp-feedback-enhanced');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+        path.join(configDir, 'deploy-stamp.json'),
+        JSON.stringify({ version, at: Date.now() }, null, 2) + '\n',
+        'utf8',
+    );
+
     console.log(`[deploy] v${version} deployed to ${EXTENSION_DIR}`);
     console.log('[deploy] Reload Window once — version is read from disk (not Cursor cache).');
     console.log('[deploy] MCP config updated; toggle MCP off/on if server still looks stale.');

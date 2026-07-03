@@ -17,6 +17,12 @@ import type { FeedbackWSServer } from './wsServer';
 import type { WebviewBridge } from './server/webviewBridge';
 import { appendWebviewLog, webviewLogPath } from './webviewLog';
 import { resolveFeedbackLogPath } from './logPaths';
+import { listAllServers, readAgentContext } from './fileStore';
+import {
+    enrichRegistryEntries,
+    formatRegistryTable,
+    versionSkewWarnings,
+} from './registrySnapshot';
 import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
 
 type HtmlGetter = () => string;
@@ -191,7 +197,16 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     private _handleDebugRequest(view: vscode.WebviewView): void {
         const hub = this._getHub();
-        const logDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
+        const rawRegistry = listAllServers();
+        const registry = enrichRegistryEntries(rawRegistry, (pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        });
+        const skew = versionSkewWarnings(registry, this._getVersion(), process.pid);
         const report: Record<string, unknown> = {
             timestamp: new Date().toISOString(),
             extension: {
@@ -202,6 +217,12 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                 viewVisible: view.visible,
                 ...(hub?.getDebugInfo() ?? {}),
             },
+            registry: {
+                entries: registry,
+                table: formatRegistryTable(registry),
+            },
+            agentContext: readAgentContext(),
+            versionSkew: skew,
             logPaths: {
                 extension: resolveFeedbackLogPath('extension'),
                 mcpServer: resolveFeedbackLogPath('mcp-server'),
@@ -298,7 +319,15 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'open-log':
-                    this._openLogFile(message.target as string);
+                    void this._openLogFile(message.target as string);
+                    break;
+
+                case 'open-mcp-output':
+                    void this._openMcpOutput();
+                    break;
+
+                case 'export-sessions':
+                    void this._exportSessions(message.data as Record<string, unknown>);
                     break;
 
                 case 'log':
@@ -411,5 +440,35 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         } catch (e) {
             vscode.window.showErrorMessage(`MCP Feedback: cannot open log — ${e}`);
         }
+    }
+
+    private async _openMcpOutput(): Promise<void> {
+        const tried = [
+            'mcp.showOutput',
+            'workbench.action.output.show',
+        ];
+        for (const cmd of tried) {
+            try {
+                await vscode.commands.executeCommand(cmd);
+                vscode.window.showInformationMessage(
+                    'MCP Feedback: Output panel opened — select "MCP: user-mcp-feedback-enhanced" if needed',
+                );
+                return;
+            } catch {
+                // try next
+            }
+        }
+        await this._openLogFile('mcp-server');
+    }
+
+    private async _exportSessions(data: Record<string, unknown>): Promise<void> {
+        const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(os.homedir(), 'Downloads', defaultName)),
+            filters: { JSON: ['json'] },
+        });
+        if (!uri) return;
+        fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), 'utf8');
+        vscode.window.showInformationMessage(`MCP Feedback: exported sessions to ${path.basename(uri.fsPath)}`);
     }
 }

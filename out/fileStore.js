@@ -53,6 +53,8 @@ exports.writeServer = writeServer;
 exports.deleteServerByHash = deleteServerByHash;
 exports.cleanupStaleServers = cleanupStaleServers;
 exports.writeAgentContext = writeAgentContext;
+exports.readAgentContext = readAgentContext;
+exports.listAllServers = listAllServers;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
@@ -155,5 +157,18 @@ function writeAgentContext(workspaceRoots, traceId = '') {
         workspaceRoots: roots,
         updatedAt: Date.now(),
     });
+}
+function readAgentContext() {
+    return safeReadJSON(AGENT_CONTEXT_FILE);
+}
+function listAllServers() {
+    const out = [];
+    for (const f of listJSONFiles(SERVERS_DIR)) {
+        const hash = f.replace(/\.json$/, '');
+        const info = readServerByHash(hash);
+        if (info)
+            out.push({ ...info, hash });
+    }
+    return out.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
 }
 //# sourceMappingURL=fileStore.js.map

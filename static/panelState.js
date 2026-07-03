@@ -280,6 +280,7 @@
         render('tabs', 'messages', 'pending', 'input'),
         dom('save_state'),
         notify({ type: 'new-session', session_id: id }),
+        notify({ type: 'feedback-arrived', session_id: id }),
       ]
 
       if (sess.pendingQueue.length > 0 || sess.pendingImages.length > 0) {
@@ -995,6 +996,40 @@
   PanelState.shouldDebounceReconnect = function (lastAt, now, windowMs) {
     windowMs = windowMs || 1200
     return lastAt > 0 && (now - lastAt) < windowMs
+  }
+  PanelState.tabProjectBadge = function (session) {
+    if (!session || !session.projectDirectory) return ''
+    var parts = String(session.projectDirectory).replace(/[\\/]+$/, '').split(/[/\\]/)
+    return parts[parts.length - 1] || ''
+  }
+  PanelState.exportSessionsSnapshot = function (state) {
+    return {
+      exportedAt: new Date().toISOString(),
+      panelWorkspace: state.panelWorkspace || '',
+      sessions: state.sessionOrder.map(function (id) {
+        var s = state.sessions[id]
+        return {
+          id: id,
+          label: s.label,
+          summary: s.summary,
+          waiting: s.waiting,
+          project_directory: s.projectDirectory || '',
+          messages: s.messages,
+        }
+      }),
+    }
+  }
+  PanelState.filterSessionsByQuery = function (state, query) {
+    var q = String(query || '').trim().toLowerCase()
+    if (!q) return state.sessionOrder.slice()
+    return state.sessionOrder.filter(function (id) {
+      var s = state.sessions[id]
+      if (!s) return false
+      var hay = [
+        id, s.label, s.summary, s.projectDirectory,
+      ].join(' ').toLowerCase()
+      return hay.indexOf(q) >= 0
+    })
   }
   PanelState.cmd = { wsSend, render, dom, notify }
   exports.PanelState = PanelState
