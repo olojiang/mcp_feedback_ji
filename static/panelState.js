@@ -1148,6 +1148,7 @@
     if (!el || !el.style) return
     var minPx = (opts && opts.minPx) || 48
     var maxPx = (opts && opts.maxPx) || 280
+    el.style.height = '0px'
     var next = Math.min(maxPx, Math.max(minPx, el.scrollHeight || minPx))
     el.style.height = next + 'px'
   }

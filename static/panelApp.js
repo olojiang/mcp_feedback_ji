@@ -867,7 +867,11 @@
     inputEl.addEventListener('input', function () {
         var active = state.getActiveSession();
         if (active) active.inputDraft = inputEl.value;
-        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: getInputTextareaMaxPx() });
+        var maxPx = getInputTextareaMaxPx();
+        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: maxPx });
+        if (inputEl.scrollHeight < maxPx - 4) {
+            inputEl.style.height = maxPx + 'px';
+        }
         updateSendButton();
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 500);
