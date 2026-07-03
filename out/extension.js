@@ -3855,6 +3855,31 @@ function listAllServers() {
   }
   return out.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
 }
+function isTestRegistryEntry(info) {
+  const version2 = String(info.version || "");
+  if (!/^\d+\.\d+\.\d+(-ji\.\d+)?$/.test(version2)) return true;
+  const p = String(info.projectPath || "");
+  if (p.startsWith("/tmp/") || p.includes("/var/folders/")) return true;
+  return false;
+}
+function pruneTestRegistryEntries(isAlive) {
+  const removed = [];
+  const skippedAlive = [];
+  for (const entry of listAllServers()) {
+    if (!isTestRegistryEntry(entry)) continue;
+    if (isAlive(entry.pid)) {
+      skippedAlive.push({
+        hash: entry.hash,
+        pid: entry.pid,
+        version: entry.version,
+        projectPath: entry.projectPath
+      });
+      continue;
+    }
+    if (deleteServerByHash(entry.hash)) removed.push(entry.hash);
+  }
+  return { removed, skippedAlive };
+}
 
 // src/server/feedbackManager.ts
 function newSessionId() {
@@ -19966,7 +19991,7 @@ function enrichRegistryEntries(servers, isAlive) {
 function isPublishableVersion(version2) {
   return /^\d+\.\d+\.\d+(-ji\.\d+)?$/.test(String(version2 || ""));
 }
-function isTestRegistryEntry(info) {
+function isTestRegistryEntry2(info) {
   if (!isPublishableVersion(info.version)) return true;
   const p = String(info.projectPath || "");
   return p.startsWith("/tmp/") || p.includes("/var/folders/");
@@ -19975,7 +20000,7 @@ function versionSkewWarnings(entries, localVersion, localPid) {
   const warnings = [];
   for (const e of entries) {
     if (!e.alive || e.pid === localPid) continue;
-    if (isTestRegistryEntry(e)) continue;
+    if (isTestRegistryEntry2(e)) continue;
     if (e.version !== localVersion) {
       const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
       warnings.push(`${ws} pid=${e.pid} runs ${e.version} (this window: ${localVersion})`);
@@ -19987,7 +20012,7 @@ function formatRegistryTable(entries) {
   return entries.map((e) => {
     const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
     const status = e.alive ? "live" : "stale";
-    const tag = isTestRegistryEntry(e) ? " test" : "";
+    const tag = isTestRegistryEntry2(e) ? " test" : "";
     return `${status}${tag} | ${ws} | :${e.port} pid=${e.pid} | ${e.version}`;
   });
 }
@@ -20121,6 +20146,9 @@ var FeedbackViewProvider = class {
     const erudaPanelUri = view.webview.asWebviewUri(
       vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "erudaPanel.js").with({ query: `v=${cacheKey}` })
     );
+    const panelConnectionUri = view.webview.asWebviewUri(
+      vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "panelConnection.js").with({ query: `v=${cacheKey}` })
+    );
     const themeContrastUri = view.webview.asWebviewUri(
       vscode2.Uri.joinPath(this._extensionUri, "out", "webview", "themeContrast.js").with({ query: `v=${cacheKey}` })
     );
@@ -20128,6 +20156,7 @@ var FeedbackViewProvider = class {
     html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
     html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
+    html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
     html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
     html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
     return html;
@@ -20223,6 +20252,21 @@ var FeedbackViewProvider = class {
     report.diagnoseBundle = buildDiagnoseBundle(report);
     view.webview.postMessage({ type: "debug-report", report });
   }
+  _handlePruneTestRegistry(view) {
+    const result = pruneTestRegistryEntries((pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    view.webview.postMessage({
+      type: "prune-test-registry-result",
+      result
+    });
+    void this._handleDebugRequest(view);
+  }
   _setupMessageHandler(view) {
     view.webview.onDidReceiveMessage((message) => {
       switch (message.type) {
@@ -20241,6 +20285,9 @@ var FeedbackViewProvider = class {
           break;
         case "request-debug":
           this._handleDebugRequest(view);
+          break;
+        case "prune-test-registry":
+          this._handlePruneTestRegistry(view);
           break;
         case "open-webview-devtools":
           void vscode2.commands.executeCommand("workbench.action.webview.openDeveloperTools");

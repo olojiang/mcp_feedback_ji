@@ -25,4 +25,14 @@ export declare function isTestRegistryEntry(info: Pick<ServerInfo, 'projectPath'
 export declare function findTestRegistryEntries(): Array<ServerInfo & {
     hash: string;
 }>;
+export interface PruneTestRegistryResult {
+    removed: string[];
+    skippedAlive: Array<{
+        hash: string;
+        pid: number;
+        version: string;
+        projectPath: string;
+    }>;
+}
+export declare function pruneTestRegistryEntries(isAlive: (pid: number) => boolean): PruneTestRegistryResult;
 export { getConfigDir as CONFIG_DIR, getProjectsDir as PROJECTS_DIR, getServersDir as SERVERS_DIR, };

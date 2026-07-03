@@ -50,6 +50,7 @@ exports.readAgentContext = readAgentContext;
 exports.listAllServers = listAllServers;
 exports.isTestRegistryEntry = isTestRegistryEntry;
 exports.findTestRegistryEntries = findTestRegistryEntries;
+exports.pruneTestRegistryEntries = pruneTestRegistryEntries;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const crypto = __importStar(require("crypto"));
@@ -170,5 +171,25 @@ function isTestRegistryEntry(info) {
 }
 function findTestRegistryEntries() {
     return listAllServers().filter((s) => isTestRegistryEntry(s));
+}
+function pruneTestRegistryEntries(isAlive) {
+    const removed = [];
+    const skippedAlive = [];
+    for (const entry of listAllServers()) {
+        if (!isTestRegistryEntry(entry))
+            continue;
+        if (isAlive(entry.pid)) {
+            skippedAlive.push({
+                hash: entry.hash,
+                pid: entry.pid,
+                version: entry.version,
+                projectPath: entry.projectPath,
+            });
+            continue;
+        }
+        if (deleteServerByHash(entry.hash))
+            removed.push(entry.hash);
+    }
+    return { removed, skippedAlive };
 }
 //# sourceMappingURL=fileStore.js.map

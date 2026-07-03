@@ -23,6 +23,7 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{ERUDA_URI\}\}/g, 'https://mock/eruda.js')
     .replace(/\{\{ERUDA_PANEL_URI\}\}/g, 'https://mock/erudaPanel.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
+    .replace(/\{\{PANELCONNECTION_URI\}\}/g, 'https://mock/panelConnection.js')
     .replace(/\{\{THEMECONTRAST_URI\}\}/g, 'https://mock/themeContrast.js')
     .replace(/\{\{CSP_SOURCE\}\}/g, 'https://mock');
 

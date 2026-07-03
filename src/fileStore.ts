@@ -143,6 +143,31 @@ export function findTestRegistryEntries(): Array<ServerInfo & { hash: string }> 
     return listAllServers().filter((s) => isTestRegistryEntry(s));
 }
 
+
+export interface PruneTestRegistryResult {
+    removed: string[];
+    skippedAlive: Array<{ hash: string; pid: number; version: string; projectPath: string }>;
+}
+
+export function pruneTestRegistryEntries(isAlive: (pid: number) => boolean): PruneTestRegistryResult {
+    const removed: string[] = [];
+    const skippedAlive: PruneTestRegistryResult['skippedAlive'] = [];
+    for (const entry of listAllServers()) {
+        if (!isTestRegistryEntry(entry)) continue;
+        if (isAlive(entry.pid)) {
+            skippedAlive.push({
+                hash: entry.hash,
+                pid: entry.pid,
+                version: entry.version,
+                projectPath: entry.projectPath,
+            });
+            continue;
+        }
+        if (deleteServerByHash(entry.hash)) removed.push(entry.hash);
+    }
+    return { removed, skippedAlive };
+}
+
 export {
     getConfigDir as CONFIG_DIR,
     getProjectsDir as PROJECTS_DIR,

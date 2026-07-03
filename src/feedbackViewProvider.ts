@@ -17,7 +17,7 @@ import type { FeedbackWSServer } from './wsServer';
 import type { WebviewBridge } from './server/webviewBridge';
 import { appendWebviewLog, webviewLogPath } from './webviewLog';
 import { resolveFeedbackLogPath } from './logPaths';
-import { listAllServers, readAgentContext } from './fileStore';
+import { listAllServers, readAgentContext, pruneTestRegistryEntries } from './fileStore';
 import {
     enrichRegistryEntries,
     formatRegistryTable,
@@ -147,6 +147,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'erudaPanel.js')
                 .with({ query: `v=${cacheKey}` })
         );
+        const panelConnectionUri = view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelConnection.js')
+                .with({ query: `v=${cacheKey}` })
+        );
         const themeContrastUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'themeContrast.js')
                 .with({ query: `v=${cacheKey}` })
@@ -155,6 +159,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
         html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
+        html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
         return html;
@@ -260,6 +265,23 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         view.webview.postMessage({ type: 'debug-report', report });
     }
 
+
+    private _handlePruneTestRegistry(view: vscode.WebviewView): void {
+        const result = pruneTestRegistryEntries((pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        });
+        view.webview.postMessage({
+            type: 'prune-test-registry-result',
+            result,
+        });
+        void this._handleDebugRequest(view);
+    }
+
     private _setupMessageHandler(view: vscode.WebviewView): void {
         view.webview.onDidReceiveMessage((message: Record<string, unknown>) => {
             switch (message.type) {
@@ -281,6 +303,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
                 case 'request-debug':
                     this._handleDebugRequest(view);
+                    break;
+
+                case 'prune-test-registry':
+                    this._handlePruneTestRegistry(view);
                     break;
 
                 case 'open-webview-devtools':

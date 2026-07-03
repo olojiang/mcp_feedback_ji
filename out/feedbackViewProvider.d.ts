@@ -42,6 +42,7 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     private _connectBridge;
     private _pushServerInfo;
     private _handleDebugRequest;
+    private _handlePruneTestRegistry;
     private _setupMessageHandler;
     private _handleAtSearch;
     private _focusPanel;

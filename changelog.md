@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.63] - 2026-07-03
+
+### Added
+- **DBG Prune test hubs**: remove dead `/tmp/*` test registry entries; skip alive pids with log.
+- **Export MD**: DBG **Export MD** copies session transcript as Markdown.
+- **Input auto-grow**: textarea grows with content up to pane max.
+- **`panelConnection.js`**: connection health render extracted from panel.html.
+
+### Tests
+- `pruneTestRegistry`, `sessionsMarkdown`, `panelConnection.module`.
+
 ## [2.5.1-ji.62] - 2026-07-03
 
 ### Fixed

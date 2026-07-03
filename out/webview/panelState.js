@@ -1166,6 +1166,35 @@
   exports.BridgeSessionGate = BridgeSessionGate
   exports.transportSendWithQueue = transportSendWithQueue
 
+
+  PanelState.sessionsToMarkdown = function (state) {
+    var lines = ['# MCP Feedback Sessions', '']
+    var order = state.sessionOrder || []
+    for (var i = 0; i < order.length; i++) {
+      var sid = order[i]
+      var sess = state.sessions[sid]
+      if (!sess) continue
+      lines.push('## ' + (sess.label || sid))
+      if (sess.summary) lines.push('', '**Summary:** ' + sess.summary)
+      if (sess.traceId) lines.push('**Trace:** `' + sess.traceId + '`')
+      lines.push('')
+      var msgs = sess.messages || []
+      for (var j = 0; j < msgs.length; j++) {
+        var m = msgs[j]
+        var who = m.role === 'user' ? 'User' : 'AI'
+        lines.push('- **' + who + ':** ' + (m.content || m.text || ''))
+      }
+      lines.push('')
+    }
+    return lines.join('\n')
+  }
+  PanelState.autoGrowTextareaHeight = function (el, opts) {
+    if (!el || !el.style) return
+    var minPx = (opts && opts.minPx) || 48
+    var maxPx = (opts && opts.maxPx) || 280
+    var next = Math.min(maxPx, Math.max(minPx, el.scrollHeight || minPx))
+    el.style.height = next + 'px'
+  }
   PanelState.buildHealthSignature = function (health, extras) {
     return JSON.stringify({
       level: health && health.level,

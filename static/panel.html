@@ -584,6 +584,8 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
       <button type="button" id="debugLogMcpBtn" class="mcp-toolbar-btn" title="Open mcp-server.log (MCP routing)">MCP log</button>
       <button type="button" id="debugLogPanelBtn" class="mcp-toolbar-btn" title="Open webview.log (Panel UI)">Panel log</button>
       <button type="button" id="debugMcpOutputBtn" class="mcp-toolbar-btn" title="Open Cursor MCP Output">MCP Output</button>
+      <button type="button" id="debugPruneTestBtn" class="mcp-toolbar-btn" title="Remove dead test hub registry entries">Prune test hubs</button>
+      <button type="button" id="debugExportMdBtn" class="mcp-toolbar-btn" title="Export sessions as Markdown">Export MD</button>
       <button type="button" id="debugCopyDiagnoseBtn" class="mcp-toolbar-btn" title="Copy diagnose bundle JSON">Copy diagnose</button>
       <button type="button" id="debugExportBtn" class="mcp-toolbar-btn" title="Export session history JSON">Export</button>
       <button type="button" id="debugDevToolsBtn" class="mcp-toolbar-btn" title="Open Webview DevTools">DevTools</button>
@@ -678,7 +680,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 
 <!-- eruda + helpers loaded as external webview resources (early bootstrap) -->
 <script>
-window.__mcpScriptLoad = { eruda: false, erudaPanel: false, panelState: false, errors: [] };
+window.__mcpScriptLoad = { eruda: false, erudaPanel: false, panelState: false, panelConnection: false, errors: [] };
 function __mcpScriptOk(name) { window.__mcpScriptLoad[name] = true; }
 function __mcpScriptFail(name) {
     window.__mcpScriptLoad.errors.push(name);
@@ -688,6 +690,7 @@ function __mcpScriptFail(name) {
 <script src="{{ERUDA_URI}}" onload="__mcpScriptOk('eruda')" onerror="__mcpScriptFail('eruda')"></script>
 <script src="{{ERUDA_PANEL_URI}}" onload="__mcpScriptOk('erudaPanel')" onerror="__mcpScriptFail('erudaPanel')"></script>
 <script src="{{PANELSTATE_URI}}" onload="__mcpScriptOk('panelState')" onerror="__mcpScriptFail('panelState')"></script>
+<script src="{{PANELCONNECTION_URI}}" onload="__mcpScriptOk('panelConnection')" onerror="__mcpScriptFail('panelConnection')"></script>
 
 <script>
 const SERVER_URL = '{{SERVER_URL}}';
@@ -1107,55 +1110,35 @@ window.onerror = function (msg, src, line, col, err) {
         if (hub.pid) connectedHubPid = hub.pid;
     }
 
-    function renderConnectionHealth() {
-        if (!connectionDetailEl || !PS.ConnectionHealth) return;
-        var pendingList = (state.lastPendingSessionIds || []).map(function (id) {
-            return { id: id };
+    var connectionRenderer = null;
+    function ensureConnectionRenderer() {
+        if (connectionRenderer || !window.PanelConnectionModule) return connectionRenderer;
+        connectionRenderer = window.PanelConnectionModule.createConnectionRenderer({
+            PS: PS,
+            state: state,
+            bridgeGate: bridgeGate,
+            elements: {
+                connectionDetailEl: connectionDetailEl,
+                wsPortEl: wsPortEl,
+            },
+            helpers: {
+                PING_STALE_MS: PING_STALE_MS,
+                getLastPongAt: function () { return lastPongAt; },
+                getConnectedHubPid: function () { return connectedHubPid; },
+                getLastExtensionDebugReport: function () { return lastExtensionDebugReport; },
+                getWsPort: getWsPort,
+                setWsStatus: setWsStatus,
+                showVersionSkewBanner: showVersionSkewBanner,
+                updateWaitingBadge: updateWaitingBadge,
+                showRoutingBanner: showRoutingBanner,
+            },
         });
-        var stale = PS.ConnectionHealth.countStaleLocalWaiting(
-            state.sessions,
-            state.sessionOrder,
-            pendingList,
-        );
-        var pingStale = bridgeGate.isReady()
-            && lastPongAt > 0
-            && (Date.now() - lastPongAt > PING_STALE_MS);
-        var hubPidMismatch = !!(state.hubSnapshot && connectedHubPid
-            && state.hubSnapshot.pid && connectedHubPid !== state.hubSnapshot.pid);
-        var health = PS.ConnectionHealth.evaluate({
-            bridgeReady: bridgeGate.isReady(),
-            hub: state.hubSnapshot,
-            staleLocalWaiting: stale,
-            localWaitingCount: state.waitingCount,
-            pingStale: pingStale,
-            hubPidMismatch: hubPidMismatch,
-            port: getWsPort(),
-            routingMismatchProject: state.routingMismatch && state.routingMismatch.project,
-        });
-        var skew = (lastExtensionDebugReport && lastExtensionDebugReport.versionSkew) || [];
-        var routing = state.routingMismatch && state.routingMismatch.project;
-        var sig = PS.PanelState.buildHealthSignature(health, { skew: skew, routing: routing });
-        if (PS.PanelState.shouldSkipHealthRender(lastHealthSig, sig)) return;
-        lastHealthSig = sig;
+        return connectionRenderer;
+    }
 
-        setWsStatus(health.level, PS.PanelState.formatConnectionStatusLabel(health.level, state.hubSnapshot && state.hubSnapshot.pid) + (health.portPid || ''));
-        if (state.hubSnapshot && state.hubSnapshot.port) {
-            wsPortEl.textContent = ':' + state.hubSnapshot.port;
-        }
-        connectionDetailEl.textContent = health.detail;
-        connectionDetailEl.dataset.level = health.level;
-        connectionDetailEl.title = health.issues.length
-            ? health.issues.join('\n')
-            : health.detail;
-        if (lastExtensionDebugReport && lastExtensionDebugReport.versionSkew
-            && lastExtensionDebugReport.versionSkew.length) {
-            connectionDetailEl.title += '\n' + lastExtensionDebugReport.versionSkew.join('\n');
-            showVersionSkewBanner(lastExtensionDebugReport.versionSkew);
-        } else {
-            showVersionSkewBanner([]);
-        }
-        updateWaitingBadge();
-        showRoutingBanner(state.routingMismatch && state.routingMismatch.project);
+    function renderConnectionHealth() {
+        var r = ensureConnectionRenderer();
+        if (r) r.render();
     }
 
     function applyConnectionInfo(msg) {
@@ -1517,6 +1500,7 @@ window.onerror = function (msg, src, line, col, err) {
     inputEl.addEventListener('input', function () {
         var active = state.getActiveSession();
         if (active) active.inputDraft = inputEl.value;
+        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: Math.max(120, (state.inputPaneHeight || 220) - 40) });
         updateSendButton();
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 500);
@@ -1863,6 +1847,19 @@ window.onerror = function (msg, src, line, col, err) {
     if (debugMcpOutputBtn) {
         debugMcpOutputBtn.addEventListener('click', function () {
             if (vscode) vscode.postMessage({ type: 'open-mcp-output' });
+        });
+    }
+    var debugPruneTestBtn = document.getElementById('debugPruneTestBtn');
+    if (debugPruneTestBtn) {
+        debugPruneTestBtn.addEventListener('click', function () {
+            vscode.postMessage({ type: 'prune-test-registry' });
+        });
+    }
+    var debugExportMdBtn = document.getElementById('debugExportMdBtn');
+    if (debugExportMdBtn) {
+        debugExportMdBtn.addEventListener('click', function () {
+            var md = PS.PanelState.sessionsToMarkdown(state);
+            vscode.postMessage({ type: 'copy-debug-json', json: md });
         });
     }
     var debugCopyDiagnoseBtn = document.getElementById('debugCopyDiagnoseBtn');
@@ -2254,6 +2251,14 @@ window.onerror = function (msg, src, line, col, err) {
         } else if (msg.type === 'please-reconnect') {
             debugLog('please-reconnect from extension');
             forceReconnect();
+        } else if (msg.type === 'prune-test-registry-result') {
+            var pr = msg.result || {};
+            debugLog('prune-test-registry removed=' + (pr.removed || []).join(','));
+            if (pr.skippedAlive && pr.skippedAlive.length) {
+                debugLog('prune skipped alive test pids: ' + pr.skippedAlive.map(function (x) { return x.pid; }).join(','));
+            }
+            renderDebugPanel();
+            renderConnectionHealth();
         } else if (msg.type === 'debug-report') {
             lastExtensionDebugReport = msg.report || null;
             debugLog('debug-report received');

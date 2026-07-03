@@ -139,12 +139,15 @@ class FeedbackViewProvider {
             .with({ query: `v=${cacheKey}` }));
         const erudaPanelUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'erudaPanel.js')
             .with({ query: `v=${cacheKey}` }));
+        const panelConnectionUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelConnection.js')
+            .with({ query: `v=${cacheKey}` }));
         const themeContrastUri = view.webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'themeContrast.js')
             .with({ query: `v=${cacheKey}` }));
         const cspSource = view.webview.cspSource;
         html = html.replace(/\{\{ERUDA_URI\}\}/g, erudaUri.toString());
         html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
+        html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
         return html;
@@ -243,6 +246,22 @@ class FeedbackViewProvider {
         report.diagnoseBundle = (0, registrySnapshot_1.buildDiagnoseBundle)(report);
         view.webview.postMessage({ type: 'debug-report', report });
     }
+    _handlePruneTestRegistry(view) {
+        const result = (0, fileStore_1.pruneTestRegistryEntries)((pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            }
+            catch {
+                return false;
+            }
+        });
+        view.webview.postMessage({
+            type: 'prune-test-registry-result',
+            result,
+        });
+        void this._handleDebugRequest(view);
+    }
     _setupMessageHandler(view) {
         view.webview.onDidReceiveMessage((message) => {
             switch (message.type) {
@@ -262,6 +281,9 @@ class FeedbackViewProvider {
                     break;
                 case 'request-debug':
                     this._handleDebugRequest(view);
+                    break;
+                case 'prune-test-registry':
+                    this._handlePruneTestRegistry(view);
                     break;
                 case 'open-webview-devtools':
                     void vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools');
