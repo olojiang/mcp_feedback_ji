@@ -189,7 +189,8 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
             const log = (msg: string) => deps.log(msg);
             log(
                 `[MCP Feedback] feedback_request start trace=${traceId ?? '(none)'} `
-                + `project=${project_directory ?? '(none)'}`,
+                + `project=${project_directory ?? '(none)'} `
+                + `workspaces=${(agentCtx?.workspaceRoots ?? []).join('|') || '(none)'}`,
             );
             let extensionServer = await rediscoverExtensionServer(deps, project_directory, log);
             const maxAttempts = DEFAULT_EXTENSION_ATTEMPTS;

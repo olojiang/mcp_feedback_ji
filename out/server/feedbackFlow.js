@@ -7,6 +7,8 @@ const feedbackDelivery_1 = require("../feedbackDelivery");
 const workspaceMatch_1 = require("../workspaceMatch");
 const traceContext_1 = require("../traceContext");
 const sessionLifecycleLog_1 = require("../sessionLifecycleLog");
+const fileStore_1 = require("../fileStore");
+const sessionJournal_1 = require("../sessionJournal");
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -20,6 +22,44 @@ class FeedbackFlow {
     setOnFeedbackError(cb) {
         this.deps.onFeedbackError = cb;
     }
+    _auditSession(event, input) {
+        const agentCtx = (0, fileStore_1.readAgentContext)();
+        const cursorTraceId = (0, traceContext_1.resolveTraceId)(input.traceId, agentCtx?.traceId);
+        const workspaceRoots = agentCtx?.workspaceRoots?.length
+            ? agentCtx.workspaceRoots
+            : this.deps.getHubWorkspaces();
+        const hub = this.deps.getHubMeta?.();
+        const continuation = event === 'transport_reuse'
+            || event === 'trace_reuse'
+            || event === 'trace_steal';
+        const { traceId: _drop, ...rest } = input;
+        this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
+            event,
+            ...rest,
+            cursorTraceId,
+            workspaceRoots,
+            hubPort: hub?.port,
+            hubPid: hub?.pid,
+            continuation,
+        }));
+        const journalFn = this.deps.appendSessionJournal;
+        if (journalFn) {
+            journalFn((0, sessionJournal_1.buildSessionJournalRecord)({
+                event,
+                feedbackSessionId: input.sessionId,
+                cursorTraceId,
+                projectDirectory: input.project,
+                workspaceRoots,
+                hubPort: hub?.port,
+                hubPid: hub?.pid,
+                mcpConnId: input.mcpConnId,
+                mcpReadyState: input.mcpReadyState,
+                pendingCount: input.pendingCount,
+                reason: input.reason ?? input.detail,
+                summaryPreview: input.summaryPreview,
+            }));
+        }
+    }
     handleFeedbackRequest(mcpWs, req) {
         if (req.project_directory && !(0, workspaceMatch_1.hubAcceptsProject)(this.deps.getHubWorkspaces(), req.project_directory)) {
             this.deps.log((0, workspaceMatch_1.projectMismatchLogLine)(req.project_directory, this.deps.getHubWorkspaces()));
@@ -27,19 +67,19 @@ class FeedbackFlow {
                 + `not ${req.project_directory}`));
             return;
         }
-        const traceId = (0, traceContext_1.resolveTraceId)(req.trace_id);
+        const traceId = (0, traceContext_1.resolveTraceId)(req.trace_id, (0, fileStore_1.readAgentContext)()?.traceId);
         this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
         if (transport.updated && transport.sessionId) {
             this.deps.log(`feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`);
-            this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
-                event: 'transport_reuse',
+            this._auditSession('transport_reuse', {
                 sessionId: transport.sessionId,
                 project: req.project_directory,
                 traceId,
                 mcpReadyState: mcpWs.readyState,
                 pendingCount: this.deps.feedback.pendingCount(),
-            }));
+                summaryPreview: req.summary,
+            });
             this.deps.addMessage({
                 role: 'ai',
                 content: req.summary,
@@ -51,27 +91,27 @@ class FeedbackFlow {
             return;
         }
         if (transport.skipReason === 'live_mcp_still_open') {
-            this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
-                event: 'transport_skip',
+            this._auditSession('transport_skip', {
                 sessionId: transport.blockedSessionId,
                 project: req.project_directory,
                 traceId,
                 mcpReadyState: mcpWs.readyState,
                 pendingCount: this.deps.feedback.pendingCount(),
                 reason: transport.skipReason,
-            }));
+                summaryPreview: req.summary,
+            });
         }
         const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
         if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {
-            this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
-                event: traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse',
+            this._auditSession(traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse', {
                 sessionId: traceReuse.sessionId,
                 project: req.project_directory,
                 traceId,
                 mcpReadyState: mcpWs.readyState,
                 pendingCount: this.deps.feedback.pendingCount(),
                 reason: traceReuse.action,
-            }));
+                summaryPreview: req.summary,
+            });
             this.deps.log(`feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`);
             this.deps.addMessage({
                 role: 'ai',
@@ -90,15 +130,15 @@ class FeedbackFlow {
         });
         const { sessionId } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary, traceId);
         const createReason = this.deps.feedback.explainNewSession(mcpWs, req.project_directory);
-        this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
-            event: 'create',
+        this._auditSession('create', {
             sessionId,
             project: req.project_directory,
             traceId,
             mcpReadyState: mcpWs.readyState,
             pendingCount: this.deps.feedback.pendingCount(),
             reason: createReason,
-        }));
+            summaryPreview: req.summary,
+        });
         this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
         this.deps.log((0, feedbackDelivery_1.feedbackRequestAcceptedLogLine)(sessionId, req.project_directory, traceId));
@@ -175,13 +215,12 @@ class FeedbackFlow {
             this.deps.queueAsPending(res.feedback, res.images);
             return;
         }
-        this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
-            event: 'resolve',
+        this._auditSession('resolve', {
             sessionId: res.session_id,
             project,
             traceId: responseTraceId,
             pendingCount: this.deps.feedback.pendingCount(),
-        }));
+        });
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }

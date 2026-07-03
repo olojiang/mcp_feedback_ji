@@ -8,7 +8,9 @@ import {
 } from '../feedbackDelivery';
 import { hubAcceptsProject, projectMismatchLogLine } from '../workspaceMatch';
 import { resolveTraceId } from '../traceContext';
-import { formatSessionLifecycleLine } from '../sessionLifecycleLog';
+import { formatSessionLifecycleLine, type SessionLifecycleEvent, type SessionLifecycleFields } from '../sessionLifecycleLog';
+import { readAgentContext } from '../fileStore';
+import { buildSessionJournalRecord, type SessionJournalRecord } from '../sessionJournal';
 
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
@@ -30,6 +32,8 @@ interface FeedbackFlowDeps {
     onFeedbackResolved?: () => void;
     onFeedbackError?: (reason: string) => void;
     log: (msg: string) => void;
+    getHubMeta?: () => { port: number; pid: number };
+    appendSessionJournal?: (record: SessionJournalRecord) => void;
 }
 
 export class FeedbackFlow {
@@ -51,6 +55,49 @@ export class FeedbackFlow {
         this.deps.onFeedbackError = cb;
     }
 
+
+    private _auditSession(
+        event: SessionLifecycleEvent,
+        input: Omit<SessionLifecycleFields, 'event' | 'cursorTraceId' | 'workspaceRoots' | 'hubPort' | 'hubPid' | 'continuation'> & { traceId?: string },
+    ): void {
+        const agentCtx = readAgentContext();
+        const cursorTraceId = resolveTraceId(input.traceId, agentCtx?.traceId);
+        const workspaceRoots = agentCtx?.workspaceRoots?.length
+            ? agentCtx.workspaceRoots
+            : this.deps.getHubWorkspaces();
+        const hub = this.deps.getHubMeta?.();
+        const continuation = event === 'transport_reuse'
+            || event === 'trace_reuse'
+            || event === 'trace_steal';
+        const { traceId: _drop, ...rest } = input;
+        this.deps.log(formatSessionLifecycleLine({
+            event,
+            ...rest,
+            cursorTraceId,
+            workspaceRoots,
+            hubPort: hub?.port,
+            hubPid: hub?.pid,
+            continuation,
+        }));
+        const journalFn = this.deps.appendSessionJournal;
+        if (journalFn) {
+            journalFn(buildSessionJournalRecord({
+                event,
+                feedbackSessionId: input.sessionId,
+                cursorTraceId,
+                projectDirectory: input.project,
+                workspaceRoots,
+                hubPort: hub?.port,
+                hubPid: hub?.pid,
+                mcpConnId: input.mcpConnId,
+                mcpReadyState: input.mcpReadyState,
+                pendingCount: input.pendingCount,
+                reason: input.reason ?? input.detail,
+                summaryPreview: input.summaryPreview,
+            }));
+        }
+    }
+
     handleFeedbackRequest(
         mcpWs: WebSocket,
         req: { summary: string; project_directory?: string; trace_id?: string },
@@ -67,7 +114,7 @@ export class FeedbackFlow {
             return;
         }
 
-        const traceId = resolveTraceId(req.trace_id);
+        const traceId = resolveTraceId(req.trace_id, readAgentContext()?.traceId);
 
         this.deps.log(
             `feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`,
@@ -82,14 +129,14 @@ export class FeedbackFlow {
             this.deps.log(
                 `feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`,
             );
-            this.deps.log(formatSessionLifecycleLine({
-                event: 'transport_reuse',
+            this._auditSession('transport_reuse', {
                 sessionId: transport.sessionId,
                 project: req.project_directory,
                 traceId,
                 mcpReadyState: mcpWs.readyState,
                 pendingCount: this.deps.feedback.pendingCount(),
-            }));
+                summaryPreview: req.summary,
+            });
             this.deps.addMessage({
                 role: 'ai',
                 content: req.summary,
@@ -107,28 +154,28 @@ export class FeedbackFlow {
         }
 
         if (transport.skipReason === 'live_mcp_still_open') {
-            this.deps.log(formatSessionLifecycleLine({
-                event: 'transport_skip',
+            this._auditSession('transport_skip', {
                 sessionId: transport.blockedSessionId,
                 project: req.project_directory,
                 traceId,
                 mcpReadyState: mcpWs.readyState,
                 pendingCount: this.deps.feedback.pendingCount(),
                 reason: transport.skipReason,
-            }));
+                summaryPreview: req.summary,
+            });
         }
 
         const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
         if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {
-            this.deps.log(formatSessionLifecycleLine({
-                event: traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse',
+            this._auditSession(traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse', {
                 sessionId: traceReuse.sessionId,
                 project: req.project_directory,
                 traceId,
                 mcpReadyState: mcpWs.readyState,
                 pendingCount: this.deps.feedback.pendingCount(),
                 reason: traceReuse.action,
-            }));
+                summaryPreview: req.summary,
+            });
             this.deps.log(
                 `feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`,
             );
@@ -161,15 +208,15 @@ export class FeedbackFlow {
             traceId,
         );
         const createReason = this.deps.feedback.explainNewSession(mcpWs, req.project_directory);
-        this.deps.log(formatSessionLifecycleLine({
-            event: 'create',
+        this._auditSession('create', {
             sessionId,
             project: req.project_directory,
             traceId,
             mcpReadyState: mcpWs.readyState,
             pendingCount: this.deps.feedback.pendingCount(),
             reason: createReason,
-        }));
+            summaryPreview: req.summary,
+        });
         this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
         this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory, traceId));
@@ -265,13 +312,12 @@ export class FeedbackFlow {
             this.deps.queueAsPending(res.feedback, res.images);
             return;
         }
-        this.deps.log(formatSessionLifecycleLine({
-            event: 'resolve',
+        this._auditSession('resolve', {
             sessionId: res.session_id,
             project,
             traceId: responseTraceId,
             pendingCount: this.deps.feedback.pendingCount(),
-        }));
+        });
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }

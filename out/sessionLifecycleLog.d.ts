@@ -5,10 +5,16 @@ export interface SessionLifecycleFields {
     sessionId?: string;
     project?: string;
     traceId?: string;
+    cursorTraceId?: string;
+    workspaceRoots?: string[];
+    hubPort?: number;
+    hubPid?: number;
+    continuation?: boolean;
     mcpConnId?: number;
     mcpReadyState?: number;
     pendingCount?: number;
     reason?: string;
     detail?: string;
+    summaryPreview?: string;
 }
 export declare function formatSessionLifecycleLine(fields: SessionLifecycleFields): string;

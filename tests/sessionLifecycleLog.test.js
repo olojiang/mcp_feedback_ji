@@ -18,7 +18,7 @@ describe('sessionLifecycleLog', () => {
     })
     assert.match(line, /^sessionLifecycle: event=create/)
     assert.match(line, /session=fb-abc/)
-    assert.match(line, /trace=trace-1/)
+    assert.match(line, /cursorTrace=trace-1/)
     assert.match(line, /reason=parallel_live_mcp:fb-old/)
   })
 })

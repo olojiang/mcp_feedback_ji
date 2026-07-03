@@ -1,6 +1,7 @@
 import { WebSocket } from 'ws';
 import type { ConversationMessage } from '../types';
 import { FeedbackManager } from './feedbackManager';
+import { type SessionJournalRecord } from '../sessionJournal';
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
     getHubWorkspaces: () => string[];
@@ -19,6 +20,11 @@ interface FeedbackFlowDeps {
     onFeedbackResolved?: () => void;
     onFeedbackError?: (reason: string) => void;
     log: (msg: string) => void;
+    getHubMeta?: () => {
+        port: number;
+        pid: number;
+    };
+    appendSessionJournal?: (record: SessionJournalRecord) => void;
 }
 export declare class FeedbackFlow {
     private readonly deps;
@@ -26,6 +32,7 @@ export declare class FeedbackFlow {
     setOnFeedbackRequested(cb?: () => void): void;
     setOnFeedbackResolved(cb?: () => void): void;
     setOnFeedbackError(cb?: (reason: string) => void): void;
+    private _auditSession;
     handleFeedbackRequest(mcpWs: WebSocket, req: {
         summary: string;
         project_directory?: string;

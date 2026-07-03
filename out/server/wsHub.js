@@ -65,6 +65,7 @@ const clipboardHandlers_js_1 = require("./clipboardHandlers.js");
 const extensionFileLog_js_1 = require("../extensionFileLog.js");
 const stateSyncPayload_js_1 = require("../stateSyncPayload.js");
 const sessionLifecycleLog_js_1 = require("../sessionLifecycleLog.js");
+const sessionJournal_js_1 = require("../sessionJournal.js");
 function wsLog(msg) {
     (0, extensionFileLog_js_1.hubLog)(msg);
 }
@@ -136,6 +137,8 @@ class WsHub {
             },
             onFeedbackRequested: undefined,
             log: wsLog,
+            getHubMeta: () => ({ port: this.port, pid: process.pid }),
+            appendSessionJournal: (record) => (0, sessionJournal_js_1.appendSessionJournalRecord)(record),
         });
         this.pending.onPendingDelivered((delivery) => {
             this._onPendingDelivered(delivery.comments, delivery.images);

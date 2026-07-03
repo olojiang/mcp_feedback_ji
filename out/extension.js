@@ -3717,8 +3717,8 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
-var fs10 = __toESM(require("fs"));
-var path12 = __toESM(require("path"));
+var fs11 = __toESM(require("fs"));
+var path13 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
@@ -4548,13 +4548,54 @@ function formatSessionLifecycleLine(fields) {
   const parts = [`sessionLifecycle: event=${fields.event}`];
   if (fields.sessionId) parts.push(`session=${fields.sessionId}`);
   if (fields.project) parts.push(`project=${fields.project}`);
-  if (fields.traceId) parts.push(`trace=${fields.traceId}`);
-  if (fields.mcpConnId !== void 0) parts.push(`mcpConn=${fields.mcpConnId}`);
+  const trace = fields.cursorTraceId || fields.traceId;
+  if (trace) parts.push(`cursorTrace=${trace}`);
+  if (fields.workspaceRoots?.length) {
+    parts.push(`workspaces=${fields.workspaceRoots.join("|")}`);
+  }
+  if (fields.hubPort !== void 0) parts.push(`hubPort=${fields.hubPort}`);
+  if (fields.hubPid !== void 0) parts.push(`hubPid=${fields.hubPid}`);
+  if (fields.continuation !== void 0) parts.push(`continuation=${fields.continuation}`);
   if (fields.mcpReadyState !== void 0) parts.push(`mcpRs=${fields.mcpReadyState}`);
   if (fields.pendingCount !== void 0) parts.push(`pending=${fields.pendingCount}`);
   if (fields.reason) parts.push(`reason=${fields.reason}`);
   if (fields.detail) parts.push(`detail=${fields.detail}`);
+  if (fields.summaryPreview) parts.push(`summary=${fields.summaryPreview.slice(0, 80)}`);
   return parts.join(" ");
+}
+
+// src/sessionJournal.ts
+var fs2 = __toESM(require("node:fs"));
+var path4 = __toESM(require("node:path"));
+function sessionJournalPath(logDir = getLogsDir()) {
+  return path4.join(logDir, "session-journal.jsonl");
+}
+function isContinuationEvent(event) {
+  return event === "transport_reuse" || event === "trace_reuse" || event === "trace_steal";
+}
+function buildSessionJournalRecord(input) {
+  return {
+    at: (input.at ?? /* @__PURE__ */ new Date()).toISOString(),
+    event: input.event,
+    feedbackSessionId: input.feedbackSessionId,
+    cursorTraceId: input.cursorTraceId,
+    projectDirectory: input.projectDirectory,
+    workspaceRoots: input.workspaceRoots,
+    hubPort: input.hubPort,
+    hubPid: input.hubPid,
+    mcpConnId: input.mcpConnId,
+    mcpReadyState: input.mcpReadyState,
+    pendingCount: input.pendingCount,
+    continuation: isContinuationEvent(input.event),
+    reason: input.reason,
+    summaryPreview: input.summaryPreview?.slice(0, 120)
+  };
+}
+function appendSessionJournalRecord(record2, logDir = getLogsDir()) {
+  const dir = logDir;
+  fs2.mkdirSync(dir, { recursive: true });
+  fs2.appendFileSync(sessionJournalPath(dir), `${JSON.stringify(record2)}
+`, "utf8");
 }
 
 // src/server/feedbackFlow.ts
@@ -4571,6 +4612,40 @@ var FeedbackFlow = class {
   setOnFeedbackError(cb) {
     this.deps.onFeedbackError = cb;
   }
+  _auditSession(event, input) {
+    const agentCtx = readAgentContext();
+    const cursorTraceId = resolveTraceId(input.traceId, agentCtx?.traceId);
+    const workspaceRoots = agentCtx?.workspaceRoots?.length ? agentCtx.workspaceRoots : this.deps.getHubWorkspaces();
+    const hub = this.deps.getHubMeta?.();
+    const continuation = event === "transport_reuse" || event === "trace_reuse" || event === "trace_steal";
+    const { traceId: _drop, ...rest } = input;
+    this.deps.log(formatSessionLifecycleLine({
+      event,
+      ...rest,
+      cursorTraceId,
+      workspaceRoots,
+      hubPort: hub?.port,
+      hubPid: hub?.pid,
+      continuation
+    }));
+    const journalFn = this.deps.appendSessionJournal;
+    if (journalFn) {
+      journalFn(buildSessionJournalRecord({
+        event,
+        feedbackSessionId: input.sessionId,
+        cursorTraceId,
+        projectDirectory: input.project,
+        workspaceRoots,
+        hubPort: hub?.port,
+        hubPid: hub?.pid,
+        mcpConnId: input.mcpConnId,
+        mcpReadyState: input.mcpReadyState,
+        pendingCount: input.pendingCount,
+        reason: input.reason ?? input.detail,
+        summaryPreview: input.summaryPreview
+      }));
+    }
+  }
   handleFeedbackRequest(mcpWs, req) {
     if (req.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), req.project_directory)) {
       this.deps.log(projectMismatchLogLine(req.project_directory, this.deps.getHubWorkspaces()));
@@ -4582,7 +4657,7 @@ var FeedbackFlow = class {
       );
       return;
     }
-    const traceId = resolveTraceId(req.trace_id);
+    const traceId = resolveTraceId(req.trace_id, readAgentContext()?.traceId);
     this.deps.log(
       `feedbackRequest: project=${req.project_directory ?? "(none)"} summary=${req.summary.slice(0, 80)}`
     );
@@ -4595,14 +4670,14 @@ var FeedbackFlow = class {
       this.deps.log(
         `feedbackRequest: transport updated session=${transport.sessionId ?? "unknown"}`
       );
-      this.deps.log(formatSessionLifecycleLine({
-        event: "transport_reuse",
+      this._auditSession("transport_reuse", {
         sessionId: transport.sessionId,
         project: req.project_directory,
         traceId,
         mcpReadyState: mcpWs.readyState,
-        pendingCount: this.deps.feedback.pendingCount()
-      }));
+        pendingCount: this.deps.feedback.pendingCount(),
+        summaryPreview: req.summary
+      });
       this.deps.addMessage({
         role: "ai",
         content: req.summary,
@@ -4619,27 +4694,27 @@ var FeedbackFlow = class {
       return;
     }
     if (transport.skipReason === "live_mcp_still_open") {
-      this.deps.log(formatSessionLifecycleLine({
-        event: "transport_skip",
+      this._auditSession("transport_skip", {
         sessionId: transport.blockedSessionId,
         project: req.project_directory,
         traceId,
         mcpReadyState: mcpWs.readyState,
         pendingCount: this.deps.feedback.pendingCount(),
-        reason: transport.skipReason
-      }));
+        reason: transport.skipReason,
+        summaryPreview: req.summary
+      });
     }
     const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
     if (traceReuse.action === "reuse" || traceReuse.action === "steal") {
-      this.deps.log(formatSessionLifecycleLine({
-        event: traceReuse.action === "steal" ? "trace_steal" : "trace_reuse",
+      this._auditSession(traceReuse.action === "steal" ? "trace_steal" : "trace_reuse", {
         sessionId: traceReuse.sessionId,
         project: req.project_directory,
         traceId,
         mcpReadyState: mcpWs.readyState,
         pendingCount: this.deps.feedback.pendingCount(),
-        reason: traceReuse.action
-      }));
+        reason: traceReuse.action,
+        summaryPreview: req.summary
+      });
       this.deps.log(
         `feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? "unknown"}`
       );
@@ -4670,15 +4745,15 @@ var FeedbackFlow = class {
       traceId
     );
     const createReason = this.deps.feedback.explainNewSession(mcpWs, req.project_directory);
-    this.deps.log(formatSessionLifecycleLine({
-      event: "create",
+    this._auditSession("create", {
       sessionId,
       project: req.project_directory,
       traceId,
       mcpReadyState: mcpWs.readyState,
       pendingCount: this.deps.feedback.pendingCount(),
-      reason: createReason
-    }));
+      reason: createReason,
+      summaryPreview: req.summary
+    });
     this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? "(none)"}`));
     this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
     this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory, traceId));
@@ -4763,13 +4838,12 @@ var FeedbackFlow = class {
       this.deps.queueAsPending(res.feedback, res.images);
       return;
     }
-    this.deps.log(formatSessionLifecycleLine({
-      event: "resolve",
+    this._auditSession("resolve", {
       sessionId: res.session_id,
       project,
       traceId: responseTraceId,
       pendingCount: this.deps.feedback.pendingCount()
-    }));
+    });
     this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
     this.deps.onFeedbackResolved?.();
   }
@@ -5603,10 +5677,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path13) {
-  if (!path13)
+function getElementAtPath(obj, path14) {
+  if (!path14)
     return obj;
-  return path13.reduce((acc, key) => acc?.[key], obj);
+  return path14.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -6015,11 +6089,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path13, issues) {
+function prefixIssues(path14, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path13);
+    iss.path.unshift(path14);
     return iss;
   });
 }
@@ -6166,16 +6240,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path13 = []) => {
+  const processError = (error52, path14 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path14, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
       } else {
-        const fullpath = [...path13, ...issue2.path];
+        const fullpath = [...path14, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -6202,17 +6276,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path13 = []) => {
+  const processError = (error52, path14 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path14, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
       } else {
-        const fullpath = [...path13, ...issue2.path];
+        const fullpath = [...path14, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -6244,8 +6318,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path13 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path13) {
+  const path14 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path14) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -18937,13 +19011,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path13 = ref.slice(1).split("/").filter(Boolean);
-  if (path13.length === 0) {
+  const path14 = ref.slice(1).split("/").filter(Boolean);
+  if (path14.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path13[0] === defsKey) {
-    const key = path13[1];
+  if (path14[0] === defsKey) {
+    const key = path14[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -19635,15 +19709,15 @@ function buildHubSnapshot(input) {
 // src/utils/clipboardImage.ts
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
-var fs2 = __toESM(require("node:fs"));
-var path4 = __toESM(require("node:path"));
+var fs3 = __toESM(require("node:fs"));
+var path5 = __toESM(require("node:path"));
 var os2 = __toESM(require("node:os"));
 var execFileAsync = (0, import_node_util.promisify)(import_node_child_process.execFile);
-var LOG_DIR = path4.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var LOG_DIR = path5.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
 function clipLog(msg) {
   try {
-    fs2.mkdirSync(LOG_DIR, { recursive: true });
-    fs2.appendFileSync(path4.join(LOG_DIR, "extension.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
+    fs3.mkdirSync(LOG_DIR, { recursive: true });
+    fs3.appendFileSync(path5.join(LOG_DIR, "extension.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
 `);
   } catch {
   }
@@ -19724,16 +19798,16 @@ function createClipboardHandlers(deps) {
 }
 
 // src/extensionFileLog.ts
-var fs4 = __toESM(require("node:fs"));
-var path6 = __toESM(require("node:path"));
+var fs5 = __toESM(require("node:fs"));
+var path7 = __toESM(require("node:path"));
 
 // src/structuredFileLog.ts
-var fs3 = __toESM(require("node:fs"));
-var path5 = __toESM(require("node:path"));
+var fs4 = __toESM(require("node:fs"));
+var path6 = __toESM(require("node:path"));
 var defaultSink = {
   append(filePath, line) {
-    fs3.mkdirSync(path5.dirname(filePath), { recursive: true });
-    fs3.appendFileSync(filePath, line + "\n");
+    fs4.mkdirSync(path6.dirname(filePath), { recursive: true });
+    fs4.appendFileSync(filePath, line + "\n");
   }
 };
 var BatchedFileLogger = class {
@@ -19770,26 +19844,26 @@ function createBatchedLogger(filePath, sink) {
 // src/extensionFileLog.ts
 var hubLogger = null;
 function logFilePath() {
-  return path6.join(getLogsDir(), "extension.log");
+  return path7.join(getLogsDir(), "extension.log");
 }
 function getHubLogger() {
   if (!hubLogger) {
     hubLogger = createBatchedLogger(logFilePath(), {
       append(filePath, line) {
         try {
-          fs4.mkdirSync(path6.dirname(filePath), { recursive: true });
+          fs5.mkdirSync(path7.dirname(filePath), { recursive: true });
           try {
-            const stat = fs4.statSync(filePath);
+            const stat = fs5.statSync(filePath);
             if (stat.size > 2 * 1024 * 1024) {
               try {
-                fs4.unlinkSync(filePath + ".old");
+                fs5.unlinkSync(filePath + ".old");
               } catch {
               }
-              fs4.renameSync(filePath, filePath + ".old");
+              fs5.renameSync(filePath, filePath + ".old");
             }
           } catch {
           }
-          fs4.appendFileSync(filePath, line + "\n");
+          fs5.appendFileSync(filePath, line + "\n");
         } catch {
         }
       }
@@ -19952,7 +20026,9 @@ var WsHub = class {
         });
       },
       onFeedbackRequested: void 0,
-      log: wsLog
+      log: wsLog,
+      getHubMeta: () => ({ port: this.port, pid: process.pid }),
+      appendSessionJournal: (record2) => appendSessionJournalRecord(record2)
     });
     this.pending.onPendingDelivered((delivery) => {
       this._onPendingDelivered(delivery.comments, delivery.images);
@@ -20366,13 +20442,13 @@ var WsHub = class {
 
 // src/feedbackViewProvider.ts
 var vscode = __toESM(require("vscode"));
-var fs8 = __toESM(require("fs"));
-var path9 = __toESM(require("path"));
+var fs9 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
 var os3 = __toESM(require("os"));
 
 // src/dailyRotatingLog.ts
-var fs5 = __toESM(require("node:fs"));
-var path7 = __toESM(require("node:path"));
+var fs6 = __toESM(require("node:fs"));
+var path8 = __toESM(require("node:path"));
 var DAILY_LOG_RETENTION_DAYS = 7;
 function localDateKey(date5 = /* @__PURE__ */ new Date()) {
   const y = date5.getFullYear();
@@ -20384,10 +20460,10 @@ function dailyLogFileName(baseName, dateKey) {
   return `${baseName}-${dateKey}.log`;
 }
 function dailyLogFilePath(logDir, baseName, dateKey) {
-  return path7.join(logDir, dailyLogFileName(baseName, dateKey ?? localDateKey()));
+  return path8.join(logDir, dailyLogFileName(baseName, dateKey ?? localDateKey()));
 }
 function legacyLogAliasPath(logDir, baseName) {
-  return path7.join(logDir, `${baseName}.log`);
+  return path8.join(logDir, `${baseName}.log`);
 }
 function parseDailyLogDateKey(fileName, baseName) {
   const prefix = `${baseName}-`;
@@ -20400,7 +20476,7 @@ function pruneOldDailyLogs(logDir, baseName, retentionDays = DAILY_LOG_RETENTION
   const removed = [];
   let entries = [];
   try {
-    entries = fs5.readdirSync(logDir);
+    entries = fs6.readdirSync(logDir);
   } catch {
     return removed;
   }
@@ -20413,7 +20489,7 @@ function pruneOldDailyLogs(logDir, baseName, retentionDays = DAILY_LOG_RETENTION
     const fileDate = /* @__PURE__ */ new Date(`${key}T00:00:00`);
     if (fileDate >= cutoff) continue;
     try {
-      fs5.unlinkSync(path7.join(logDir, name));
+      fs6.unlinkSync(path8.join(logDir, name));
       removed.push(name);
     } catch {
     }
@@ -20423,51 +20499,51 @@ function pruneOldDailyLogs(logDir, baseName, retentionDays = DAILY_LOG_RETENTION
 function migrateLegacyLogFile(logDir, baseName, todayPath) {
   const alias = legacyLogAliasPath(logDir, baseName);
   try {
-    const stat = fs5.lstatSync(alias);
+    const stat = fs6.lstatSync(alias);
     if (stat.isSymbolicLink()) return;
   } catch {
     return;
   }
-  if (fs5.existsSync(todayPath)) return;
+  if (fs6.existsSync(todayPath)) return;
   try {
-    fs5.renameSync(alias, todayPath);
+    fs6.renameSync(alias, todayPath);
   } catch {
   }
 }
 function updateLegacySymlink(logDir, baseName, todayPath) {
   const alias = legacyLogAliasPath(logDir, baseName);
-  const relativeTarget = path7.basename(todayPath);
+  const relativeTarget = path8.basename(todayPath);
   try {
-    const stat = fs5.lstatSync(alias);
+    const stat = fs6.lstatSync(alias);
     if (stat.isSymbolicLink()) {
-      const current = fs5.readlinkSync(alias);
+      const current = fs6.readlinkSync(alias);
       if (current === relativeTarget || current === todayPath) return;
-      fs5.unlinkSync(alias);
+      fs6.unlinkSync(alias);
     } else {
       return;
     }
   } catch {
   }
   try {
-    fs5.symlinkSync(relativeTarget, alias);
+    fs6.symlinkSync(relativeTarget, alias);
   } catch {
   }
 }
 function appendDailyRotatingLog(logDir, baseName, line, now = /* @__PURE__ */ new Date()) {
-  fs5.mkdirSync(logDir, { recursive: true });
+  fs6.mkdirSync(logDir, { recursive: true });
   const todayKey = localDateKey(now);
   const todayPath = dailyLogFilePath(logDir, baseName, todayKey);
   migrateLegacyLogFile(logDir, baseName, todayPath);
-  fs5.appendFileSync(todayPath, line + "\n");
+  fs6.appendFileSync(todayPath, line + "\n");
   updateLegacySymlink(logDir, baseName, todayPath);
   pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, /* @__PURE__ */ new Date());
   return todayPath;
 }
 function truncateDailyLog(logDir, baseName, now = /* @__PURE__ */ new Date()) {
-  fs5.mkdirSync(logDir, { recursive: true });
+  fs6.mkdirSync(logDir, { recursive: true });
   const todayPath = dailyLogFilePath(logDir, baseName, localDateKey(now));
   migrateLegacyLogFile(logDir, baseName, todayPath);
-  fs5.writeFileSync(todayPath, "", "utf8");
+  fs6.writeFileSync(todayPath, "", "utf8");
   updateLegacySymlink(logDir, baseName, todayPath);
   return todayPath;
 }
@@ -20494,14 +20570,14 @@ function truncateWebviewLog() {
 }
 
 // src/logPaths.ts
-var path8 = __toESM(require("node:path"));
+var path9 = __toESM(require("node:path"));
 function resolveFeedbackLogPath(target) {
   const logDir = getLogsDir();
   switch (target) {
     case "extension":
-      return path8.join(logDir, "extension.log");
+      return path9.join(logDir, "extension.log");
     case "mcp-server":
-      return path8.join(logDir, "mcp-server.log");
+      return path9.join(logDir, "mcp-server.log");
     case "webview":
       return webviewLogPath();
     default:
@@ -20552,12 +20628,12 @@ function buildDiagnoseBundle(payload) {
 }
 
 // src/logTail.ts
-var fs6 = __toESM(require("node:fs"));
+var fs7 = __toESM(require("node:fs"));
 function readLogTailLines(filePath, maxLines = 50) {
   if (!filePath || maxLines <= 0) return [];
   try {
-    if (!fs6.existsSync(filePath)) return [];
-    const raw = fs6.readFileSync(filePath, "utf8");
+    if (!fs7.existsSync(filePath)) return [];
+    const raw = fs7.readFileSync(filePath, "utf8");
     const lines = raw.split(/\r?\n/).filter((line) => line.length > 0);
     return lines.slice(-maxLines);
   } catch {
@@ -20618,11 +20694,11 @@ function formatDeployStampLabel(stamp, runningVersion) {
 }
 
 // src/deployStampReader.ts
-var fs7 = __toESM(require("fs"));
+var fs8 = __toESM(require("fs"));
 function readDeployStamp() {
   try {
-    if (!fs7.existsSync(getDeployStampPath())) return null;
-    const raw = JSON.parse(fs7.readFileSync(getDeployStampPath(), "utf-8"));
+    if (!fs8.existsSync(getDeployStampPath())) return null;
+    const raw = JSON.parse(fs8.readFileSync(getDeployStampPath(), "utf-8"));
     if (!raw || typeof raw.version !== "string" || typeof raw.at !== "number") return null;
     return raw;
   } catch {
@@ -21135,7 +21211,7 @@ var FeedbackViewProvider = class {
         const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
           kind: "file",
-          label: path9.basename(file2.fsPath),
+          label: path10.basename(file2.fsPath),
           detail: rel,
           insertText: rel
         });
@@ -21178,11 +21254,11 @@ var FeedbackViewProvider = class {
       return;
     }
     try {
-      const htmlDir = path9.join(__dirname, "webview");
-      if (!fs8.existsSync(htmlDir)) {
+      const htmlDir = path10.join(__dirname, "webview");
+      if (!fs9.existsSync(htmlDir)) {
         return;
       }
-      this._fileWatcher = fs8.watch(htmlDir, () => {
+      this._fileWatcher = fs9.watch(htmlDir, () => {
         if (view.visible) {
           view.webview.html = this._injectWebviewResources(view);
         }
@@ -21204,7 +21280,7 @@ var FeedbackViewProvider = class {
     try {
       const logPath = truncateWebviewLog();
       appendWebviewLog("log truncated by user");
-      vscode.window.showInformationMessage(`MCP Feedback: cleared ${path9.basename(logPath)}`);
+      vscode.window.showInformationMessage(`MCP Feedback: cleared ${path10.basename(logPath)}`);
     } catch (e) {
       vscode.window.showErrorMessage(`MCP Feedback: truncate failed \u2014 ${e}`);
     }
@@ -21217,9 +21293,9 @@ var FeedbackViewProvider = class {
     }
     const logPath = resolveFeedbackLogPath(target);
     try {
-      if (!fs8.existsSync(logPath)) {
-        fs8.mkdirSync(path9.dirname(logPath), { recursive: true });
-        fs8.writeFileSync(logPath, "", "utf8");
+      if (!fs9.existsSync(logPath)) {
+        fs9.mkdirSync(path10.dirname(logPath), { recursive: true });
+        fs9.writeFileSync(logPath, "", "utf8");
       }
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(logPath));
       await vscode.window.showTextDocument(doc, { preview: false });
@@ -21247,22 +21323,22 @@ var FeedbackViewProvider = class {
   async _exportSessions(data) {
     const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
     const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(path9.join(os3.homedir(), "Downloads", defaultName)),
+      defaultUri: vscode.Uri.file(path10.join(os3.homedir(), "Downloads", defaultName)),
       filters: { JSON: ["json"] }
     });
     if (!uri) return;
-    fs8.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
-    vscode.window.showInformationMessage(`MCP Feedback: exported sessions to ${path9.basename(uri.fsPath)}`);
+    fs9.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
+    vscode.window.showInformationMessage(`MCP Feedback: exported sessions to ${path10.basename(uri.fsPath)}`);
   }
 };
 
 // src/extensionVersion.ts
-var fs9 = __toESM(require("fs"));
-var path10 = __toESM(require("path"));
+var fs10 = __toESM(require("fs"));
+var path11 = __toESM(require("path"));
 function readExtensionVersion(extensionPath) {
   try {
     const pkg = JSON.parse(
-      fs9.readFileSync(path10.join(extensionPath, "package.json"), "utf-8")
+      fs10.readFileSync(path11.join(extensionPath, "package.json"), "utf-8")
     );
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
@@ -21307,9 +21383,9 @@ function resolveNodeBin(exec2 = import_node_child_process2.execSync) {
 }
 
 // src/deploy/mcpConfig.ts
-var path11 = __toESM(require("node:path"));
+var path12 = __toESM(require("node:path"));
 function planMcpConfigUpdate(extensionPath, version2, nodeBin, existing) {
-  const localServerPath = path11.join(extensionPath, "mcp-server", "dist", "index.js");
+  const localServerPath = path12.join(extensionPath, "mcp-server", "dist", "index.js");
   const entry = {
     command: nodeBin,
     args: [localServerPath],
@@ -21481,13 +21557,13 @@ function getWorkspaces() {
 }
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path12.join(extensionPath, "out", "webview", "panel.html"),
-    path12.join(extensionPath, "static", "panel.html")
+    path13.join(extensionPath, "out", "webview", "panel.html"),
+    path13.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
-    if (fs10.existsSync(p)) {
-      html = fs10.readFileSync(p, "utf-8");
+    if (fs11.existsSync(p)) {
+      html = fs11.readFileSync(p, "utf-8");
       break;
     }
   }
@@ -21599,7 +21675,7 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
     vscode3.commands.registerCommand("mcp-feedback-enhanced.truncateWebviewLog", () => {
       try {
         const logPath = truncateWebviewLog();
-        vscode3.window.showInformationMessage(`MCP Feedback: cleared ${path12.basename(logPath)}`);
+        vscode3.window.showInformationMessage(`MCP Feedback: cleared ${path13.basename(logPath)}`);
       } catch (e) {
         vscode3.window.showErrorMessage(`MCP Feedback: truncate failed \u2014 ${e}`);
       }
@@ -21663,7 +21739,7 @@ function _openEditorPanel(context, port) {
     {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode3.Uri.file(path12.join(context.extensionPath, "out"))]
+      localResourceRoots: [vscode3.Uri.file(path13.join(context.extensionPath, "out"))]
     }
   );
   panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
@@ -21671,10 +21747,10 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path12.join(os4.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path13.join(os4.homedir(), ".cursor", "mcp.json");
     let config2 = {};
-    if (fs10.existsSync(mcpConfigPath)) {
-      config2 = JSON.parse(fs10.readFileSync(mcpConfigPath, "utf-8"));
+    if (fs11.existsSync(mcpConfigPath)) {
+      config2 = JSON.parse(fs11.readFileSync(mcpConfigPath, "utf-8"));
     }
     const mcpServers = config2.mcpServers || {};
     const plan = planMcpConfigUpdate(
@@ -21685,57 +21761,57 @@ function ensureMcpConfig(extensionPath) {
     );
     if (!plan.changed) return;
     config2 = applyMcpConfigPlan(config2, plan);
-    fs10.mkdirSync(path12.dirname(mcpConfigPath), { recursive: true });
-    fs10.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
+    fs11.mkdirSync(path13.dirname(mcpConfigPath), { recursive: true });
+    fs11.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to update MCP config:", e);
   }
 }
 function deployCursorHooks(extensionPath) {
   try {
-    const hooksSourceDir = path12.join(extensionPath, "scripts", "hooks");
-    const targetDir = path12.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
-    fs10.mkdirSync(targetDir, { recursive: true });
+    const hooksSourceDir = path13.join(extensionPath, "scripts", "hooks");
+    const targetDir = path13.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    fs11.mkdirSync(targetDir, { recursive: true });
     for (const file2 of HOOK_FILES) {
-      const src = path12.join(hooksSourceDir, file2);
-      if (fs10.existsSync(src)) {
-        fs10.copyFileSync(src, path12.join(targetDir, file2));
+      const src = path13.join(hooksSourceDir, file2);
+      if (fs11.existsSync(src)) {
+        fs11.copyFileSync(src, path13.join(targetDir, file2));
       }
     }
     for (const old of RETIRED_HOOK_FILES) {
       try {
-        fs10.unlinkSync(path12.join(targetDir, old));
+        fs11.unlinkSync(path13.join(targetDir, old));
       } catch {
       }
     }
-    const preToolUseHook = path12.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path12.join(os4.homedir(), ".cursor", "hooks.json");
+    const preToolUseHook = path13.join(targetDir, "consume-pending.js");
+    const hooksConfigPath = path13.join(os4.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
-    if (fs10.existsSync(hooksConfigPath)) {
-      hooksConfig = JSON.parse(fs10.readFileSync(hooksConfigPath, "utf-8"));
+    if (fs11.existsSync(hooksConfigPath)) {
+      hooksConfig = JSON.parse(fs11.readFileSync(hooksConfigPath, "utf-8"));
     }
     const plan = planHooksConfigUpdate(resolveNodeBin(), preToolUseHook, hooksConfig);
     if (!plan.changed) return;
     hooksConfig = applyHooksConfigPlan(hooksConfig, plan);
-    fs10.mkdirSync(path12.dirname(hooksConfigPath), { recursive: true });
-    fs10.writeFileSync(hooksConfigPath, JSON.stringify(plan.hooksConfig, null, 2));
+    fs11.mkdirSync(path13.dirname(hooksConfigPath), { recursive: true });
+    fs11.writeFileSync(hooksConfigPath, JSON.stringify(plan.hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
   }
 }
 function deployCursorRules() {
   try {
-    const rulesDir = path12.join(os4.homedir(), ".cursor", "rules");
-    const ruleFile = path12.join(rulesDir, "mcp-feedback-enhanced.mdc");
-    fs10.mkdirSync(rulesDir, { recursive: true });
-    const existing = fs10.existsSync(ruleFile) ? fs10.readFileSync(ruleFile, "utf-8") : null;
+    const rulesDir = path13.join(os4.homedir(), ".cursor", "rules");
+    const ruleFile = path13.join(rulesDir, "mcp-feedback-enhanced.mdc");
+    fs11.mkdirSync(rulesDir, { recursive: true });
+    const existing = fs11.existsSync(ruleFile) ? fs11.readFileSync(ruleFile, "utf-8") : null;
     const plan = planRulesDeploy(existing, getWorkspaces());
     if (plan.writeGlobal) {
-      fs10.writeFileSync(ruleFile, RULES_CONTENT);
+      fs11.writeFileSync(ruleFile, RULES_CONTENT);
     }
     for (const wsRuleFile of plan.removeWorkspaceRules) {
       try {
-        fs10.unlinkSync(wsRuleFile);
+        fs11.unlinkSync(wsRuleFile);
       } catch {
       }
     }
@@ -21745,19 +21821,19 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path12.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "pending");
-    if (!fs10.existsSync(pendingDir)) return;
-    const files = fs10.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
+    const pendingDir = path13.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    if (!fs11.existsSync(pendingDir)) return;
+    const files = fs11.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     const plan = planPendingMigration(files);
     for (const f of plan.unlinkFiles) {
       try {
-        fs10.unlinkSync(path12.join(pendingDir, f));
+        fs11.unlinkSync(path13.join(pendingDir, f));
       } catch {
       }
     }
     if (plan.removeDir) {
       try {
-        fs10.rmdirSync(pendingDir);
+        fs11.rmdirSync(pendingDir);
       } catch {
       }
     }

@@ -53,6 +53,7 @@ import { getLogsDir } from '../configPaths.js';
 import { hubLog, hubStructuredLog } from '../extensionFileLog.js';
 import { buildStateSyncPayload, hubFingerprint, pendingSessionsFingerprint } from '../stateSyncPayload.js';
 import { formatSessionLifecycleLine } from '../sessionLifecycleLog.js';
+import { appendSessionJournalRecord } from '../sessionJournal.js';
 
 function wsLog(msg: string): void {
     hubLog(msg);
@@ -144,6 +145,8 @@ export class WsHub {
             },
             onFeedbackRequested: undefined,
             log: wsLog,
+            getHubMeta: () => ({ port: this.port, pid: process.pid }),
+            appendSessionJournal: (record) => appendSessionJournalRecord(record),
         });
 
         this.pending.onPendingDelivered((delivery) => {

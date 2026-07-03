@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.88] - 2026-07-03
+
+### Feature
+- **Session audit journal**: `~/.config/mcp-feedback-enhanced/logs/session-journal.jsonl` records cursorTrace, workspaces, hub port/pid, continuation vs new tab, timestamps.
+- **Richer sessionLifecycle logs**: `cursorTrace`, `workspaces`, `hubPort`, `continuation`, `summary` preview.
+
 ## [2.5.1-ji.87] - 2026-07-03
 
 ### Fix

@@ -8,10 +8,18 @@ function formatSessionLifecycleLine(fields) {
         parts.push(`session=${fields.sessionId}`);
     if (fields.project)
         parts.push(`project=${fields.project}`);
-    if (fields.traceId)
-        parts.push(`trace=${fields.traceId}`);
-    if (fields.mcpConnId !== undefined)
-        parts.push(`mcpConn=${fields.mcpConnId}`);
+    const trace = fields.cursorTraceId || fields.traceId;
+    if (trace)
+        parts.push(`cursorTrace=${trace}`);
+    if (fields.workspaceRoots?.length) {
+        parts.push(`workspaces=${fields.workspaceRoots.join('|')}`);
+    }
+    if (fields.hubPort !== undefined)
+        parts.push(`hubPort=${fields.hubPort}`);
+    if (fields.hubPid !== undefined)
+        parts.push(`hubPid=${fields.hubPid}`);
+    if (fields.continuation !== undefined)
+        parts.push(`continuation=${fields.continuation}`);
     if (fields.mcpReadyState !== undefined)
         parts.push(`mcpRs=${fields.mcpReadyState}`);
     if (fields.pendingCount !== undefined)
@@ -20,6 +28,8 @@ function formatSessionLifecycleLine(fields) {
         parts.push(`reason=${fields.reason}`);
     if (fields.detail)
         parts.push(`detail=${fields.detail}`);
+    if (fields.summaryPreview)
+        parts.push(`summary=${fields.summaryPreview.slice(0, 80)}`);
     return parts.join(' ');
 }
 //# sourceMappingURL=sessionLifecycleLog.js.map
