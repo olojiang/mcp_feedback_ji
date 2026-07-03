@@ -95,6 +95,9 @@ class FeedbackViewProvider {
                 this._connectBridge(webviewView);
             }
         });
+        if (webviewView.visible) {
+            this._connectBridge(webviewView);
+        }
         webviewView.onDidDispose(() => {
             this._view = null;
             this._bridge?.dispose();

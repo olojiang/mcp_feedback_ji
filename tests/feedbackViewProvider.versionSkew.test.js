@@ -69,8 +69,6 @@ describe('FeedbackViewProvider version skew on bridge-connected', () => {
       onDidChangeVisibility: () => {},
       onDidDispose: () => {},
     }
-    provider.resolveWebviewView(view, {}, {})
-
     const fileStore = require('../out/fileStore.js')
     const origList = fileStore.listAllServers
     const origKill = process.kill
@@ -83,6 +81,7 @@ describe('FeedbackViewProvider version skew on bridge-connected', () => {
     }
 
     try {
+      provider.resolveWebviewView(view, {}, {})
       await onMessage({ type: 'hub-connect' })
       const bridge = posts.find((m) => m.type === 'bridge-connected')
       assert.ok(bridge)

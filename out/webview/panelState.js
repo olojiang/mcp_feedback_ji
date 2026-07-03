@@ -6,15 +6,29 @@
 
   function loadTransport() {
     if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
-      return require('./panelStateTransport.js')
+      try {
+        return require('./panelStateTransport.js')
+      } catch (e) {
+        return null
+      }
     }
     if (typeof window !== 'undefined' && window.PanelStateTransportModule) {
       return window.PanelStateTransportModule
     }
-    throw new Error('panelStateTransport.js must load before panelState.js')
+    return null
   }
 
   var transport = loadTransport()
+  if (!transport) {
+    transport = {
+      OutboundQueue: function () { this.items = []; this.enqueue = function () { return 0 }; this.drain = function () { return [] }; this.hasFeedbackResponse = function () { return false } },
+      TransportMetrics: function () { this.record = function () {}; this.snapshot = function () { return {} } },
+      BridgeSessionGate: function () { this.isReady = function () { return false }; this.resetForReconnect = function () {}; this.onBridgeConnected = function () { return { register: true, stateSync: true, labels: true } }; this.shouldInitFromConnectionEstablished = function () { return true }; this.shouldInitFromServerInfo = function () { return true }; this.snapshot = function () { return {} } },
+      transportSendWithQueue: function (m, r, s, q) { if (r()) s(m); else q(m); return r() },
+      ConnectionHealth: { evaluate: function () { return { level: 'disconnected', label: 'Disconnected', detail: '', issues: [], portPid: '' } }, countStaleLocalWaiting: function () { return 0 }, workspaceLabel: function () { return '' }, formatAgentLink: function () { return '' } },
+    }
+    transport.OutboundQueue.prototype = { get size() { return (this.items || []).length } }
+  }
   var OutboundQueue = transport.OutboundQueue
   var TransportMetrics = transport.TransportMetrics
   var BridgeSessionGate = transport.BridgeSessionGate

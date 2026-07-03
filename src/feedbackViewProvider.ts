@@ -100,6 +100,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             }
         });
 
+        if (webviewView.visible) {
+            this._connectBridge(webviewView);
+        }
+
         webviewView.onDidDispose(() => {
             this._view = null;
             this._bridge?.dispose();

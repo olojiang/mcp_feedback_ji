@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.72] - 2026-07-03
+
+### Fix
+- **Bridge on panel open**: connect bridge immediately when webview is visible (not only on `webview-ready`).
+- **panelState transport fallback**: panel loads even if split module scripts fail.
+
 ## [2.5.1-ji.71] - 2026-07-03
 
 ### Fix
