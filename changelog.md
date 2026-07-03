@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.49] - 2026-07-03
+
+### Added
+- **`fullPipelineChain.integration.test.js`**: end-to-end MCP wire → hub → panel → MCP with `project_directory` and multi-session matching.
+- **`pipelineCoverageMatrix.test.js`**: asserts every `PipelineHop` has dedicated test files.
+
+### Removed
+- Unused `panelBootstrapAction` (duplicate of `BridgeSessionGate` in panelState).
+
 ## [2.5.1-ji.48] - 2026-07-03
 
 ### Added

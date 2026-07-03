@@ -61,14 +61,21 @@ describe('FeedbackViewProvider sync timing', () => {
 
   it('hard sync disposes bridge when port changes', () => {
     let bridgeDisposed = false
+    let delivered = null
     const posts = []
     let onMessage = null
     const hub = {
-      attachWebview: () => ({
-        dispose() { bridgeDisposed = true },
-        deliver() {},
-        socket: { on() {} },
-      }),
+      attachWebview: (cb) => {
+        const b = {
+          dispose() { bridgeDisposed = true },
+          deliver(raw) {
+            delivered = JSON.parse(raw)
+            cb(JSON.parse(raw))
+          },
+          socket: { on() {} },
+        }
+        return b
+      },
       getDebugInfo: () => ({}),
     }
     const provider = new FeedbackViewProvider(
@@ -93,6 +100,8 @@ describe('FeedbackViewProvider sync timing', () => {
     }
     provider.resolveWebviewView(view, {}, {})
     onMessage({ type: 'hub-connect' })
+    onMessage({ type: 'hub-message', data: { type: 'ping' } })
+    assert.equal(delivered.type, 'ping')
     provider.syncServer(48202)
     assert.equal(bridgeDisposed, true)
     assert.equal(posts.filter((m) => m.type === 'please-reconnect').length, 0)

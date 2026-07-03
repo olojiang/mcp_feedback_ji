@@ -23,20 +23,3 @@ export function shouldDebouncePanelReconnect(
 ): boolean {
     return lastReconnectAtMs > 0 && nowMs - lastReconnectAtMs < windowMs;
 }
-
-export function panelBootstrapAction(
-    gateSnapshot: { initialized: boolean; registered: boolean },
-    event: 'webview-ready' | 'please-reconnect' | 'bridge-connected-duplicate',
-): { hubConnect: boolean; register: boolean; stateSync: boolean } {
-    if (event === 'please-reconnect') {
-        return { hubConnect: true, register: true, stateSync: true };
-    }
-    if (event === 'bridge-connected-duplicate') {
-        return { hubConnect: false, register: false, stateSync: false };
-    }
-    return {
-        hubConnect: true,
-        register: !gateSnapshot.registered,
-        stateSync: true,
-    };
-}

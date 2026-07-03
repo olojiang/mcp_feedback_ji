@@ -4,11 +4,3 @@ export declare function shouldReloadWebview(lastSyncedPort: number, nextPort: nu
 export declare function shouldReconnectWebview(lastSyncedPort: number, nextPort: number, bridgeActive: boolean): boolean;
 /** Panel: ignore rapid duplicate forceReconnect within window (e.g. double please-reconnect). */
 export declare function shouldDebouncePanelReconnect(lastReconnectAtMs: number, nowMs: number, windowMs?: number): boolean;
-export declare function panelBootstrapAction(gateSnapshot: {
-    initialized: boolean;
-    registered: boolean;
-}, event: 'webview-ready' | 'please-reconnect' | 'bridge-connected-duplicate'): {
-    hubConnect: boolean;
-    register: boolean;
-    stateSync: boolean;
-};

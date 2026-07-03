@@ -9,10 +9,9 @@ const {
 } = require('../out/activateSyncPolicy.js')
 const {
   shouldDebouncePanelReconnect,
-  panelBootstrapAction,
   shouldReconnectWebview,
 } = require('../out/webviewSyncPolicy.js')
-const { PanelState } = require('../out/webview/panelState.js')
+const { BridgeSessionGate, PanelState } = require('../out/webview/panelState.js')
 
 describe('activateSyncPolicy', () => {
   it('schedules a single deferred sync to avoid reconnect storms', () => {
@@ -33,23 +32,19 @@ describe('panel reconnect timing policy', () => {
     assert.equal(PanelState.shouldDebounceReconnect(1000, 2300), false)
   })
 
-  it('bootstrap: duplicate bridge-connected does not re-register', () => {
-    const action = panelBootstrapAction(
-      { initialized: true, registered: true },
-      'bridge-connected-duplicate',
-    )
-    assert.equal(action.hubConnect, false)
-    assert.equal(action.register, false)
-    assert.equal(action.stateSync, false)
+  it('BridgeSessionGate: duplicate bridge-connected does not re-register', () => {
+    const gate = new BridgeSessionGate()
+    gate.onBridgeConnected()
+    const dup = gate.onBridgeConnected()
+    assert.equal(dup.register, false)
+    assert.equal(dup.stateSync, false)
   })
 
-  it('bootstrap: first webview-ready registers once', () => {
-    const action = panelBootstrapAction(
-      { initialized: false, registered: false },
-      'webview-ready',
-    )
-    assert.equal(action.register, true)
-    assert.equal(action.stateSync, true)
+  it('BridgeSessionGate: first connect registers once', () => {
+    const gate = new BridgeSessionGate()
+    const first = gate.onBridgeConnected()
+    assert.equal(first.register, true)
+    assert.equal(first.stateSync, true)
   })
 
   it('extension soft sync skips reconnect when bridge already active', () => {
