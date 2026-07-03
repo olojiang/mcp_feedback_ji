@@ -166,24 +166,39 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
-    private _connectBridge(view: vscode.WebviewView): void {
-        if (this._bridge) {
-            view.webview.postMessage({
-                type: 'bridge-connected',
-                port: this._getPort(),
-                version: this._getVersion(),
-                pid: process.pid,
-            });
-            return;
-        }
-        this._attachBridge(view);
-        view.webview.postMessage({
+    private _registryEntries() {
+        return enrichRegistryEntries(listAllServers(), (pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        });
+    }
+
+    private _versionWarnings(): string[] {
+        return versionSkewWarnings(this._registryEntries(), this._getVersion(), process.pid);
+    }
+
+    private _bridgePayload(): Record<string, unknown> {
+        return {
             type: 'bridge-connected',
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
-        });
+            versionWarnings: this._versionWarnings(),
+        };
+    }
+
+    /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
+    private _connectBridge(view: vscode.WebviewView): void {
+        if (this._bridge) {
+            view.webview.postMessage(this._bridgePayload());
+            return;
+        }
+        this._attachBridge(view);
+        view.webview.postMessage(this._bridgePayload());
     }
 
     private _pushServerInfo(view: vscode.WebviewView): void {
@@ -192,6 +207,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
+            versionWarnings: this._versionWarnings(),
         });
     }
 
@@ -244,12 +260,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                     if (!this._bridge) {
                         this._connectBridge(view);
                     } else {
-                        view.webview.postMessage({
-                            type: 'bridge-connected',
-                            port: this._getPort(),
-                            version: this._getVersion(),
-                            pid: process.pid,
-                        });
+                        view.webview.postMessage(this._bridgePayload());
                     }
                     break;
 

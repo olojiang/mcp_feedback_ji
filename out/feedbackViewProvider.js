@@ -155,24 +155,37 @@ class FeedbackViewProvider {
             view.webview.postMessage({ type: 'hub-message', data: msg });
         });
     }
-    /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
-    _connectBridge(view) {
-        if (this._bridge) {
-            view.webview.postMessage({
-                type: 'bridge-connected',
-                port: this._getPort(),
-                version: this._getVersion(),
-                pid: process.pid,
-            });
-            return;
-        }
-        this._attachBridge(view);
-        view.webview.postMessage({
+    _registryEntries() {
+        return (0, registrySnapshot_1.enrichRegistryEntries)((0, fileStore_1.listAllServers)(), (pid) => {
+            try {
+                process.kill(pid, 0);
+                return true;
+            }
+            catch {
+                return false;
+            }
+        });
+    }
+    _versionWarnings() {
+        return (0, registrySnapshot_1.versionSkewWarnings)(this._registryEntries(), this._getVersion(), process.pid);
+    }
+    _bridgePayload() {
+        return {
             type: 'bridge-connected',
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
-        });
+            versionWarnings: this._versionWarnings(),
+        };
+    }
+    /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
+    _connectBridge(view) {
+        if (this._bridge) {
+            view.webview.postMessage(this._bridgePayload());
+            return;
+        }
+        this._attachBridge(view);
+        view.webview.postMessage(this._bridgePayload());
     }
     _pushServerInfo(view) {
         view.webview.postMessage({
@@ -180,6 +193,7 @@ class FeedbackViewProvider {
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
+            versionWarnings: this._versionWarnings(),
         });
     }
     _handleDebugRequest(view) {
@@ -230,12 +244,7 @@ class FeedbackViewProvider {
                         this._connectBridge(view);
                     }
                     else {
-                        view.webview.postMessage({
-                            type: 'bridge-connected',
-                            port: this._getPort(),
-                            version: this._getVersion(),
-                            pid: process.pid,
-                        });
+                        view.webview.postMessage(this._bridgePayload());
                     }
                     break;
                 case 'hub-connect':

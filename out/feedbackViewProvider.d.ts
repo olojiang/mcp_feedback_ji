@@ -35,6 +35,9 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     syncServer(port: number): void;
     private _injectWebviewResources;
     private _attachBridge;
+    private _registryEntries;
+    private _versionWarnings;
+    private _bridgePayload;
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
     private _connectBridge;
     private _pushServerInfo;

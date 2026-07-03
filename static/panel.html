@@ -2135,6 +2135,11 @@ window.onerror = function (msg, src, line, col, err) {
         }
         flushOutboundQueue();
         if (action.stateSync) requestStateSync();
+        if (msg && msg.versionWarnings && msg.versionWarnings.length) {
+            lastExtensionDebugReport = lastExtensionDebugReport || {};
+            lastExtensionDebugReport.versionSkew = msg.versionWarnings;
+            showVersionSkewBanner(msg.versionWarnings);
+        }
         renderConnectionHealth();
     }
 
