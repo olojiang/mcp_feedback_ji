@@ -215,6 +215,52 @@ describe('PanelState multi-session', () => {
     assert.equal(ws.message.feedback, 'Continue')
   })
 
+  it('setActiveSession and state_sync re-render staged_images for active tab', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-a', summary: 'A' })
+    state.stageImage('img-a')
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-b', summary: 'B' })
+    state.stageImage('img-b')
+
+    const switchA = state.setActiveSession('fb-a')
+    assert.ok(switchA.some((c) => c.type === 'render' && c.targets.includes('staged_images')))
+    assert.deepEqual(state.getStagedImages(), ['img-a'])
+
+    const unstage = state.unstageImage(0)
+    assert.ok(unstage.some((c) => c.type === 'render' && c.targets.includes('staged_images')))
+    assert.deepEqual(state.getStagedImages(), [])
+
+    state.stageImage('img-a2')
+    state.setActiveSession('fb-b')
+    assert.deepEqual(state.getStagedImages(), ['img-b'])
+
+    const sync = state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [{ id: 'fb-a', label: 'a', summary: 'A', waiting: true }],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 1,
+      messages: [],
+    })
+    assert.ok(sync.some((c) => c.type === 'render' && c.targets.includes('staged_images')))
+    assert.equal(state.activeSessionId, 'fb-a')
+    assert.deepEqual(state.getStagedImages(), ['img-a2'])
+  })
+
+  it('clears staged images when server marks session resolved', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-x', summary: 'X' })
+    state.stageImage('orphan')
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 0,
+      messages: [],
+    })
+    assert.deepEqual(state.sessions['fb-x'].stagedImages, [])
+  })
 
   it('ignores session_updated for foreign project_directory', () => {
     const state = new PanelState()

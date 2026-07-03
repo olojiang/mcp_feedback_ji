@@ -19,7 +19,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci && npm ci --prefix mcp-server
 
       - name: Package extension
         run: npx @vscode/vsce package --no-dependencies

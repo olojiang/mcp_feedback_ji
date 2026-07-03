@@ -150,13 +150,13 @@
       if (!id || !this.sessions[id]) return []
       this.activeSessionId = id
       var s = this.sessions[id]
-      return [render('tabs', 'messages', 'pending', 'input'), dom('set_input', s.inputDraft || '')]
+      return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('set_input', s.inputDraft || '')]
     }
 
     _afterSessionListChange() {
       var active = this.getActiveSession()
       return [
-        render('tabs', 'messages', 'pending', 'input'),
+        render('tabs', 'messages', 'pending', 'input', 'staged_images'),
         dom('set_input', active ? active.inputDraft || '' : ''),
         dom('save_state'),
       ]
@@ -267,6 +267,7 @@
         var sess = this.sessions[sid]
         if (sess && sess.waiting && !pendingIds[sid]) {
           sess.waiting = false
+          sess.stagedImages = []
         }
       }
     }
@@ -305,7 +306,7 @@
             return { id: id, waiting: true }
           }),
         )
-        return [render('tabs', 'messages', 'pending', 'input'), dom('save_state')]
+        return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
       }
 
       var pending = msg.pending_sessions || []
@@ -342,7 +343,7 @@
       this.globalPendingImages = msg.pending_images || []
       this.hubSnapshot = msg.hub || null
       this.lastPendingSessionIds = acceptedPending.map(function (p) { return p.id })
-      return [render('tabs', 'messages', 'pending', 'input'), dom('save_state')]
+      return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
     }
 
     _onSessionUpdated(msg) {
@@ -373,7 +374,7 @@
       })
 
       var cmds = [
-        render('tabs', 'messages', 'pending', 'input'),
+        render('tabs', 'messages', 'pending', 'input', 'staged_images'),
         dom('save_state'),
         notify({ type: 'new-session', session_id: id }),
         notify({ type: 'feedback-arrived', session_id: id }),
@@ -441,7 +442,7 @@
         }
       }
       sess.waiting = false
-      return [render('tabs', 'messages', 'input'), dom('save_state')]
+      return [render('tabs', 'messages', 'input', 'staged_images'), dom('save_state')]
     }
 
     _onPendingDelivered(msg) {
@@ -484,7 +485,7 @@
         if (latest) {
           this.activeSessionId = latest
           return [
-            render('tabs', 'messages', 'pending', 'input'),
+            render('tabs', 'messages', 'pending', 'input', 'staged_images'),
           ].concat(this.submitFeedback(text, images, { session_id: latest }))
         }
       }
@@ -520,7 +521,7 @@
           images: mergedImages,
           ...(sess.projectDirectory ? { project_directory: sess.projectDirectory } : {}),
         }),
-        render('tabs', 'messages', 'pending', 'input'),
+        render('tabs', 'messages', 'pending', 'input', 'staged_images'),
       ]
 
       if (!opts || !opts.preserveInput) {

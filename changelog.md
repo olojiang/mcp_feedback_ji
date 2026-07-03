@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.86] - 2026-07-03
+
+### Fix
+- **Staged image delete ghost UI**: tab switch / `state_sync` now re-renders `staged_images`; delete targets correct session.
+- Clear `stagedImages` when server marks session resolved.
+
 ## [2.5.1-ji.85] - 2026-07-03
 
 > **Release highlight (ji.57 → ji.85)**：修复 Panel Disconnected / 空面板（ji.79 sanitize 回归）、Reload 后 stale webview、bridge 重复初始化；新增按天轮转 panel 日志、Pending/Draft UX、输入区 splitter 伸缩；312+ 单测与 deploy 工作流。
