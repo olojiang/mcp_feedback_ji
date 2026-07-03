@@ -1,25 +1,24 @@
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { getLogsDir } from './configPaths';
 import { webviewLogPath } from './webviewLog';
 
 export type FeedbackLogTarget = 'extension' | 'mcp-server' | 'webview';
 
-const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
-
 export function feedbackLogDir(): string {
-    return LOG_DIR;
+    return getLogsDir();
 }
 
 export function resolveFeedbackLogPath(target: FeedbackLogTarget): string {
+    const logDir = getLogsDir();
     switch (target) {
         case 'extension':
-            return path.join(LOG_DIR, 'extension.log');
+            return path.join(logDir, 'extension.log');
         case 'mcp-server':
-            return path.join(LOG_DIR, 'mcp-server.log');
+            return path.join(logDir, 'mcp-server.log');
         case 'webview':
             return webviewLogPath();
         default:
-            return LOG_DIR;
+            return logDir;
     }
 }
 

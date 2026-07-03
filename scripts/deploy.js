@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { shouldKillMcpServersOnDeploy, findMcpServerPids } = require('./deployPolicy.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const PKG_PATH = path.join(ROOT, 'package.json');
@@ -47,6 +48,10 @@ function compile() {
 function stopExistingMcpServers() {
     if (process.platform === 'win32') return;
     if (!EXTENSION_DIR) return;
+    if (!shouldKillMcpServersOnDeploy()) {
+        console.log('[deploy] skipped MCP kill (set MCP_FEEDBACK_KILL_MCP_ON_DEPLOY=1 to force)');
+        return;
+    }
 
     const serverPath = path.join(EXTENSION_DIR, 'mcp-server', 'dist', 'index.js');
     let output = '';
@@ -56,19 +61,7 @@ function stopExistingMcpServers() {
         return;
     }
 
-    const currentPid = process.pid;
-    const pids = output
-        .split(/\r?\n/)
-        .map((line) => {
-            const match = line.trim().match(/^(\d+)\s+(.+)$/);
-            if (!match) return null;
-            const pid = Number(match[1]);
-            const args = match[2];
-            if (!Number.isFinite(pid) || pid === currentPid) return null;
-            return args.includes(serverPath) ? pid : null;
-        })
-        .filter((pid) => pid !== null);
-
+    const pids = findMcpServerPids(output, serverPath, process.pid);
     for (const pid of pids) {
         try {
             process.kill(pid, 'SIGTERM');

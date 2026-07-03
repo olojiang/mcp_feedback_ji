@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.62] - 2026-07-03
+
+### Fixed
+- **Test registry isolation**: `npm test` uses `MCP_FEEDBACK_CONFIG_DIR` temp dir — no more test hubs polluting `~/.config`.
+- **Version skew noise**: banners ignore test hub versions (`full-pipeline`, `/tmp/*` workspaces).
+- **Status bar**: port shown once (`:48201`); label is `Connected pid=…` without duplicate port.
+- **Panel perf (#11)**: `renderConnectionHealth` skips DOM updates when health signature unchanged.
+
+### Added
+- **Observability (P4)**: structured `event=` logs for mcp stale sweep skip + MCP `feedback_wait_heartbeat`; deploy stamp in panel; DBG **Copy diagnose** bundle.
+- **Tests**: `configPaths`, `structuredLog`, `registrySkewFilter`, `fileStore.registry`, `clientRegistry.staleLog`, E2E `panel-health`.
+- **verify-install**: warns if user registry contains test hub entries.
+
+## [2.5.1-ji.61] - 2026-07-03
+
+### Fixed
+- **Input pane resize**: dragging the splitter now stretches the textarea (`align-items:stretch`, `height:100%`).
+
+### Added
+- **Tests**: `mcpStaleWait.integration` (hub-level MCP survives 120s idle sweep).
+
+## [2.5.1-ji.60] - 2026-07-03
+
+### Fixed
+- **MCP `Connection closed` (~90s)**: hub `sweepStale` no longer disconnects idle `mcp-server` clients while waiting for user feedback.
+- **Deploy stability**: `deploy.js` skips killing MCP processes by default (`MCP_FEEDBACK_KILL_MCP_ON_DEPLOY=1` to force).
+- **MCP UX**: `formatExtensionCloseError` gives actionable close messages; `toolHandlers` keeps WS open after feedback.
+
+### Added
+- **Tests**: `clientRegistry.mcpStale`, `deployPolicy`, `mcpConnectionClosed`.
+
 ## [2.5.1-ji.57] - 2026-07-03
 
 ### Added

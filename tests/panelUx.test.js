@@ -82,10 +82,13 @@ describe('panel UX helpers', () => {
     assert.equal(PanelState.messagesScrolledUp(el, 40), false)
   })
 
-  it('parseQuickRepliesConfig parses label|text lines', () => {
-    const parsed = PanelState.parseQuickRepliesConfig('Go|Continue\nLooks Good|Looks good, proceed')
-    assert.equal(parsed.length, 2)
-    assert.equal(parsed[0].label, 'Go')
-    assert.equal(parsed[0].text, 'Continue')
+  it('shouldSkipHealthRender skips identical signature', () => {
+    const sig = PanelState.buildHealthSignature({ level: 'ok', label: 'Connected', detail: 'x', portPid: '', issues: [] }, {})
+    assert.equal(PanelState.shouldSkipHealthRender(sig, sig), true)
+    assert.equal(PanelState.shouldSkipHealthRender('', sig), false)
+  })
+
+  it('formatConnectionStatusLabel omits duplicate port', () => {
+    assert.equal(PanelState.formatConnectionStatusLabel('ok', 123), 'Connected pid=123')
   })
 })

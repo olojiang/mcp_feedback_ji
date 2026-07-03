@@ -193,29 +193,25 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
 
                 try {
                     const ws = await deps.connectToExtension(extensionServer.port);
-                    try {
-                        const result = await deps.requestFeedback(ws, summary, project_directory, traceId);
-                        deps.log(
-                            `[MCP Feedback] Feedback via extension port=${extensionServer.port} `
-                            + `pid=${extensionServer.pid}`
-                        );
-                        const content: ToolContent = [
-                            { type: 'text', text: result.feedback + feedbackSuffix(result.feedback) },
-                        ];
-                        if (result.images) {
-                            for (const img of result.images) {
-                                content.push({
-                                    type: 'image',
-                                    data: img,
-                                    mimeType: 'image/png',
-                                });
-                            }
+                    const result = await deps.requestFeedback(ws, summary, project_directory, traceId);
+                    deps.log(
+                        `[MCP Feedback] Feedback via extension port=${extensionServer.port} `
+                        + `pid=${extensionServer.pid}`
+                    );
+                    const content: ToolContent = [
+                        { type: 'text', text: result.feedback + feedbackSuffix(result.feedback) },
+                    ];
+                    if (result.images) {
+                        for (const img of result.images) {
+                            content.push({
+                                type: 'image',
+                                data: img,
+                                mimeType: 'image/png',
+                            });
                         }
-                        runPostFeedbackHooks({ summary, feedback: result.feedback });
-                        return { content };
-                    } finally {
-                        ws.close();
                     }
+                    runPostFeedbackHooks({ summary, feedback: result.feedback });
+                    return { content };
                 } catch (err) {
                     const errMsg = err instanceof Error ? err.message : String(err);
                     deps.log(

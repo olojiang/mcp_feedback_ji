@@ -22,7 +22,10 @@ import {
     enrichRegistryEntries,
     formatRegistryTable,
     versionSkewWarnings,
+    buildDiagnoseBundle,
 } from './registrySnapshot';
+import { formatDeployStampLabel } from './deployStamp';
+import { readDeployStamp } from './deployStampReader';
 import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
 
 type HtmlGetter = () => string;
@@ -182,12 +185,15 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _bridgePayload(): Record<string, unknown> {
+        const deployStamp = readDeployStamp();
         return {
             type: 'bridge-connected',
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
+            deployStamp,
+            deployLabel: formatDeployStampLabel(deployStamp, this._getVersion()),
         };
     }
 
@@ -202,12 +208,15 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _pushServerInfo(view: vscode.WebviewView): void {
+        const deployStamp = readDeployStamp();
         view.webview.postMessage({
             type: 'server-info',
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
+            deployStamp,
+            deployLabel: formatDeployStampLabel(deployStamp, this._getVersion()),
         });
     }
 
@@ -239,12 +248,14 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             },
             agentContext: readAgentContext(),
             versionSkew: skew,
+            deployStamp: readDeployStamp(),
             logPaths: {
                 extension: resolveFeedbackLogPath('extension'),
                 mcpServer: resolveFeedbackLogPath('mcp-server'),
                 webview: resolveFeedbackLogPath('webview'),
             },
         };
+        report.diagnoseBundle = buildDiagnoseBundle(report);
 
         view.webview.postMessage({ type: 'debug-report', report });
     }

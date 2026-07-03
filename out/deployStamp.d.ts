@@ -5,3 +5,4 @@ export interface DeployStamp {
 export declare function shouldPromptReloadAfterDeploy(runningVersion: string, stamp: DeployStamp | null): boolean;
 /** After deploy, package.json on disk bumps before Extension Host reloads. */
 export declare function shouldPromptReloadAfterVersionChange(previousActivated: string | undefined, diskVersion: string): boolean;
+export declare function formatDeployStampLabel(stamp: DeployStamp | null, runningVersion: string): string;

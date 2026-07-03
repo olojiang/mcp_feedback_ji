@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ClientRegistry = void 0;
+const structuredLog_js_1 = require("../structuredLog.js");
 class ClientRegistry {
     constructor() {
         this.clients = new Map();
@@ -48,8 +49,23 @@ class ClientRegistry {
                 cb(ws);
         }
     }
+    setLastPong(ws, ts) {
+        const c = this.clients.get(ws);
+        if (c)
+            c.lastPong = ts;
+    }
     sweepStale(now, timeoutMs, onStale) {
         for (const [ws, client] of this.clients) {
+            if (client.clientType === 'mcp-server') {
+                if (now - client.lastPong > timeoutMs) {
+                    console.log((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
+                        action: 'skip',
+                        client_type: 'mcp-server',
+                        idle_ms: now - client.lastPong,
+                    }));
+                }
+                continue;
+            }
             if (now - client.lastPong > timeoutMs) {
                 try {
                     ws.close();

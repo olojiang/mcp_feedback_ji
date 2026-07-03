@@ -5,6 +5,7 @@
  * with fallback to project hash or auto-generated key.
  * Sessions survive transport disconnection for reconnection.
  */
+import { WebSocket } from 'ws';
 import { type WebviewBridge } from './webviewBridge';
 export declare class WsHub {
     private server;
@@ -28,6 +29,10 @@ export declare class WsHub {
         webviews: number;
         mcpServers: number;
     };
+    /** Integration tests: run heartbeat stale sweep at a synthetic clock. */
+    staleSweepAt(now: number): void;
+    /** Integration tests: age a connected client's last pong. */
+    setClientLastPong(ws: WebSocket, ts: number): void;
     getDebugInfo(): Record<string, unknown>;
     hasPendingRequests(): boolean;
     refreshServerRegistration(): void;

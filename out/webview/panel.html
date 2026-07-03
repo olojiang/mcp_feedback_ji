@@ -252,9 +252,9 @@ body{
   box-shadow:0 2px 12px rgba(16,185,129,0.35)!important;
 }
 .input-area{padding:8px 12px 10px;border-top:1px solid var(--border);background:var(--surface);flex:1;display:flex;flex-direction:column;min-height:0}
-.input-row{display:flex;gap:8px;align-items:flex-end;flex:1;min-height:0}
+.input-row{display:flex;gap:8px;align-items:stretch;flex:1;min-height:0}
 .input-row textarea{
-  flex:1;min-height:48px;max-height:none;resize:none;
+  flex:1;min-height:48px;height:100%;max-height:none;resize:none;align-self:stretch;
   background:var(--input-bg);color:var(--fg);
   border:1px solid var(--border);border-radius:10px;
   padding:10px 12px;font-family:inherit;font-size:13px;line-height:1.4;
@@ -556,6 +556,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 
 <div class="status-bar" id="statusBar">
   <span id="versionLabel" style="opacity:.5;font-size:10px">v{{VERSION}}</span>
+  <span id="deployStampLabel" style="opacity:.45;font-size:9px" title="Last deploy stamp"></span>
   <div class="ws-info">
     <div id="wsStatus" class="ws-status" data-state="disconnected" title="Click to reconnect">
       <span class="ws-status-dot"></span>
@@ -583,6 +584,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
       <button type="button" id="debugLogMcpBtn" class="mcp-toolbar-btn" title="Open mcp-server.log (MCP routing)">MCP log</button>
       <button type="button" id="debugLogPanelBtn" class="mcp-toolbar-btn" title="Open webview.log (Panel UI)">Panel log</button>
       <button type="button" id="debugMcpOutputBtn" class="mcp-toolbar-btn" title="Open Cursor MCP Output">MCP Output</button>
+      <button type="button" id="debugCopyDiagnoseBtn" class="mcp-toolbar-btn" title="Copy diagnose bundle JSON">Copy diagnose</button>
       <button type="button" id="debugExportBtn" class="mcp-toolbar-btn" title="Export session history JSON">Export</button>
       <button type="button" id="debugDevToolsBtn" class="mcp-toolbar-btn" title="Open Webview DevTools">DevTools</button>
       <button type="button" id="debugReconnectBtn" class="mcp-toolbar-btn" title="Force hub-connect">Reconnect</button>
@@ -662,7 +664,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 <div class="input-area" style="position:relative">
   <div class="at-dropdown" id="atDropdown"></div>
   <div class="input-row">
-    <textarea id="input" placeholder="Type your feedback... (paste image with Cmd-V, @ to reference files; Shift+click quick reply to fill)" rows="4"></textarea>
+    <textarea id="input" placeholder="Type your feedback... (paste image with Cmd-V, @ to reference files; Shift+click quick reply to fill)" rows="2"></textarea>
     <div class="input-actions">
       <button class="attach-btn" id="attachBtn" title="Attach image file">&#128206;</button>
       <button class="send-btn" id="sendBtn" disabled>Queue</button>
@@ -832,6 +834,7 @@ window.onerror = function (msg, src, line, col, err) {
 
     var debugEvents = [];
     var lastExtensionDebugReport = null;
+    var lastHealthSig = '';
     var userPingPending = false;
     var userPingTimer = null;
     var lastPongAt = 0;
@@ -1129,7 +1132,16 @@ window.onerror = function (msg, src, line, col, err) {
             port: getWsPort(),
             routingMismatchProject: state.routingMismatch && state.routingMismatch.project,
         });
-        setWsStatus(health.level, health.label + (health.portPid || ''));
+        var skew = (lastExtensionDebugReport && lastExtensionDebugReport.versionSkew) || [];
+        var routing = state.routingMismatch && state.routingMismatch.project;
+        var sig = PS.PanelState.buildHealthSignature(health, { skew: skew, routing: routing });
+        if (PS.PanelState.shouldSkipHealthRender(lastHealthSig, sig)) return;
+        lastHealthSig = sig;
+
+        setWsStatus(health.level, PS.PanelState.formatConnectionStatusLabel(health.level, state.hubSnapshot && state.hubSnapshot.pid) + (health.portPid || ''));
+        if (state.hubSnapshot && state.hubSnapshot.port) {
+            wsPortEl.textContent = ':' + state.hubSnapshot.port;
+        }
         connectionDetailEl.textContent = health.detail;
         connectionDetailEl.dataset.level = health.level;
         connectionDetailEl.title = health.issues.length
@@ -1156,9 +1168,8 @@ window.onerror = function (msg, src, line, col, err) {
             return;
         }
         wsPortEl.textContent = ':' + msg.port;
-        var label = 'Connected :' + msg.port;
-        if (msg.pid) label += ' pid=' + msg.pid;
-        setWsStatus('connected', label);
+        wsPortEl.textContent = ':' + msg.port;
+        setWsStatus('connected', PS.PanelState.formatConnectionStatusLabel('ok', msg.pid));
     }
 
     function forceReconnect() {
@@ -1852,6 +1863,14 @@ window.onerror = function (msg, src, line, col, err) {
     if (debugMcpOutputBtn) {
         debugMcpOutputBtn.addEventListener('click', function () {
             if (vscode) vscode.postMessage({ type: 'open-mcp-output' });
+        });
+    }
+    var debugCopyDiagnoseBtn = document.getElementById('debugCopyDiagnoseBtn');
+    if (debugCopyDiagnoseBtn) {
+        debugCopyDiagnoseBtn.addEventListener('click', function () {
+            var bundle = (lastExtensionDebugReport && lastExtensionDebugReport.diagnoseBundle)
+                || JSON.stringify({ extension: lastExtensionDebugReport, panel: collectPanelDebugState() }, null, 2);
+            vscode.postMessage({ type: 'copy-debug-json', json: bundle });
         });
     }
     var debugExportBtn = document.getElementById('debugExportBtn');

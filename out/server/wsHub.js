@@ -44,7 +44,6 @@ exports.WsHub = void 0;
 const http = __importStar(require("node:http"));
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const os = __importStar(require("node:os"));
 const ws_1 = require("ws");
 const fileStore_1 = require("../fileStore");
 const feedbackManager_1 = require("./feedbackManager");
@@ -62,7 +61,8 @@ const hubSnapshot_1 = require("../hubSnapshot");
 const feedbackDelivery_1 = require("../feedbackDelivery");
 const clipboardImage_1 = require("../utils/clipboardImage");
 const vscode = __importStar(require("vscode"));
-const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
+const configPaths_js_1 = require("../configPaths.js");
+const LOG_DIR = (0, configPaths_js_1.getLogsDir)();
 function wsLog(msg) {
     try {
         fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -166,6 +166,20 @@ class WsHub {
     }
     getConnectedClients() {
         return this.clients.counts();
+    }
+    /** Integration tests: run heartbeat stale sweep at a synthetic clock. */
+    staleSweepAt(now) {
+        if (process.env.MCP_FEEDBACK_TEST_HOOKS !== '1') {
+            throw new Error('staleSweepAt is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)');
+        }
+        this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
+    }
+    /** Integration tests: age a connected client's last pong. */
+    setClientLastPong(ws, ts) {
+        if (process.env.MCP_FEEDBACK_TEST_HOOKS !== '1') {
+            throw new Error('setClientLastPong is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)');
+        }
+        this.clients.setLastPong(ws, ts);
     }
     getDebugInfo() {
         return {

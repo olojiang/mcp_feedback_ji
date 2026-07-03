@@ -1,14 +1,7 @@
 "use strict";
 /**
  * Centralized file I/O for all persistent state.
- * All paths under ~/.config/mcp-feedback-enhanced/
- *
- * Directory structure:
- *   projects/<hash>.json   - Chat history per project
- *   servers/<hash>.json    - Extension instance registry (keyed by project hash)
- *   logs/
- *
- * Note: Pending messages are stored in-memory and served via HTTP.
+ * All paths under ~/.config/mcp-feedback-enhanced/ (or MCP_FEEDBACK_CONFIG_DIR).
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -55,16 +48,15 @@ exports.cleanupStaleServers = cleanupStaleServers;
 exports.writeAgentContext = writeAgentContext;
 exports.readAgentContext = readAgentContext;
 exports.listAllServers = listAllServers;
+exports.isTestRegistryEntry = isTestRegistryEntry;
+exports.findTestRegistryEntries = findTestRegistryEntries;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
-const os = __importStar(require("os"));
 const crypto = __importStar(require("crypto"));
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
-exports.CONFIG_DIR = CONFIG_DIR;
-const PROJECTS_DIR = path.join(CONFIG_DIR, 'projects');
-exports.PROJECTS_DIR = PROJECTS_DIR;
-const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
-exports.SERVERS_DIR = SERVERS_DIR;
+const configPaths_1 = require("./configPaths");
+Object.defineProperty(exports, "CONFIG_DIR", { enumerable: true, get: function () { return configPaths_1.getConfigDir; } });
+Object.defineProperty(exports, "PROJECTS_DIR", { enumerable: true, get: function () { return configPaths_1.getProjectsDir; } });
+Object.defineProperty(exports, "SERVERS_DIR", { enumerable: true, get: function () { return configPaths_1.getServersDir; } });
 function ensureDir(dir) {
     fs.mkdirSync(dir, { recursive: true });
 }
@@ -104,29 +96,25 @@ function listJSONFiles(dir) {
         return [];
     }
 }
-// ─── Project Hash ─────────────────────────────────────────
 function projectHash(workspacePath) {
     const normalized = path.normalize(workspacePath).replace(/\/+$/, '');
     return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
-// ─── Projects ─────────────────────────────────────────────
 function readProject(hash) {
-    return safeReadJSON(path.join(PROJECTS_DIR, `${hash}.json`));
+    return safeReadJSON(path.join((0, configPaths_1.getProjectsDir)(), `${hash}.json`));
 }
 function writeProject(hash, data) {
-    safeWriteJSON(path.join(PROJECTS_DIR, `${hash}.json`), data);
+    safeWriteJSON(path.join((0, configPaths_1.getProjectsDir)(), `${hash}.json`), data);
 }
-// ─── Servers (keyed by project hash) ─────────────────────
 function readServerByHash(hash) {
-    return safeReadJSON(path.join(SERVERS_DIR, `${hash}.json`));
+    return safeReadJSON(path.join((0, configPaths_1.getServersDir)(), `${hash}.json`));
 }
 function writeServer(hash, data) {
-    safeWriteJSON(path.join(SERVERS_DIR, `${hash}.json`), data);
+    safeWriteJSON(path.join((0, configPaths_1.getServersDir)(), `${hash}.json`), data);
 }
 function deleteServerByHash(hash) {
-    return safeDelete(path.join(SERVERS_DIR, `${hash}.json`));
+    return safeDelete(path.join((0, configPaths_1.getServersDir)(), `${hash}.json`));
 }
-// ─── Cleanup Utilities ───────────────────────────────────
 function isProcessAlive(pid) {
     try {
         process.kill(pid, 0);
@@ -138,37 +126,49 @@ function isProcessAlive(pid) {
 }
 function cleanupStaleServers() {
     let cleaned = 0;
-    for (const f of listJSONFiles(SERVERS_DIR)) {
-        const info = safeReadJSON(path.join(SERVERS_DIR, f));
+    for (const f of listJSONFiles((0, configPaths_1.getServersDir)())) {
+        const filePath = path.join((0, configPaths_1.getServersDir)(), f);
+        const info = safeReadJSON(filePath);
         if (info && !isProcessAlive(info.pid)) {
-            safeDelete(path.join(SERVERS_DIR, f));
+            safeDelete(filePath);
             cleaned++;
         }
     }
     return cleaned;
 }
-const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
 function writeAgentContext(workspaceRoots, traceId = '') {
     const roots = workspaceRoots.map((r) => r.replace(/\/+$/, '')).filter(Boolean);
     if (!roots.length)
         return;
-    safeWriteJSON(AGENT_CONTEXT_FILE, {
+    safeWriteJSON((0, configPaths_1.getAgentContextPath)(), {
         traceId,
         workspaceRoots: roots,
         updatedAt: Date.now(),
     });
 }
 function readAgentContext() {
-    return safeReadJSON(AGENT_CONTEXT_FILE);
+    return safeReadJSON((0, configPaths_1.getAgentContextPath)());
 }
 function listAllServers() {
     const out = [];
-    for (const f of listJSONFiles(SERVERS_DIR)) {
+    for (const f of listJSONFiles((0, configPaths_1.getServersDir)())) {
         const hash = f.replace(/\.json$/, '');
         const info = readServerByHash(hash);
         if (info)
             out.push({ ...info, hash });
     }
     return out.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+}
+function isTestRegistryEntry(info) {
+    const version = String(info.version || '');
+    if (!/^\d+\.\d+\.\d+(-ji\.\d+)?$/.test(version))
+        return true;
+    const p = String(info.projectPath || '');
+    if (p.startsWith('/tmp/') || p.includes('/var/folders/'))
+        return true;
+    return false;
+}
+function findTestRegistryEntries() {
+    return listAllServers().filter((s) => isTestRegistryEntry(s));
 }
 //# sourceMappingURL=fileStore.js.map

@@ -9,7 +9,11 @@ import { WebSocket } from 'ws'
 
 const require = createRequire(import.meta.url)
 const origLoad = Module._load
-const LOG_PATH = path.join(os.homedir(), '.config/mcp-feedback-enhanced/logs/extension.log')
+const LOG_PATH = path.join(
+  process.env.MCP_FEEDBACK_CONFIG_DIR || path.join(os.homedir(), '.config', 'mcp-feedback-enhanced'),
+  'logs',
+  'extension.log',
+)
 
 function vscodeStub() {
   return {

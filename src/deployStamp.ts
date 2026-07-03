@@ -18,3 +18,12 @@ export function shouldPromptReloadAfterVersionChange(
 ): boolean {
     return !!previousActivated && previousActivated !== diskVersion;
 }
+
+export function formatDeployStampLabel(stamp: DeployStamp | null, runningVersion: string): string {
+    if (!stamp) return '';
+    const when = new Date(stamp.at).toISOString().replace('T', ' ').slice(0, 19);
+    if (stamp.version === runningVersion) {
+        return `deployed ${stamp.version} at ${when}`;
+    }
+    return `deploy ${stamp.version} at ${when} — reload for ${runningVersion}`;
+}

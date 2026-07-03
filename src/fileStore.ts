@@ -1,27 +1,21 @@
 /**
  * Centralized file I/O for all persistent state.
- * All paths under ~/.config/mcp-feedback-enhanced/
- *
- * Directory structure:
- *   projects/<hash>.json   - Chat history per project
- *   servers/<hash>.json    - Extension instance registry (keyed by project hash)
- *   logs/
- *
- * Note: Pending messages are stored in-memory and served via HTTP.
+ * All paths under ~/.config/mcp-feedback-enhanced/ (or MCP_FEEDBACK_CONFIG_DIR).
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as crypto from 'crypto';
 import type {
     ProjectState,
     ServerInfo,
 } from './types';
-
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
-const PROJECTS_DIR = path.join(CONFIG_DIR, 'projects');
-const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
+import {
+    getAgentContextPath,
+    getConfigDir,
+    getProjectsDir,
+    getServersDir,
+} from './configPaths';
 
 function ensureDir(dir: string): void {
     fs.mkdirSync(dir, { recursive: true });
@@ -60,38 +54,30 @@ function listJSONFiles(dir: string): string[] {
     }
 }
 
-// ─── Project Hash ─────────────────────────────────────────
-
 export function projectHash(workspacePath: string): string {
     const normalized = path.normalize(workspacePath).replace(/\/+$/, '');
     return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
-// ─── Projects ─────────────────────────────────────────────
-
 export function readProject(hash: string): ProjectState | null {
-    return safeReadJSON<ProjectState>(path.join(PROJECTS_DIR, `${hash}.json`));
+    return safeReadJSON<ProjectState>(path.join(getProjectsDir(), `${hash}.json`));
 }
 
 export function writeProject(hash: string, data: ProjectState): void {
-    safeWriteJSON(path.join(PROJECTS_DIR, `${hash}.json`), data);
+    safeWriteJSON(path.join(getProjectsDir(), `${hash}.json`), data);
 }
 
-// ─── Servers (keyed by project hash) ─────────────────────
-
 export function readServerByHash(hash: string): ServerInfo | null {
-    return safeReadJSON<ServerInfo>(path.join(SERVERS_DIR, `${hash}.json`));
+    return safeReadJSON<ServerInfo>(path.join(getServersDir(), `${hash}.json`));
 }
 
 export function writeServer(hash: string, data: ServerInfo): void {
-    safeWriteJSON(path.join(SERVERS_DIR, `${hash}.json`), data);
+    safeWriteJSON(path.join(getServersDir(), `${hash}.json`), data);
 }
 
 export function deleteServerByHash(hash: string): boolean {
-    return safeDelete(path.join(SERVERS_DIR, `${hash}.json`));
+    return safeDelete(path.join(getServersDir(), `${hash}.json`));
 }
-
-// ─── Cleanup Utilities ───────────────────────────────────
 
 function isProcessAlive(pid: number): boolean {
     try {
@@ -104,17 +90,16 @@ function isProcessAlive(pid: number): boolean {
 
 export function cleanupStaleServers(): number {
     let cleaned = 0;
-    for (const f of listJSONFiles(SERVERS_DIR)) {
-        const info = safeReadJSON<ServerInfo>(path.join(SERVERS_DIR, f));
+    for (const f of listJSONFiles(getServersDir())) {
+        const filePath = path.join(getServersDir(), f);
+        const info = safeReadJSON<ServerInfo>(filePath);
         if (info && !isProcessAlive(info.pid)) {
-            safeDelete(path.join(SERVERS_DIR, f));
+            safeDelete(filePath);
             cleaned++;
         }
     }
     return cleaned;
 }
-
-const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
 
 export interface AgentContextFile {
     traceId?: string;
@@ -125,7 +110,7 @@ export interface AgentContextFile {
 export function writeAgentContext(workspaceRoots: string[], traceId = ''): void {
     const roots = workspaceRoots.map((r) => r.replace(/\/+$/, '')).filter(Boolean);
     if (!roots.length) return;
-    safeWriteJSON(AGENT_CONTEXT_FILE, {
+    safeWriteJSON(getAgentContextPath(), {
         traceId,
         workspaceRoots: roots,
         updatedAt: Date.now(),
@@ -133,12 +118,12 @@ export function writeAgentContext(workspaceRoots: string[], traceId = ''): void 
 }
 
 export function readAgentContext(): AgentContextFile | null {
-    return safeReadJSON<AgentContextFile>(AGENT_CONTEXT_FILE);
+    return safeReadJSON<AgentContextFile>(getAgentContextPath());
 }
 
 export function listAllServers(): Array<ServerInfo & { hash: string }> {
     const out: Array<ServerInfo & { hash: string }> = [];
-    for (const f of listJSONFiles(SERVERS_DIR)) {
+    for (const f of listJSONFiles(getServersDir())) {
         const hash = f.replace(/\.json$/, '');
         const info = readServerByHash(hash);
         if (info) out.push({ ...info, hash });
@@ -146,4 +131,20 @@ export function listAllServers(): Array<ServerInfo & { hash: string }> {
     return out.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
 }
 
-export { CONFIG_DIR, PROJECTS_DIR, SERVERS_DIR };
+export function isTestRegistryEntry(info: Pick<ServerInfo, 'projectPath' | 'version'>): boolean {
+    const version = String(info.version || '');
+    if (!/^\d+\.\d+\.\d+(-ji\.\d+)?$/.test(version)) return true;
+    const p = String(info.projectPath || '');
+    if (p.startsWith('/tmp/') || p.includes('/var/folders/')) return true;
+    return false;
+}
+
+export function findTestRegistryEntries(): Array<ServerInfo & { hash: string }> {
+    return listAllServers().filter((s) => isTestRegistryEntry(s));
+}
+
+export {
+    getConfigDir as CONFIG_DIR,
+    getProjectsDir as PROJECTS_DIR,
+    getServersDir as SERVERS_DIR,
+};

@@ -996,7 +996,7 @@
       if (mcpDetached > 0) detailParts.push('Detached:' + mcpDetached)
 
       var label = level === 'ok' ? 'Connected' : (level === 'degraded' ? 'Degraded' : 'Disconnected')
-      var portPid = hub ? (':' + hub.port + ' pid=' + hub.pid) : (opts.port ? (':' + opts.port) : '')
+      var portPid = hub && hub.pid ? (' pid=' + hub.pid) : ''
 
       return {
         level: level,
@@ -1165,6 +1165,24 @@
   exports.OutboundQueue = OutboundQueue
   exports.BridgeSessionGate = BridgeSessionGate
   exports.transportSendWithQueue = transportSendWithQueue
+
+  PanelState.buildHealthSignature = function (health, extras) {
+    return JSON.stringify({
+      level: health && health.level,
+      label: health && health.label,
+      detail: health && health.detail,
+      portPid: health && health.portPid,
+      issues: health && health.issues,
+      extras: extras || {},
+    })
+  }
+  PanelState.shouldSkipHealthRender = function (prev, next) {
+    return !!prev && prev === next
+  }
+  PanelState.formatConnectionStatusLabel = function (level, pid) {
+    var base = level === 'ok' ? 'Connected' : (level === 'degraded' ? 'Degraded' : 'Disconnected')
+    return pid ? (base + ' pid=' + pid) : base
+  }
   exports.ConnectionHealth = ConnectionHealth
 })(typeof window !== 'undefined'
   ? (window.PanelStateModule = {})

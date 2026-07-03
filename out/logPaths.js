@@ -36,23 +36,23 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.feedbackLogDir = feedbackLogDir;
 exports.resolveFeedbackLogPath = resolveFeedbackLogPath;
 exports.formatAgentLinkStatus = formatAgentLinkStatus;
-const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const configPaths_1 = require("./configPaths");
 const webviewLog_1 = require("./webviewLog");
-const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
 function feedbackLogDir() {
-    return LOG_DIR;
+    return (0, configPaths_1.getLogsDir)();
 }
 function resolveFeedbackLogPath(target) {
+    const logDir = (0, configPaths_1.getLogsDir)();
     switch (target) {
         case 'extension':
-            return path.join(LOG_DIR, 'extension.log');
+            return path.join(logDir, 'extension.log');
         case 'mcp-server':
-            return path.join(LOG_DIR, 'mcp-server.log');
+            return path.join(logDir, 'mcp-server.log');
         case 'webview':
             return (0, webviewLog_1.webviewLogPath)();
         default:
-            return LOG_DIR;
+            return logDir;
     }
 }
 /** Human-readable agent link status for the panel status bar. */

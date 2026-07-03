@@ -1,18 +1,9 @@
 /**
  * Centralized file I/O for all persistent state.
- * All paths under ~/.config/mcp-feedback-enhanced/
- *
- * Directory structure:
- *   projects/<hash>.json   - Chat history per project
- *   servers/<hash>.json    - Extension instance registry (keyed by project hash)
- *   logs/
- *
- * Note: Pending messages are stored in-memory and served via HTTP.
+ * All paths under ~/.config/mcp-feedback-enhanced/ (or MCP_FEEDBACK_CONFIG_DIR).
  */
 import type { ProjectState, ServerInfo } from './types';
-declare const CONFIG_DIR: string;
-declare const PROJECTS_DIR: string;
-declare const SERVERS_DIR: string;
+import { getConfigDir, getProjectsDir, getServersDir } from './configPaths';
 export declare function projectHash(workspacePath: string): string;
 export declare function readProject(hash: string): ProjectState | null;
 export declare function writeProject(hash: string, data: ProjectState): void;
@@ -30,4 +21,8 @@ export declare function readAgentContext(): AgentContextFile | null;
 export declare function listAllServers(): Array<ServerInfo & {
     hash: string;
 }>;
-export { CONFIG_DIR, PROJECTS_DIR, SERVERS_DIR };
+export declare function isTestRegistryEntry(info: Pick<ServerInfo, 'projectPath' | 'version'>): boolean;
+export declare function findTestRegistryEntries(): Array<ServerInfo & {
+    hash: string;
+}>;
+export { getConfigDir as CONFIG_DIR, getProjectsDir as PROJECTS_DIR, getServersDir as SERVERS_DIR, };

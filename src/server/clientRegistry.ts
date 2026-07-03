@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import { formatLogEvent } from '../structuredLog.js';
 
 export type ClientType = 'webview' | 'mcp-server' | 'unknown';
 
@@ -53,8 +54,23 @@ export class ClientRegistry {
         }
     }
 
+    setLastPong(ws: WebSocket, ts: number): void {
+        const c = this.clients.get(ws);
+        if (c) c.lastPong = ts;
+    }
+
     sweepStale(now: number, timeoutMs: number, onStale: (ws: WebSocket) => void): void {
         for (const [ws, client] of this.clients) {
+            if (client.clientType === 'mcp-server') {
+                if (now - client.lastPong > timeoutMs) {
+                    console.log(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
+                        action: 'skip',
+                        client_type: 'mcp-server',
+                        idle_ms: now - client.lastPong,
+                    }));
+                }
+                continue;
+            }
             if (now - client.lastPong > timeoutMs) {
                 try { ws.close(); } catch { /* ignore */ }
                 this.clients.delete(ws);

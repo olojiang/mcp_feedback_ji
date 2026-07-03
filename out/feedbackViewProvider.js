@@ -51,6 +51,8 @@ const webviewLog_1 = require("./webviewLog");
 const logPaths_1 = require("./logPaths");
 const fileStore_1 = require("./fileStore");
 const registrySnapshot_1 = require("./registrySnapshot");
+const deployStamp_1 = require("./deployStamp");
+const deployStampReader_1 = require("./deployStampReader");
 const webviewSyncPolicy_1 = require("./webviewSyncPolicy");
 class FeedbackViewProvider {
     constructor(getHtml, getPort, getVersion, getHub, extensionUri) {
@@ -170,12 +172,15 @@ class FeedbackViewProvider {
         return (0, registrySnapshot_1.versionSkewWarnings)(this._registryEntries(), this._getVersion(), process.pid);
     }
     _bridgePayload() {
+        const deployStamp = (0, deployStampReader_1.readDeployStamp)();
         return {
             type: 'bridge-connected',
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
+            deployStamp,
+            deployLabel: (0, deployStamp_1.formatDeployStampLabel)(deployStamp, this._getVersion()),
         };
     }
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
@@ -188,12 +193,15 @@ class FeedbackViewProvider {
         view.webview.postMessage(this._bridgePayload());
     }
     _pushServerInfo(view) {
+        const deployStamp = (0, deployStampReader_1.readDeployStamp)();
         view.webview.postMessage({
             type: 'server-info',
             port: this._getPort(),
             version: this._getVersion(),
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
+            deployStamp,
+            deployLabel: (0, deployStamp_1.formatDeployStampLabel)(deployStamp, this._getVersion()),
         });
     }
     _handleDebugRequest(view) {
@@ -225,12 +233,14 @@ class FeedbackViewProvider {
             },
             agentContext: (0, fileStore_1.readAgentContext)(),
             versionSkew: skew,
+            deployStamp: (0, deployStampReader_1.readDeployStamp)(),
             logPaths: {
                 extension: (0, logPaths_1.resolveFeedbackLogPath)('extension'),
                 mcpServer: (0, logPaths_1.resolveFeedbackLogPath)('mcp-server'),
                 webview: (0, logPaths_1.resolveFeedbackLogPath)('webview'),
             },
         };
+        report.diagnoseBundle = (0, registrySnapshot_1.buildDiagnoseBundle)(report);
         view.webview.postMessage({ type: 'debug-report', report });
     }
     _setupMessageHandler(view) {

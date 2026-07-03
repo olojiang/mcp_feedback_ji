@@ -42,8 +42,9 @@ import {
 } from '../feedbackDelivery';
 import { readClipboardImageBase64 } from '../utils/clipboardImage';
 import * as vscode from 'vscode';
+import { getLogsDir } from '../configPaths.js';
 
-const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
+const LOG_DIR = getLogsDir();
 function wsLog(msg: string): void {
     try {
         fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -160,6 +161,22 @@ export class WsHub {
 
     getConnectedClients(): { webviews: number; mcpServers: number } {
         return this.clients.counts();
+    }
+
+    /** Integration tests: run heartbeat stale sweep at a synthetic clock. */
+    staleSweepAt(now: number): void {
+        if (process.env.MCP_FEEDBACK_TEST_HOOKS !== '1') {
+            throw new Error('staleSweepAt is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)');
+        }
+        this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
+    }
+
+    /** Integration tests: age a connected client's last pong. */
+    setClientLastPong(ws: WebSocket, ts: number): void {
+        if (process.env.MCP_FEEDBACK_TEST_HOOKS !== '1') {
+            throw new Error('setClientLastPong is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)');
+        }
+        this.clients.setLastPong(ws, ts);
     }
 
     getDebugInfo(): Record<string, unknown> {

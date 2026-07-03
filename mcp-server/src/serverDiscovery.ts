@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { getAgentContextPath, getServersDir } from './configPaths.js';
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
 import {
@@ -15,10 +16,6 @@ import {
     resolveImplicitProjectDirectory,
     type AgentContextSnapshot,
 } from './serverDiscoveryCore.js';
-
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
-const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
-const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
 
 export type { ServerData, HealthData };
 export {
@@ -80,8 +77,8 @@ function implicitProjectDirectory(agentContext?: AgentContextSnapshot | null): s
 
 export function readAgentContext(): AgentContextSnapshot | null {
     try {
-        if (!fs.existsSync(AGENT_CONTEXT_FILE)) return null;
-        return JSON.parse(fs.readFileSync(AGENT_CONTEXT_FILE, 'utf-8')) as AgentContextSnapshot;
+        if (!fs.existsSync(getAgentContextPath())) return null;
+        return JSON.parse(fs.readFileSync(getAgentContextPath(), 'utf-8')) as AgentContextSnapshot;
     } catch {
         return null;
     }
@@ -122,8 +119,8 @@ export async function findExtensionServer(
 
     const candidates: ServerData[] = [];
 
-    for (const f of listJSONFiles(SERVERS_DIR)) {
-        const filePath = path.join(SERVERS_DIR, f);
+    for (const f of listJSONFiles(getServersDir())) {
+        const filePath = path.join(getServersDir(), f);
         const entry = readJSON<ServerData>(filePath);
         if (!entry?.port) continue;
 

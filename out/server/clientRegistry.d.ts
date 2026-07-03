@@ -16,5 +16,6 @@ export declare class ClientRegistry {
     };
     closeAll(): void;
     forEachWebview(cb: (ws: WebSocket) => void): void;
+    setLastPong(ws: WebSocket, ts: number): void;
     sweepStale(now: number, timeoutMs: number, onStale: (ws: WebSocket) => void): void;
 }

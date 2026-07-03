@@ -1,4 +1,6 @@
 import { WebSocket } from 'ws';
+import { formatExtensionCloseError } from './extensionErrors.js';
+import { mcpLog } from './logger.js';
 
 export function connectToExtension(port: number): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
@@ -24,6 +26,8 @@ export function connectToExtension(port: number): Promise<WebSocket> {
     });
 }
 
+export { formatExtensionCloseError } from './extensionErrors.js';
+
 export function requestFeedback(
     ws: WebSocket,
     summary: string,
@@ -32,18 +36,31 @@ export function requestFeedback(
 ): Promise<{ feedback: string; images?: string[] }> {
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
+            cleanup();
             reject(new Error('Feedback timeout (24h)'));
         }, 86_400_000);
+
+        const waitHeartbeat = setInterval(() => {
+            mcpLog(
+                `event=feedback_wait_heartbeat trace=${traceId || '-'} `
+                + `project=${projectDirectory || '-'}`,
+            );
+        }, 60_000);
+
+        const cleanup = () => {
+            clearTimeout(timeout);
+            clearInterval(waitHeartbeat);
+        };
 
         const handler = (raw: Buffer | string) => {
             try {
                 const msg = JSON.parse(raw.toString());
                 if (msg.type === 'feedback_result') {
-                    clearTimeout(timeout);
+                    cleanup();
                     ws.off('message', handler);
                     resolve({ feedback: msg.feedback || '', images: msg.images });
                 } else if (msg.type === 'feedback_error') {
-                    clearTimeout(timeout);
+                    cleanup();
                     ws.off('message', handler);
                     reject(new Error(msg.error || 'Feedback error'));
                 }
@@ -54,8 +71,9 @@ export function requestFeedback(
 
         ws.on('message', handler);
         ws.once('close', () => {
-            clearTimeout(timeout);
-            reject(new Error('Connection closed'));
+            cleanup();
+            ws.off('message', handler);
+            reject(new Error(formatExtensionCloseError('feedback wait')));
         });
 
         ws.send(JSON.stringify({

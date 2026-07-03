@@ -218,6 +218,24 @@ async function main() {
         }
     }
 
+    check('user registry has no test hub entries', () => {
+        const serversDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'servers');
+        if (!fs.existsSync(serversDir)) return 'no servers dir';
+        const bad = [];
+        for (const f of fs.readdirSync(serversDir).filter((n) => n.endsWith('.json'))) {
+            try {
+                const info = JSON.parse(fs.readFileSync(path.join(serversDir, f), 'utf8'));
+                const version = String(info.version || '');
+                const projectPath = String(info.projectPath || '');
+                const testVersion = !/^\d+\.\d+\.\d+(-ji\.\d+)?$/.test(version);
+                const testPath = projectPath.startsWith('/tmp/');
+                if (testVersion || testPath) bad.push(`${f} v=${version} path=${projectPath}`);
+            } catch { /* ignore */ }
+        }
+        if (bad.length) throw new Error(`test registry entries: ${bad.join('; ')}`);
+        return 'clean';
+    });
+
     const failed = results.filter((r) => !r.ok);
     console.log('');
     if (failed.length) {

@@ -21,4 +21,11 @@ describe('panel UX feature wiring (static integration)', () => {
     assert.match(html, /inputEl\.addEventListener\('keydown'/)
     assert.match(html, /shouldSubmitOnCtrlEnter/)
   })
+
+  it('input textarea stretches with bottom pane (splitter resize)', () => {
+    assert.match(html, /\.input-row\{[^}]*align-items:stretch/)
+    assert.match(html, /\.input-row textarea\{[^}]*height:100%/)
+    assert.match(html, /function applyInputPaneHeight/)
+    assert.match(html, /setupPaneSplitter/)
+  })
 })

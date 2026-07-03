@@ -3717,16 +3717,15 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
-var fs7 = __toESM(require("fs"));
-var path9 = __toESM(require("path"));
-var os7 = __toESM(require("os"));
+var fs8 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
+var os5 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
 // src/server/wsHub.ts
 var http2 = __toESM(require("node:http"));
 var fs3 = __toESM(require("node:fs"));
-var path4 = __toESM(require("node:path"));
-var os3 = __toESM(require("node:os"));
+var path5 = __toESM(require("node:path"));
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -3740,12 +3739,34 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 
 // src/fileStore.ts
 var fs = __toESM(require("fs"));
-var path = __toESM(require("path"));
-var os = __toESM(require("os"));
+var path2 = __toESM(require("path"));
 var crypto = __toESM(require("crypto"));
-var CONFIG_DIR = path.join(os.homedir(), ".config", "mcp-feedback-enhanced");
-var PROJECTS_DIR = path.join(CONFIG_DIR, "projects");
-var SERVERS_DIR = path.join(CONFIG_DIR, "servers");
+
+// src/configPaths.ts
+var os = __toESM(require("os"));
+var path = __toESM(require("path"));
+function getConfigDir() {
+  const override = process.env.MCP_FEEDBACK_CONFIG_DIR?.trim();
+  if (override) return path.resolve(override);
+  return path.join(os.homedir(), ".config", "mcp-feedback-enhanced");
+}
+function getProjectsDir() {
+  return path.join(getConfigDir(), "projects");
+}
+function getServersDir() {
+  return path.join(getConfigDir(), "servers");
+}
+function getLogsDir() {
+  return path.join(getConfigDir(), "logs");
+}
+function getAgentContextPath() {
+  return path.join(getConfigDir(), "agent-context.json");
+}
+function getDeployStampPath() {
+  return path.join(getConfigDir(), "deploy-stamp.json");
+}
+
+// src/fileStore.ts
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
@@ -3760,7 +3781,7 @@ function safeReadJSON(filePath) {
   }
 }
 function safeWriteJSON(filePath, data) {
-  ensureDir(path.dirname(filePath));
+  ensureDir(path2.dirname(filePath));
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 function safeDelete(filePath) {
@@ -3784,23 +3805,23 @@ function listJSONFiles(dir) {
   }
 }
 function projectHash(workspacePath) {
-  const normalized = path.normalize(workspacePath).replace(/\/+$/, "");
+  const normalized = path2.normalize(workspacePath).replace(/\/+$/, "");
   return crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 16);
 }
 function readProject(hash2) {
-  return safeReadJSON(path.join(PROJECTS_DIR, `${hash2}.json`));
+  return safeReadJSON(path2.join(getProjectsDir(), `${hash2}.json`));
 }
 function writeProject(hash2, data) {
-  safeWriteJSON(path.join(PROJECTS_DIR, `${hash2}.json`), data);
+  safeWriteJSON(path2.join(getProjectsDir(), `${hash2}.json`), data);
 }
 function readServerByHash(hash2) {
-  return safeReadJSON(path.join(SERVERS_DIR, `${hash2}.json`));
+  return safeReadJSON(path2.join(getServersDir(), `${hash2}.json`));
 }
 function writeServer(hash2, data) {
-  safeWriteJSON(path.join(SERVERS_DIR, `${hash2}.json`), data);
+  safeWriteJSON(path2.join(getServersDir(), `${hash2}.json`), data);
 }
 function deleteServerByHash(hash2) {
-  return safeDelete(path.join(SERVERS_DIR, `${hash2}.json`));
+  return safeDelete(path2.join(getServersDir(), `${hash2}.json`));
 }
 function isProcessAlive(pid) {
   try {
@@ -3812,22 +3833,22 @@ function isProcessAlive(pid) {
 }
 function cleanupStaleServers() {
   let cleaned = 0;
-  for (const f of listJSONFiles(SERVERS_DIR)) {
-    const info = safeReadJSON(path.join(SERVERS_DIR, f));
+  for (const f of listJSONFiles(getServersDir())) {
+    const filePath = path2.join(getServersDir(), f);
+    const info = safeReadJSON(filePath);
     if (info && !isProcessAlive(info.pid)) {
-      safeDelete(path.join(SERVERS_DIR, f));
+      safeDelete(filePath);
       cleaned++;
     }
   }
   return cleaned;
 }
-var AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, "agent-context.json");
 function readAgentContext() {
-  return safeReadJSON(AGENT_CONTEXT_FILE);
+  return safeReadJSON(getAgentContextPath());
 }
 function listAllServers() {
   const out = [];
-  for (const f of listJSONFiles(SERVERS_DIR)) {
+  for (const f of listJSONFiles(getServersDir())) {
     const hash2 = f.replace(/\.json$/, "");
     const info = readServerByHash(hash2);
     if (info) out.push({ ...info, hash: hash2 });
@@ -3849,14 +3870,14 @@ var FeedbackManager = class {
   }
   enqueue(mcpClient, projectDir, summary = "", traceId) {
     const sessionId = newSessionId();
-    const promise2 = new Promise((resolve, reject) => {
+    const promise2 = new Promise((resolve2, reject) => {
       this.queue.push({
         sessionId,
         mcpClient,
         projectDir,
         traceId,
         summary,
-        resolve,
+        resolve: resolve2,
         reject
       });
     });
@@ -4173,6 +4194,16 @@ var ProjectTimeline = class {
   }
 };
 
+// src/structuredLog.ts
+function formatLogEvent(component, event, fields) {
+  const parts = [`event=${event}`];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === void 0 || value === "") continue;
+    parts.push(`${key}=${value}`);
+  }
+  return `[${component}] ${parts.join(" ")}`;
+}
+
 // src/server/clientRegistry.ts
 var ClientRegistry = class {
   constructor() {
@@ -4217,8 +4248,22 @@ var ClientRegistry = class {
       if (client.clientType === "webview") cb(ws);
     }
   }
+  setLastPong(ws, ts) {
+    const c = this.clients.get(ws);
+    if (c) c.lastPong = ts;
+  }
   sweepStale(now, timeoutMs, onStale) {
     for (const [ws, client] of this.clients) {
+      if (client.clientType === "mcp-server") {
+        if (now - client.lastPong > timeoutMs) {
+          console.log(formatLogEvent("MCP Feedback Hub", "stale_sweep", {
+            action: "skip",
+            client_type: "mcp-server",
+            idle_ms: now - client.lastPong
+          }));
+        }
+        continue;
+      }
       if (now - client.lastPong > timeoutMs) {
         try {
           ws.close();
@@ -4309,10 +4354,10 @@ function feedbackResponseLogLine(sessionId, projectDirectory, feedbackPreview, t
 }
 
 // src/workspaceMatch.ts
-var path2 = __toESM(require("node:path"));
+var path3 = __toESM(require("node:path"));
 function normalizeProjectPath(dir) {
-  const normalized = path2.normalize(dir);
-  const root = path2.parse(normalized).root;
+  const normalized = path3.normalize(dir);
+  const root = path3.parse(normalized).root;
   if (normalized === root) return root;
   const stripped = normalized.replace(/[\\/]+$/, "");
   return stripped || root || normalized;
@@ -4323,8 +4368,8 @@ function projectPathRelation(entryPath, want) {
   const entry = normalizeProjectPath(entryPath);
   const target = normalizeProjectPath(want);
   if (entry === target) return "exact";
-  if (target.startsWith(entry + path2.sep)) return "ancestor";
-  if (entry.startsWith(target + path2.sep)) return "descendant";
+  if (target.startsWith(entry + path3.sep)) return "ancestor";
+  if (entry.startsWith(target + path3.sep)) return "descendant";
   return "none";
 }
 function projectPathMatches(entryPath, want) {
@@ -4538,11 +4583,11 @@ function bindClientConnectionHandlers(ws, client, deps) {
 // src/server/portFinder.ts
 var http = __toESM(require("node:http"));
 function probePort(port) {
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const srv = http.createServer();
-    srv.once("error", () => resolve(false));
+    srv.once("error", () => resolve2(false));
     srv.once("listening", () => {
-      srv.close(() => resolve(true));
+      srv.close(() => resolve2(true));
     });
     srv.listen(port, "127.0.0.1");
   });
@@ -5320,10 +5365,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path10) {
-  if (!path10)
+function getElementAtPath(obj, path11) {
+  if (!path11)
     return obj;
-  return path10.reduce((acc, key) => acc?.[key], obj);
+  return path11.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5732,11 +5777,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path10, issues) {
+function prefixIssues(path11, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path10);
+    iss.path.unshift(path11);
     return iss;
   });
 }
@@ -5883,16 +5928,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path10 = []) => {
+  const processError = (error52, path11 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else {
-        const fullpath = [...path10, ...issue2.path];
+        const fullpath = [...path11, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -5919,17 +5964,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path10 = []) => {
+  const processError = (error52, path11 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else {
-        const fullpath = [...path10, ...issue2.path];
+        const fullpath = [...path11, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -5961,8 +6006,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path10 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path10) {
+  const path11 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path11) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -18654,13 +18699,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path10 = ref.slice(1).split("/").filter(Boolean);
-  if (path10.length === 0) {
+  const path11 = ref.slice(1).split("/").filter(Boolean);
+  if (path11.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path10[0] === defsKey) {
-    const key = path10[1];
+  if (path11[0] === defsKey) {
+    const key = path11[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -19353,14 +19398,14 @@ function buildHubSnapshot(input) {
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
 var fs2 = __toESM(require("node:fs"));
-var path3 = __toESM(require("node:path"));
+var path4 = __toESM(require("node:path"));
 var os2 = __toESM(require("node:os"));
 var execFileAsync = (0, import_node_util.promisify)(import_node_child_process.execFile);
-var LOG_DIR = path3.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var LOG_DIR = path4.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
 function clipLog(msg) {
   try {
     fs2.mkdirSync(LOG_DIR, { recursive: true });
-    fs2.appendFileSync(path3.join(LOG_DIR, "extension.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
+    fs2.appendFileSync(path4.join(LOG_DIR, "extension.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
 `);
   } catch {
   }
@@ -19409,11 +19454,11 @@ async function readClipboardImageBase64() {
 
 // src/server/wsHub.ts
 var vscode = __toESM(require("vscode"));
-var LOG_DIR2 = path4.join(os3.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var LOG_DIR2 = getLogsDir();
 function wsLog(msg) {
   try {
     fs3.mkdirSync(LOG_DIR2, { recursive: true });
-    const logFile = path4.join(LOG_DIR2, "extension.log");
+    const logFile = path5.join(LOG_DIR2, "extension.log");
     try {
       const stat = fs3.statSync(logFile);
       if (stat.size > 2 * 1024 * 1024) {
@@ -19515,6 +19560,21 @@ var WsHub = class {
   getConnectedClients() {
     return this.clients.counts();
   }
+  /** Integration tests: run heartbeat stale sweep at a synthetic clock. */
+  staleSweepAt(now) {
+    if (process.env.MCP_FEEDBACK_TEST_HOOKS !== "1") {
+      throw new Error("staleSweepAt is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)");
+    }
+    this.clients.sweepStale(now, CLIENT_TIMEOUT, () => {
+    });
+  }
+  /** Integration tests: age a connected client's last pong. */
+  setClientLastPong(ws, ts) {
+    if (process.env.MCP_FEEDBACK_TEST_HOOKS !== "1") {
+      throw new Error("setClientLastPong is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)");
+    }
+    this.clients.setLastPong(ws, ts);
+  }
   getDebugInfo() {
     return {
       hubPort: this.port,
@@ -19582,11 +19642,11 @@ var WsHub = class {
     return findAvailablePort(PORT_RANGE_START, PORT_RANGE_END);
   }
   _startServer() {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       this.server = http2.createServer((req, res) => this._handleHttpRequest(req, res));
       this.wss = new import_websocket_server.default({ server: this.server });
       this.wss.on("connection", (ws) => this._handleConnection(ws));
-      this.server.listen(this.port, "127.0.0.1", () => resolve());
+      this.server.listen(this.port, "127.0.0.1", () => resolve2());
     });
   }
   _handleHttpRequest(req, res) {
@@ -19839,15 +19899,15 @@ var WsHub = class {
 
 // src/feedbackViewProvider.ts
 var vscode2 = __toESM(require("vscode"));
-var fs5 = __toESM(require("fs"));
-var path7 = __toESM(require("path"));
-var os6 = __toESM(require("os"));
+var fs6 = __toESM(require("fs"));
+var path8 = __toESM(require("path"));
+var os4 = __toESM(require("os"));
 
 // src/webviewLog.ts
 var fs4 = __toESM(require("fs"));
-var os4 = __toESM(require("os"));
-var path5 = __toESM(require("path"));
-var DEFAULT_LOG_DIR = path5.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var os3 = __toESM(require("os"));
+var path6 = __toESM(require("path"));
+var DEFAULT_LOG_DIR = path6.join(os3.homedir(), ".config", "mcp-feedback-enhanced", "logs");
 var DEFAULT_LOG_FILE = "webview.log";
 var MAX_BYTES = 2 * 1024 * 1024;
 var logDirOverride = null;
@@ -19858,7 +19918,7 @@ function appendWebviewLog(msg, projectPath) {
   try {
     const logDir = resolveLogDir();
     fs4.mkdirSync(logDir, { recursive: true });
-    const logFile = path5.join(logDir, DEFAULT_LOG_FILE);
+    const logFile = path6.join(logDir, DEFAULT_LOG_FILE);
     try {
       const stat = fs4.statSync(logFile);
       if (stat.size > MAX_BYTES) {
@@ -19877,23 +19937,22 @@ function appendWebviewLog(msg, projectPath) {
   }
 }
 function webviewLogPath() {
-  return path5.join(resolveLogDir(), DEFAULT_LOG_FILE);
+  return path6.join(resolveLogDir(), DEFAULT_LOG_FILE);
 }
 
 // src/logPaths.ts
-var os5 = __toESM(require("node:os"));
-var path6 = __toESM(require("node:path"));
-var LOG_DIR3 = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var path7 = __toESM(require("node:path"));
 function resolveFeedbackLogPath(target) {
+  const logDir = getLogsDir();
   switch (target) {
     case "extension":
-      return path6.join(LOG_DIR3, "extension.log");
+      return path7.join(logDir, "extension.log");
     case "mcp-server":
-      return path6.join(LOG_DIR3, "mcp-server.log");
+      return path7.join(logDir, "mcp-server.log");
     case "webview":
       return webviewLogPath();
     default:
-      return LOG_DIR3;
+      return logDir;
   }
 }
 
@@ -19904,10 +19963,19 @@ function enrichRegistryEntries(servers, isAlive) {
     alive: isAlive(s.pid)
   }));
 }
+function isPublishableVersion(version2) {
+  return /^\d+\.\d+\.\d+(-ji\.\d+)?$/.test(String(version2 || ""));
+}
+function isTestRegistryEntry(info) {
+  if (!isPublishableVersion(info.version)) return true;
+  const p = String(info.projectPath || "");
+  return p.startsWith("/tmp/") || p.includes("/var/folders/");
+}
 function versionSkewWarnings(entries, localVersion, localPid) {
   const warnings = [];
   for (const e of entries) {
     if (!e.alive || e.pid === localPid) continue;
+    if (isTestRegistryEntry(e)) continue;
     if (e.version !== localVersion) {
       const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
       warnings.push(`${ws} pid=${e.pid} runs ${e.version} (this window: ${localVersion})`);
@@ -19919,8 +19987,41 @@ function formatRegistryTable(entries) {
   return entries.map((e) => {
     const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
     const status = e.alive ? "live" : "stale";
-    return `${status} | ${ws} | :${e.port} pid=${e.pid} | ${e.version}`;
+    const tag = isTestRegistryEntry(e) ? " test" : "";
+    return `${status}${tag} | ${ws} | :${e.port} pid=${e.pid} | ${e.version}`;
   });
+}
+function buildDiagnoseBundle(payload) {
+  return JSON.stringify({
+    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    ...payload
+  }, null, 2);
+}
+
+// src/deployStamp.ts
+function shouldPromptReloadAfterVersionChange(previousActivated, diskVersion) {
+  return !!previousActivated && previousActivated !== diskVersion;
+}
+function formatDeployStampLabel(stamp, runningVersion) {
+  if (!stamp) return "";
+  const when = new Date(stamp.at).toISOString().replace("T", " ").slice(0, 19);
+  if (stamp.version === runningVersion) {
+    return `deployed ${stamp.version} at ${when}`;
+  }
+  return `deploy ${stamp.version} at ${when} \u2014 reload for ${runningVersion}`;
+}
+
+// src/deployStampReader.ts
+var fs5 = __toESM(require("fs"));
+function readDeployStamp() {
+  try {
+    if (!fs5.existsSync(getDeployStampPath())) return null;
+    const raw = JSON.parse(fs5.readFileSync(getDeployStampPath(), "utf-8"));
+    if (!raw || typeof raw.version !== "string" || typeof raw.at !== "number") return null;
+    return raw;
+  } catch {
+    return null;
+  }
 }
 
 // src/webviewSyncPolicy.ts
@@ -20052,12 +20153,15 @@ var FeedbackViewProvider = class {
     return versionSkewWarnings(this._registryEntries(), this._getVersion(), process.pid);
   }
   _bridgePayload() {
+    const deployStamp = readDeployStamp();
     return {
       type: "bridge-connected",
       port: this._getPort(),
       version: this._getVersion(),
       pid: process.pid,
-      versionWarnings: this._versionWarnings()
+      versionWarnings: this._versionWarnings(),
+      deployStamp,
+      deployLabel: formatDeployStampLabel(deployStamp, this._getVersion())
     };
   }
   /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
@@ -20070,12 +20174,15 @@ var FeedbackViewProvider = class {
     view.webview.postMessage(this._bridgePayload());
   }
   _pushServerInfo(view) {
+    const deployStamp = readDeployStamp();
     view.webview.postMessage({
       type: "server-info",
       port: this._getPort(),
       version: this._getVersion(),
       pid: process.pid,
-      versionWarnings: this._versionWarnings()
+      versionWarnings: this._versionWarnings(),
+      deployStamp,
+      deployLabel: formatDeployStampLabel(deployStamp, this._getVersion())
     });
   }
   _handleDebugRequest(view) {
@@ -20106,12 +20213,14 @@ var FeedbackViewProvider = class {
       },
       agentContext: readAgentContext(),
       versionSkew: skew,
+      deployStamp: readDeployStamp(),
       logPaths: {
         extension: resolveFeedbackLogPath("extension"),
         mcpServer: resolveFeedbackLogPath("mcp-server"),
         webview: resolveFeedbackLogPath("webview")
       }
     };
+    report.diagnoseBundle = buildDiagnoseBundle(report);
     view.webview.postMessage({ type: "debug-report", report });
   }
   _setupMessageHandler(view) {
@@ -20213,7 +20322,7 @@ var FeedbackViewProvider = class {
         const rel = workspaceRoot ? vscode2.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
           kind: "file",
-          label: path7.basename(file2.fsPath),
+          label: path8.basename(file2.fsPath),
           detail: rel,
           insertText: rel
         });
@@ -20256,11 +20365,11 @@ var FeedbackViewProvider = class {
       return;
     }
     try {
-      const htmlDir = path7.join(__dirname, "webview");
-      if (!fs5.existsSync(htmlDir)) {
+      const htmlDir = path8.join(__dirname, "webview");
+      if (!fs6.existsSync(htmlDir)) {
         return;
       }
-      this._fileWatcher = fs5.watch(htmlDir, () => {
+      this._fileWatcher = fs6.watch(htmlDir, () => {
         if (view.visible) {
           view.webview.html = this._injectWebviewResources(view);
         }
@@ -20282,9 +20391,9 @@ var FeedbackViewProvider = class {
     }
     const logPath = resolveFeedbackLogPath(target);
     try {
-      if (!fs5.existsSync(logPath)) {
-        fs5.mkdirSync(path7.dirname(logPath), { recursive: true });
-        fs5.writeFileSync(logPath, "", "utf8");
+      if (!fs6.existsSync(logPath)) {
+        fs6.mkdirSync(path8.dirname(logPath), { recursive: true });
+        fs6.writeFileSync(logPath, "", "utf8");
       }
       const doc = await vscode2.workspace.openTextDocument(vscode2.Uri.file(logPath));
       await vscode2.window.showTextDocument(doc, { preview: false });
@@ -20312,22 +20421,22 @@ var FeedbackViewProvider = class {
   async _exportSessions(data) {
     const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
     const uri = await vscode2.window.showSaveDialog({
-      defaultUri: vscode2.Uri.file(path7.join(os6.homedir(), "Downloads", defaultName)),
+      defaultUri: vscode2.Uri.file(path8.join(os4.homedir(), "Downloads", defaultName)),
       filters: { JSON: ["json"] }
     });
     if (!uri) return;
-    fs5.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
-    vscode2.window.showInformationMessage(`MCP Feedback: exported sessions to ${path7.basename(uri.fsPath)}`);
+    fs6.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
+    vscode2.window.showInformationMessage(`MCP Feedback: exported sessions to ${path8.basename(uri.fsPath)}`);
   }
 };
 
 // src/extensionVersion.ts
-var fs6 = __toESM(require("fs"));
-var path8 = __toESM(require("path"));
+var fs7 = __toESM(require("fs"));
+var path9 = __toESM(require("path"));
 function readExtensionVersion(extensionPath) {
   try {
     const pkg = JSON.parse(
-      fs6.readFileSync(path8.join(extensionPath, "package.json"), "utf-8")
+      fs7.readFileSync(path9.join(extensionPath, "package.json"), "utf-8")
     );
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
@@ -20340,11 +20449,6 @@ var EXTENSION_SYNC_DELAY_MS = 800;
 var EXTENSION_PANEL_FOCUS_DELAYS_MS = [1500, 3e3, 5e3];
 function extensionSyncDelaysMs() {
   return [EXTENSION_SYNC_DELAY_MS];
-}
-
-// src/deployStamp.ts
-function shouldPromptReloadAfterVersionChange(previousActivated, diskVersion) {
-  return !!previousActivated && previousActivated !== diskVersion;
 }
 
 // src/extension.ts
@@ -20391,13 +20495,13 @@ function resolveNodeBin() {
 }
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path9.join(extensionPath, "out", "webview", "panel.html"),
-    path9.join(extensionPath, "static", "panel.html")
+    path10.join(extensionPath, "out", "webview", "panel.html"),
+    path10.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
-    if (fs7.existsSync(p)) {
-      html = fs7.readFileSync(p, "utf-8");
+    if (fs8.existsSync(p)) {
+      html = fs8.readFileSync(p, "utf-8");
       break;
     }
   }
@@ -20542,7 +20646,7 @@ function _openEditorPanel(context, port) {
     {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode3.Uri.file(path9.join(context.extensionPath, "out"))]
+      localResourceRoots: [vscode3.Uri.file(path10.join(context.extensionPath, "out"))]
     }
   );
   panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
@@ -20550,13 +20654,13 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path9.join(os7.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path10.join(os5.homedir(), ".cursor", "mcp.json");
     let config2 = {};
-    if (fs7.existsSync(mcpConfigPath)) {
-      config2 = JSON.parse(fs7.readFileSync(mcpConfigPath, "utf-8"));
+    if (fs8.existsSync(mcpConfigPath)) {
+      config2 = JSON.parse(fs8.readFileSync(mcpConfigPath, "utf-8"));
     }
     const mcpServers = config2.mcpServers || {};
-    const localServerPath = path9.join(extensionPath, "mcp-server", "dist", "index.js");
+    const localServerPath = path10.join(extensionPath, "mcp-server", "dist", "index.js");
     const expectedCommand = resolveNodeBin();
     const expectedArgs = [localServerPath];
     const expectedEnv = { MCP_FEEDBACK_VERSION: version2 };
@@ -20572,35 +20676,35 @@ function ensureMcpConfig(extensionPath) {
     };
     delete mcpServers["mcp-feedback-v2"];
     config2.mcpServers = mcpServers;
-    fs7.mkdirSync(path9.dirname(mcpConfigPath), { recursive: true });
-    fs7.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
+    fs8.mkdirSync(path10.dirname(mcpConfigPath), { recursive: true });
+    fs8.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to update MCP config:", e);
   }
 }
 function deployCursorHooks(extensionPath) {
   try {
-    const hooksSourceDir = path9.join(extensionPath, "scripts", "hooks");
-    const targetDir = path9.join(os7.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
-    fs7.mkdirSync(targetDir, { recursive: true });
+    const hooksSourceDir = path10.join(extensionPath, "scripts", "hooks");
+    const targetDir = path10.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    fs8.mkdirSync(targetDir, { recursive: true });
     const hookFiles = ["hook-utils.js", "consume-pending.js"];
     for (const file2 of hookFiles) {
-      const src = path9.join(hooksSourceDir, file2);
-      if (fs7.existsSync(src)) {
-        fs7.copyFileSync(src, path9.join(targetDir, file2));
+      const src = path10.join(hooksSourceDir, file2);
+      if (fs8.existsSync(src)) {
+        fs8.copyFileSync(src, path10.join(targetDir, file2));
       }
     }
     for (const old of ["check-pending.js", "agent-stop.js", "session-start.js", "enforce-feedback.js", "track-feedback.js", "compact-flag.js"]) {
       try {
-        fs7.unlinkSync(path9.join(targetDir, old));
+        fs8.unlinkSync(path10.join(targetDir, old));
       } catch {
       }
     }
-    const preToolUseHook = path9.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path9.join(os7.homedir(), ".cursor", "hooks.json");
+    const preToolUseHook = path10.join(targetDir, "consume-pending.js");
+    const hooksConfigPath = path10.join(os5.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
-    if (fs7.existsSync(hooksConfigPath)) {
-      hooksConfig = JSON.parse(fs7.readFileSync(hooksConfigPath, "utf-8"));
+    if (fs8.existsSync(hooksConfigPath)) {
+      hooksConfig = JSON.parse(fs8.readFileSync(hooksConfigPath, "utf-8"));
     }
     if (!hooksConfig.version) {
       hooksConfig.version = 1;
@@ -20636,8 +20740,8 @@ function deployCursorHooks(extensionPath) {
       }
     }
     hooksConfig.hooks = hooks;
-    fs7.mkdirSync(path9.dirname(hooksConfigPath), { recursive: true });
-    fs7.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
+    fs8.mkdirSync(path10.dirname(hooksConfigPath), { recursive: true });
+    fs8.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
   }
@@ -20672,23 +20776,23 @@ var RULES_CONTENT = [
 ].join("\n");
 function deployCursorRules() {
   try {
-    const rulesDir = path9.join(os7.homedir(), ".cursor", "rules");
-    const ruleFile = path9.join(rulesDir, "mcp-feedback-enhanced.mdc");
-    fs7.mkdirSync(rulesDir, { recursive: true });
+    const rulesDir = path10.join(os5.homedir(), ".cursor", "rules");
+    const ruleFile = path10.join(rulesDir, "mcp-feedback-enhanced.mdc");
+    fs8.mkdirSync(rulesDir, { recursive: true });
     let needsWrite = true;
-    if (fs7.existsSync(ruleFile)) {
-      const existing = fs7.readFileSync(ruleFile, "utf-8");
+    if (fs8.existsSync(ruleFile)) {
+      const existing = fs8.readFileSync(ruleFile, "utf-8");
       if (existing === RULES_CONTENT) {
         needsWrite = false;
       }
     }
     if (needsWrite) {
-      fs7.writeFileSync(ruleFile, RULES_CONTENT);
+      fs8.writeFileSync(ruleFile, RULES_CONTENT);
     }
     for (const ws of getWorkspaces()) {
-      const wsRuleFile = path9.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
+      const wsRuleFile = path10.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
       try {
-        fs7.unlinkSync(wsRuleFile);
+        fs8.unlinkSync(wsRuleFile);
       } catch {
       }
     }
@@ -20698,21 +20802,21 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path9.join(os7.homedir(), ".config", "mcp-feedback-enhanced", "pending");
-    if (!fs7.existsSync(pendingDir)) return;
-    const files = fs7.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
+    const pendingDir = path10.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    if (!fs8.existsSync(pendingDir)) return;
+    const files = fs8.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) {
-      fs7.rmdirSync(pendingDir);
+      fs8.rmdirSync(pendingDir);
       return;
     }
     for (const f of files) {
       try {
-        fs7.unlinkSync(path9.join(pendingDir, f));
+        fs8.unlinkSync(path10.join(pendingDir, f));
       } catch {
       }
     }
     try {
-      fs7.rmdirSync(pendingDir);
+      fs8.rmdirSync(pendingDir);
     } catch {
     }
   } catch {
