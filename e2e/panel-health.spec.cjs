@@ -12,4 +12,18 @@ test.describe('panel health render helpers', () => {
     })
     expect(same).toBe(true)
   })
+
+  test('autoGrowTextareaHeight increases element height', async ({ page }) => {
+    await page.goto(`file://${path.join(__dirname, 'fixtures/trace-session.html')}`)
+    const height = await page.evaluate(() => {
+      const PS = window.PanelStateModule.PanelState
+      const el = document.createElement('textarea')
+      el.value = 'line1\nline2\nline3\nline4'
+      document.body.appendChild(el)
+      Object.defineProperty(el, 'scrollHeight', { value: 96, configurable: true })
+      PS.autoGrowTextareaHeight(el, { minPx: 48, maxPx: 200 })
+      return el.style.height
+    })
+    expect(height).toBe('96px')
+  })
 })

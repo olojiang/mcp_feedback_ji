@@ -71,6 +71,7 @@ describe('FeedbackViewProvider message handlers', () => {
     { type: 'log', msg: 'panel line', expectWebviewLog: true },
     { type: 'open-log', target: 'bogus', expectWarning: /unknown log target/ },
     { type: 'export-sessions', cancelSave: true, expectNoExport: true },
+    { type: 'prune-test-registry', expectPrune: true },
   ]
 
   for (const tc of cases) {
@@ -148,6 +149,10 @@ describe('FeedbackViewProvider message handlers', () => {
       }
       if (tc.expectNoExport) {
         assert.equal(vs.saved.length, 0)
+      }
+      if (tc.expectPrune) {
+        assert.ok(posts.some((m) => m.type === 'prune-test-registry-result'))
+        assert.ok(posts.some((m) => m.type === 'debug-report'))
       }
 
       Module._load = origLoad

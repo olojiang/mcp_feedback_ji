@@ -35,4 +35,11 @@ describe('autoGrowTextareaHeight', () => {
     PanelState.autoGrowTextareaHeight(el, { minPx: 48, maxPx: 120 })
     assert.equal(el.style.height, '60px')
   })
+
+  it('returns empty transcript header when no sessions', () => {
+    const ps = new PanelState()
+    const md = PanelState.sessionsToMarkdown(ps)
+    assert.match(md, /# MCP Feedback Sessions/)
+    assert.doesNotMatch(md, /## fb-/)
+  })
 })
