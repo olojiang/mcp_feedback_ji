@@ -94,7 +94,8 @@ class FeedbackFlow {
             return;
         }
         this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.UI_RESPONSE, `session=${res.session_id ?? '(first)'} project=${project ?? '(unknown)'} len=${res.feedback.length}`));
-        this.deps.log((0, feedbackDelivery_1.feedbackResponseLogLine)(res.session_id ?? '(first)', project, res.feedback.slice(0, 80)));
+        const responseTraceId = this._sessionTrace(res.session_id);
+        this.deps.log((0, feedbackDelivery_1.feedbackResponseLogLine)(res.session_id ?? '(first)', project, res.feedback.slice(0, 80), responseTraceId));
         this.deps.addMessage({
             role: 'user',
             content: res.feedback,
@@ -141,6 +142,11 @@ class FeedbackFlow {
             return undefined;
         const snap = this.deps.feedback.pendingSessions().find((s) => s.id === sessionId);
         return snap?.projectDir;
+    }
+    _sessionTrace(sessionId) {
+        if (!sessionId)
+            return undefined;
+        return this.deps.feedback.pendingSessions().find((s) => s.id === sessionId)?.traceId;
     }
     handleDismiss() {
         const resolved = this.deps.feedback.resolveFirst({ feedback: '[Dismissed by user]' });

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>trace session fixture</title></head>
+<body>
+<script src="../../out/webview/panelState.js"></script>
+<script>
+  window.__runTraceSession = function () {
+    const panel = new PanelStateModule.PanelState()
+    panel.panelWorkspace = '/tmp/trace-workspace'
+    panel.hubSnapshot = { workspaces: ['/tmp/trace-workspace'] }
+    const msg = {
+      type: 'session_updated',
+      session_id: 'fb-e2e-trace',
+      summary: 'E2E trace question',
+      project_directory: '/tmp/trace-workspace',
+      trace_id: 'e2e-trace-99',
+    }
+    panel.handleMessage(msg)
+    const sess = panel.sessions['fb-e2e-trace']
+    return {
+      traceId: sess && sess.traceId,
+      waiting: sess && sess.waiting,
+      sessionCount: Object.keys(panel.sessions).length,
+    }
+  }
+
+  window.__runProjectIsolation = function () {
+    const panel = new PanelStateModule.PanelState()
+    panel.panelWorkspace = '/tmp/window-a'
+    panel.hubSnapshot = { workspaces: ['/tmp/window-a'] }
+    const foreign = panel.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-foreign',
+      summary: 'wrong window',
+      project_directory: '/tmp/window-b',
+    })
+    const local = panel.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-local',
+      summary: 'right window',
+      project_directory: '/tmp/window-a',
+    })
+    return {
+      foreignNotify: foreign.some((c) => c && c.type === 'notify' && c.message && c.message.type === 'routing-mismatch'),
+      localSession: !!panel.sessions['fb-local'],
+      foreignSession: !!panel.sessions['fb-foreign'],
+    }
+  }
+</script>
+</body>
+</html>

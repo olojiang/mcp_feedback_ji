@@ -327,8 +327,8 @@ export class WsHub {
             onDismiss: () => this._handleDismiss(),
             onGetState: (targetWs) => this._sendState(targetWs),
             onSessionDisplayed: (sessionId) => {
-                const project = this.feedback.pendingSessions().find((s) => s.id === sessionId)?.projectDir;
-                wsLog(sessionDisplayedLogLine(sessionId, project));
+                const snap = this.feedback.pendingSessions().find((s) => s.id === sessionId);
+                wsLog(sessionDisplayedLogLine(sessionId, snap?.projectDir, snap?.traceId));
             },
             onClipboardWrite: (targetWs, msg) => {
                 const text = msg.text || '';

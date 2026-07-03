@@ -16,10 +16,11 @@ function clearProviderCache() {
   }
 }
 
-function makeVscodeStub() {
+function makeVscodeStub(opts = {}) {
   const opened = []
   const saved = []
   const executed = []
+  const warnings = []
   return {
     stub: {
       Uri: {
@@ -41,9 +42,10 @@ function makeVscodeStub() {
       window: {
         showTextDocument: async () => {},
         showInformationMessage: async () => {},
-        showWarningMessage: async () => {},
+        showWarningMessage: async (msg) => { warnings.push(msg) },
         showErrorMessage: async () => {},
         showSaveDialog: async () => {
+          if (opts.cancelSave) return undefined
           const p = path.join(os.tmpdir(), `mcp-export-${Date.now()}.json`)
           saved.push(p)
           return { fsPath: p }
@@ -54,6 +56,7 @@ function makeVscodeStub() {
     opened,
     saved,
     executed,
+    warnings,
   }
 }
 
@@ -66,11 +69,13 @@ describe('FeedbackViewProvider message handlers', () => {
     { type: 'open-mcp-output', expectMcpOutput: true },
     { type: 'export-sessions', expectExport: true },
     { type: 'log', msg: 'panel line', expectWebviewLog: true },
+    { type: 'open-log', target: 'bogus', expectWarning: /unknown log target/ },
+    { type: 'export-sessions', cancelSave: true, expectNoExport: true },
   ]
 
   for (const tc of cases) {
-    it(`handles ${tc.type}`, async () => {
-      const vs = makeVscodeStub()
+    it(`handles ${tc.type}${tc.target ? `:${tc.target}` : ''}${tc.cancelSave ? ':cancel' : ''}`, async () => {
+      const vs = makeVscodeStub({ cancelSave: tc.cancelSave })
       Module._load = function (request, parent, isMain) {
         if (request === 'vscode') return vs.stub
         return origLoad.call(this, request, parent, isMain)
@@ -137,6 +142,12 @@ describe('FeedbackViewProvider message handlers', () => {
       if (tc.expectExport) {
         assert.equal(vs.saved.length, 1)
         assert.ok(fs.existsSync(vs.saved[0]))
+      }
+      if (tc.expectWarning) {
+        assert.ok(vs.warnings.some((w) => tc.expectWarning.test(w)))
+      }
+      if (tc.expectNoExport) {
+        assert.equal(vs.saved.length, 0)
       }
 
       Module._load = origLoad

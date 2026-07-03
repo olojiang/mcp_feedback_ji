@@ -4452,7 +4452,13 @@ var FeedbackFlow = class {
         `session=${res.session_id ?? "(first)"} project=${project ?? "(unknown)"} len=${res.feedback.length}`
       )
     );
-    this.deps.log(feedbackResponseLogLine(res.session_id ?? "(first)", project, res.feedback.slice(0, 80)));
+    const responseTraceId = this._sessionTrace(res.session_id);
+    this.deps.log(feedbackResponseLogLine(
+      res.session_id ?? "(first)",
+      project,
+      res.feedback.slice(0, 80),
+      responseTraceId
+    ));
     this.deps.addMessage({
       role: "user",
       content: res.feedback,
@@ -4497,6 +4503,10 @@ var FeedbackFlow = class {
     if (!sessionId) return void 0;
     const snap = this.deps.feedback.pendingSessions().find((s) => s.id === sessionId);
     return snap?.projectDir;
+  }
+  _sessionTrace(sessionId) {
+    if (!sessionId) return void 0;
+    return this.deps.feedback.pendingSessions().find((s) => s.id === sessionId)?.traceId;
   }
   handleDismiss() {
     const resolved = this.deps.feedback.resolveFirst({ feedback: "[Dismissed by user]" });
@@ -19648,8 +19658,8 @@ var WsHub = class {
       onDismiss: () => this._handleDismiss(),
       onGetState: (targetWs) => this._sendState(targetWs),
       onSessionDisplayed: (sessionId) => {
-        const project = this.feedback.pendingSessions().find((s) => s.id === sessionId)?.projectDir;
-        wsLog(sessionDisplayedLogLine(sessionId, project));
+        const snap = this.feedback.pendingSessions().find((s) => s.id === sessionId);
+        wsLog(sessionDisplayedLogLine(sessionId, snap?.projectDir, snap?.traceId));
       },
       onClipboardWrite: (targetWs, msg2) => {
         const text = msg2.text || "";

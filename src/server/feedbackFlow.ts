@@ -167,7 +167,13 @@ export class FeedbackFlow {
                 `session=${res.session_id ?? '(first)'} project=${project ?? '(unknown)'} len=${res.feedback.length}`,
             ),
         );
-        this.deps.log(feedbackResponseLogLine(res.session_id ?? '(first)', project, res.feedback.slice(0, 80)));
+        const responseTraceId = this._sessionTrace(res.session_id);
+        this.deps.log(feedbackResponseLogLine(
+            res.session_id ?? '(first)',
+            project,
+            res.feedback.slice(0, 80),
+            responseTraceId,
+        ));
 
         this.deps.addMessage({
             role: 'user',
@@ -216,6 +222,11 @@ export class FeedbackFlow {
         if (!sessionId) return undefined;
         const snap = this.deps.feedback.pendingSessions().find((s) => s.id === sessionId);
         return snap?.projectDir;
+    }
+
+    private _sessionTrace(sessionId?: string): string | undefined {
+        if (!sessionId) return undefined;
+        return this.deps.feedback.pendingSessions().find((s) => s.id === sessionId)?.traceId;
     }
 
     handleDismiss(): void {

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.56] - 2026-07-03
+
+### Added
+- **trace_id 回程**: `feedbackResponse` 日志带 `trace=`；`session_displayed` ack 带 trace。
+- **Tests (TDD)**: `traceResponse`, `clipboardImage`, `wsHub.handlers.integration`, provider 错误分支, E2E `trace-session.spec.cjs`。
+- **CI**: `npm run test:coverage` with c8 thresholds (80/80/70/75).
+
+### Changed
+- `.gitignore` 忽略 `coverage/`、`test-results/`；`readme.md` 版本同步。
+
 ## [2.5.1-ji.54] - 2026-07-03
 
 ### Added

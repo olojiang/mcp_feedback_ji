@@ -41,6 +41,7 @@ export declare class FeedbackFlow {
     }): void;
     private _resolveProject;
     private _sessionProject;
+    private _sessionTrace;
     handleDismiss(): void;
 }
 export {};
