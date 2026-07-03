@@ -414,6 +414,11 @@ body{
 .ws-status-label{font-size:10px;letter-spacing:.3px;transition:color .3s}
 .ws-status[data-state="connected"] .ws-status-dot{background:var(--success);box-shadow:0 0 6px var(--glow-green)}
 .ws-status[data-state="connected"] .ws-status-label{color:var(--success)}
+.ws-status[data-state="degraded"] .ws-status-dot{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,0.5)}
+.ws-status[data-state="degraded"] .ws-status-label{color:#f59e0b}
+.connection-detail{font-size:10px;opacity:.75;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:6px}
+.connection-detail[data-level="degraded"]{color:#f59e0b}
+.connection-detail[data-level="disconnected"]{color:var(--danger)}
 .ws-status[data-state="connecting"] .ws-status-dot{background:var(--accent);animation:glow-pulse 1.5s ease-in-out infinite}
 .ws-status[data-state="connecting"] .ws-status-label{color:var(--accent)}
 .ws-status[data-state="disconnected"] .ws-status-dot{background:var(--danger);box-shadow:0 0 4px rgba(239,68,68,0.4)}
@@ -501,6 +506,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
       <span class="ws-status-label" id="wsStatusLabel">Disconnected</span>
     </div>
     <span class="ws-port" id="wsPort"></span>
+    <span class="connection-detail" id="connectionDetail" data-level="disconnected" title=""></span>
     <button class="ws-reconnect-btn" id="wsReconnectBtn" title="Force reconnect">&#8635;</button>
   </div>
   <div style="flex:1"></div>
@@ -628,26 +634,56 @@ window.onerror = function (msg, src, line, col, err) {
     if (!EP) { console.error('ErudaPanelModule not loaded'); return; }
 
     var state = new PS.PanelState();
+    state.panelWorkspace = PROJECT_PATH;
     var vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
     var wsUrl = SERVER_URL;
     var useBridge = !!vscode;
-    var bridgeReady = false;
-    var bridgeRegistered = false;
+    var bridgeGate = new PS.BridgeSessionGate();
+    var outboundQueue = new PS.OutboundQueue();
 
     function transportReady() {
-        if (useBridge) return bridgeReady;
+        if (useBridge) return bridgeGate.isReady();
         return ws && ws.readyState === WebSocket.OPEN;
     }
 
     function transportSend(obj) {
         if (useBridge) {
-            if (!bridgeReady) return;
+            if (!bridgeGate.isReady()) return false;
             vscode.postMessage({ type: 'hub-message', data: obj });
-            return;
+            return true;
         }
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify(obj));
+            return true;
         }
+        return false;
+    }
+
+    function flushOutboundQueue() {
+        if (!transportReady()) return;
+        var items = outboundQueue.drain();
+        if (!items.length) return;
+        debugLog('flushOutboundQueue n=' + items.length);
+        for (var i = 0; i < items.length; i++) {
+            transportSend(items[i]);
+        }
+    }
+
+    function queueOutbound(message) {
+        var size = outboundQueue.enqueue(message);
+        debugLog('queueOutbound type=' + (message && message.type) + ' size=' + size);
+        if (message && message.type === 'feedback_response') {
+            showToast('Reconnecting — feedback queued');
+        }
+    }
+
+    function execWsSend(message) {
+        return PS.transportSendWithQueue(
+            message,
+            transportReady,
+            function (m) { transportSend(m); },
+            queueOutbound
+        );
     }
 
     var messagesEl = document.getElementById('messages');
@@ -682,16 +718,21 @@ window.onerror = function (msg, src, line, col, err) {
 
     var ws = null;
     var reconnectAttempts = 0;
+    var lastForceReconnectAt = 0;
 
     var wsStatusEl = document.getElementById('wsStatus');
     var wsStatusLabel = document.getElementById('wsStatusLabel');
     var wsPortEl = document.getElementById('wsPort');
+    var connectionDetailEl = document.getElementById('connectionDetail');
     var wsReconnectBtn = document.getElementById('wsReconnectBtn');
 
     var debugEvents = [];
     var lastExtensionDebugReport = null;
     var userPingPending = false;
     var userPingTimer = null;
+    var lastPongAt = 0;
+    var connectedHubPid = null;
+    var PING_STALE_MS = 45000;
     var erudaInited = false;
     var erudaDisplayPct = Math.round(
         (EP.loadHeight(localStorage, window.innerHeight || 600) / (window.innerHeight || 600)) * 100
@@ -740,20 +781,23 @@ window.onerror = function (msg, src, line, col, err) {
     function debugLog(msg) {
         debugEvents.push({ t: new Date().toISOString(), msg: msg });
         if (debugEvents.length > 50) debugEvents.shift();
+        if (vscode) {
+            vscode.postMessage({ type: 'log', msg: msg });
+        }
     }
 
     function collectLocalDebugState() {
         return {
             webview: {
                 useBridge: useBridge,
-                bridgeReady: bridgeReady,
-                bridgeRegistered: bridgeRegistered,
+                bridgeGate: bridgeGate.snapshot(),
                 wsUrl: wsUrl,
                 wsReadyState: ws ? ws.readyState : null,
                 bootstrapped: !!window.__mcpBootstrapped,
                 reconnectAttempts: reconnectAttempts,
                 vscodeApi: !!vscode,
                 transportReady: transportReady(),
+                outboundQueued: outboundQueue.size,
                 erudaInited: erudaInited,
             },
             events: debugEvents.slice(-30),
@@ -809,10 +853,50 @@ window.onerror = function (msg, src, line, col, err) {
         wsStatusEl.dataset.state = s;
         var defaults = {
             connected: 'Connected',
+            degraded: 'Degraded',
             connecting: 'Connecting...',
             disconnected: 'Disconnected — click ↻ or Reload Window',
         };
         wsStatusLabel.textContent = detail || defaults[s] || s;
+    }
+
+    function applyHubSnapshot(hub) {
+        if (!hub || typeof hub !== 'object') return;
+        state.hubSnapshot = hub;
+        if (hub.pid) connectedHubPid = hub.pid;
+    }
+
+    function renderConnectionHealth() {
+        if (!connectionDetailEl || !PS.ConnectionHealth) return;
+        var pendingList = (state.lastPendingSessionIds || []).map(function (id) {
+            return { id: id };
+        });
+        var stale = PS.ConnectionHealth.countStaleLocalWaiting(
+            state.sessions,
+            state.sessionOrder,
+            pendingList,
+        );
+        var pingStale = bridgeGate.isReady()
+            && lastPongAt > 0
+            && (Date.now() - lastPongAt > PING_STALE_MS);
+        var hubPidMismatch = !!(state.hubSnapshot && connectedHubPid
+            && state.hubSnapshot.pid && connectedHubPid !== state.hubSnapshot.pid);
+        var health = PS.ConnectionHealth.evaluate({
+            bridgeReady: bridgeGate.isReady(),
+            hub: state.hubSnapshot,
+            staleLocalWaiting: stale,
+            localWaitingCount: state.waitingCount,
+            pingStale: pingStale,
+            hubPidMismatch: hubPidMismatch,
+            port: getWsPort(),
+            routingMismatchProject: state.routingMismatch && state.routingMismatch.project,
+        });
+        setWsStatus(health.level, health.label + (health.portPid || ''));
+        connectionDetailEl.textContent = health.detail;
+        connectionDetailEl.dataset.level = health.level;
+        connectionDetailEl.title = health.issues.length
+            ? health.issues.join('\n')
+            : health.detail;
     }
 
     function applyConnectionInfo(msg) {
@@ -831,9 +915,14 @@ window.onerror = function (msg, src, line, col, err) {
     }
 
     function forceReconnect() {
+        var now = Date.now();
+        if (PS.PanelState.shouldDebounceReconnect(lastForceReconnectAt, now)) {
+            debugLog('forceReconnect debounced');
+            return;
+        }
+        lastForceReconnectAt = now;
         debugLog('forceReconnect');
-        bridgeReady = false;
-        bridgeRegistered = false;
+        bridgeGate.resetForReconnect();
         if (useBridge) {
             setWsStatus('connecting', 'Reconnecting...');
             vscode.postMessage({ type: 'hub-connect' });
@@ -859,9 +948,7 @@ window.onerror = function (msg, src, line, col, err) {
             var cmd = cmds[i];
             switch (cmd.type) {
                 case 'ws_send':
-                    if (transportReady()) {
-                        transportSend(cmd.message);
-                    }
+                    execWsSend(cmd.message);
                     break;
                 case 'render':
                     for (var j = 0; j < cmd.targets.length; j++) {
@@ -1599,23 +1686,38 @@ window.onerror = function (msg, src, line, col, err) {
     function handleProtocolMessage(msg) {
         if (!msg || !msg.type) return;
         if (msg.type === 'pong') {
+            lastPongAt = Date.now();
+            if (msg.hub) applyHubSnapshot(msg.hub);
             finishUserPing(msg.body);
             exec(state.handleMessage(msg));
+            renderConnectionHealth();
             return;
         }
         if (msg.type === 'connection_established') {
             if (useBridge) {
-                onBridgeConnected(msg);
-            } else {
-                applyConnectionInfo(msg);
-                if (msg.version) {
-                    var vl = document.getElementById('versionLabel');
-                    if (vl) vl.textContent = 'v' + msg.version;
-                }
+                if (bridgeGate.shouldInitFromConnectionEstablished()) onBridgeConnected(msg);
+                return;
             }
+            applyConnectionInfo(msg);
+            if (msg.version) {
+                var vl = document.getElementById('versionLabel');
+                if (vl) vl.textContent = 'v' + msg.version;
+            }
+            requestStateSync();
             return;
         }
         exec(state.handleMessage(msg));
+        if (msg.type === 'state_sync') {
+            if (msg.hub) applyHubSnapshot(msg.hub);
+            renderConnectionHealth();
+        }
+        if (msg.type === 'session_updated') {
+            debugLog('session_updated received session=' + (msg.session_id || '(legacy)')
+                + ' project=' + (msg.project_directory || '(none)'));
+            if (msg.session_id && transportReady()) {
+                transportSend({ type: 'session_displayed', session_id: msg.session_id });
+            }
+        }
         if (msg.type === 'clipboard_write_ok') {
             window.__mcpPendingCopyText = null;
             showToast('Copied');
@@ -1658,31 +1760,47 @@ window.onerror = function (msg, src, line, col, err) {
         }
     }
 
-    function onBridgeConnected(msg) {
-        debugLog('onBridgeConnected port=' + (msg && msg.port) + ' v=' + (msg && msg.version));
-        bridgeReady = true;
-        window.__mcpBootstrapped = true;
-        reconnectAttempts = 0;
+    function updateConnectionLabels(msg) {
+        if (!msg) return;
         if (msg.version) {
             var vl = document.getElementById('versionLabel');
             if (vl) vl.textContent = 'v' + msg.version;
         }
         if (msg.port) {
+            connectedHubPid = msg.pid || connectedHubPid;
             wsUrl = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
             wsPortEl.textContent = ':' + msg.port;
             var label = 'Connected :' + msg.port;
             if (msg.pid) label += ' pid=' + msg.pid;
             setWsStatus('connected', label);
         }
-        if (!bridgeRegistered) {
-            bridgeRegistered = true;
+    }
+
+    function onBridgeConnected(msg) {
+        var snap = bridgeGate.snapshot();
+        debugLog('onBridgeConnected port=' + (msg && msg.port) + ' v=' + (msg && msg.version)
+            + ' init=' + snap.initialized);
+        var action = bridgeGate.onBridgeConnected();
+        window.__mcpBootstrapped = true;
+        reconnectAttempts = 0;
+        if (action.labels) updateConnectionLabels(msg);
+        if (!action.register && !action.stateSync) return;
+        if (action.register) {
             transportSend({ type: 'register', clientType: 'webview' });
         }
+        flushOutboundQueue();
+        if (action.stateSync) requestStateSync();
+        renderConnectionHealth();
+    }
+
+    function requestStateSync() {
+        debugLog('requestStateSync');
+        exec(state.handleMessage({ type: 'connection_established' }));
     }
 
     function connect() {
         if (useBridge) {
-            if (bridgeReady) return;
+            if (bridgeGate.isReady()) return;
             debugLog('connect hub-connect');
             setWsStatus('connecting');
             vscode.postMessage({ type: 'hub-connect' });
@@ -1701,6 +1819,7 @@ window.onerror = function (msg, src, line, col, err) {
                 var port = getWsPort();
                 setWsStatus('connected', port ? 'Connected :' + port : 'Connected');
                 transportSend({ type: 'register', clientType: 'webview' });
+                flushOutboundQueue();
             };
             ws.onmessage = function (e) {
                 try {
@@ -1708,7 +1827,7 @@ window.onerror = function (msg, src, line, col, err) {
                 } catch (err) { console.error(err); }
             };
             ws.onclose = function () {
-                bridgeReady = false;
+                bridgeGate.resetForReconnect();
                 setWsStatus('disconnected');
                 scheduleReconnect();
             };
@@ -1737,7 +1856,8 @@ window.onerror = function (msg, src, line, col, err) {
     function applyServerInfo(msg) {
         if (!msg || !msg.port) return;
         if (useBridge) {
-            onBridgeConnected(msg);
+            updateConnectionLabels(msg);
+            if (bridgeGate.shouldInitFromServerInfo()) onBridgeConnected(msg);
             return;
         }
         if (msg.version) {
@@ -1761,7 +1881,6 @@ window.onerror = function (msg, src, line, col, err) {
     window.addEventListener('message', function (event) {
         var msg = event.data;
         if (msg.type === 'reconnect' || msg.type === 'hub-connect') {
-            bridgeReady = false;
             forceReconnect();
         } else if (msg.type === 'please-reconnect') {
             debugLog('please-reconnect from extension');
@@ -1792,7 +1911,10 @@ window.onerror = function (msg, src, line, col, err) {
     // ── Heartbeat ───────────────────────────────────────
 
     setInterval(function () {
-        if (transportReady()) transportSend({ type: 'ping' });
+        if (transportReady()) {
+            transportSend({ type: 'ping' });
+        }
+        renderConnectionHealth();
     }, 30000);
 
     // ── Init ────────────────────────────────────────────
@@ -1809,10 +1931,11 @@ window.onerror = function (msg, src, line, col, err) {
     renderStagedImages();
     updateSendButton();
     syncSettings();
-    bootstrapConnection();
     if (vscode) {
         vscode.postMessage({ type: 'webview-ready' });
         debugLog('webview-ready posted');
+    } else {
+        bootstrapConnection();
     }
 })();
 </script>

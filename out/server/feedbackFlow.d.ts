@@ -3,9 +3,10 @@ import type { ConversationMessage } from '../types';
 import { FeedbackManager } from './feedbackManager';
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
+    getHubWorkspaces: () => string[];
     appendReminder: (feedback: string) => string;
     addMessage: (msg: ConversationMessage) => void;
-    broadcastSessionUpdated: (summary: string, sessionId?: string) => void;
+    broadcastSessionUpdated: (summary: string, sessionId?: string, projectDirectory?: string) => void;
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
@@ -35,7 +36,10 @@ export declare class FeedbackFlow {
         feedback: string;
         images?: string[];
         session_id?: string;
+        project_directory?: string;
     }): void;
+    private _resolveProject;
+    private _sessionProject;
     handleDismiss(): void;
 }
 export {};

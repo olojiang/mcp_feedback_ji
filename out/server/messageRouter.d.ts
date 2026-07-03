@@ -14,6 +14,7 @@ export interface MessageRouterDeps {
         feedback: string;
         images?: string[];
         session_id?: string;
+        project_directory?: string;
     }) => void;
     onQueuePending: (qp: {
         comments: string[];
@@ -21,6 +22,7 @@ export interface MessageRouterDeps {
     }) => void;
     onDismiss: () => void;
     onGetState: (ws: WebSocket) => void;
+    onSessionDisplayed?: (sessionId: string) => void;
     onClipboardWrite?: (ws: WebSocket, msg: {
         text?: string;
     }) => void;

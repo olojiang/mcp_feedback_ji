@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>panel reconnect fixture</title></head>
+<body>
+<button id="trigger-double-reconnect">reconnect twice</button>
+<script src="../../out/webview/panelState.js"></script>
+<script>
+  window.__hubConnectCount = 0;
+  var lastForceReconnectAt = 0;
+  var gate = new PanelStateModule.BridgeSessionGate();
+
+  function forceReconnect() {
+    var now = Date.now();
+    if (PanelStateModule.PanelState.shouldDebounceReconnect(lastForceReconnectAt, now)) {
+      return;
+    }
+    lastForceReconnectAt = now;
+    gate.resetForReconnect();
+    window.__hubConnectCount++;
+  }
+
+  document.getElementById('trigger-double-reconnect').addEventListener('click', function () {
+    forceReconnect();
+    forceReconnect();
+  });
+</script>
+</body>
+</html>

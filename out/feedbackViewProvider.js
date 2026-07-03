@@ -47,10 +47,13 @@ const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
+const webviewLog_1 = require("./webviewLog");
+const webviewSyncPolicy_1 = require("./webviewSyncPolicy");
 class FeedbackViewProvider {
     constructor(getHtml, getPort, getVersion, getHub, extensionUri) {
         this._view = null;
         this._bridge = null;
+        this._lastSyncedPort = 0;
         this._getHtml = getHtml;
         this._getPort = getPort;
         this._getVersion = getVersion;
@@ -74,6 +77,7 @@ class FeedbackViewProvider {
         };
         this._setupMessageHandler(webviewView);
         webviewView.webview.html = this._injectWebviewResources(webviewView);
+        this._lastSyncedPort = this._getPort();
         this._setupHotReload(webviewView);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible && !this._bridge) {
@@ -90,6 +94,7 @@ class FeedbackViewProvider {
     recreate() {
         if (this._view) {
             this._view.webview.html = this._injectWebviewResources(this._view);
+            this._lastSyncedPort = this._getPort();
         }
     }
     focusInput() {
@@ -102,13 +107,23 @@ class FeedbackViewProvider {
             this._view.webview.postMessage({ type: 'please-reconnect' });
         }
     }
-    /** Refresh webview HTML and re-attach in-process bridge. */
-    syncServer(_port) {
+    /** Refresh webview when hub port changes; otherwise soft-reconnect only. */
+    syncServer(port) {
         if (!this._view)
             return;
-        this._bridge?.dispose();
-        this._bridge = null;
-        this._view.webview.html = this._injectWebviewResources(this._view);
+        if ((0, webviewSyncPolicy_1.shouldReloadWebview)(this._lastSyncedPort, port)) {
+            this._lastSyncedPort = port;
+            this._bridge?.dispose();
+            this._bridge = null;
+            this._view.webview.html = this._injectWebviewResources(this._view);
+            return;
+        }
+        this._lastSyncedPort = port;
+        if (!(0, webviewSyncPolicy_1.shouldReconnectWebview)(this._lastSyncedPort, port, this._bridge !== null)) {
+            this._pushServerInfo(this._view);
+            return;
+        }
+        this.reconnect();
     }
     _injectWebviewResources(view) {
         let html = this._getHtml();
@@ -180,6 +195,7 @@ class FeedbackViewProvider {
             logPaths: {
                 extension: path.join(logDir, 'extension.log'),
                 mcpServer: path.join(logDir, 'mcp-server.log'),
+                webview: (0, webviewLog_1.webviewLogPath)(),
             },
         };
         view.webview.postMessage({ type: 'debug-report', report });
@@ -191,9 +207,16 @@ class FeedbackViewProvider {
                     this._pushServerInfo(view);
                     break;
                 case 'webview-ready':
-                    this._pushServerInfo(view);
                     if (!this._bridge) {
                         this._connectBridge(view);
+                    }
+                    else {
+                        view.webview.postMessage({
+                            type: 'bridge-connected',
+                            port: this._getPort(),
+                            version: this._getVersion(),
+                            pid: process.pid,
+                        });
                     }
                     break;
                 case 'hub-connect':
@@ -246,6 +269,11 @@ class FeedbackViewProvider {
                     this._handleAtSearch(message.query, view);
                     break;
                 case 'log':
+                    if (typeof message.msg === 'string') {
+                        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                        const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                        (0, webviewLog_1.appendWebviewLog)(message.msg, typeof projectPath === 'string' ? projectPath : undefined);
+                    }
                     break;
             }
         });

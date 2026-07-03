@@ -20,6 +20,7 @@ export declare const FeedbackResponseSchema: z.ZodObject<{
     feedback: z.ZodString;
     images: z.ZodOptional<z.ZodArray<z.ZodString>>;
     session_id: z.ZodOptional<z.ZodString>;
+    project_directory: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const QueuePendingSchema: z.ZodObject<{
     type: z.ZodLiteral<"queue-pending">;
@@ -72,6 +73,17 @@ export declare const StateSyncOutSchema: z.ZodObject<{
         summary: z.ZodString;
         projectDir: z.ZodOptional<z.ZodString>;
         waiting: z.ZodLiteral<true>;
+        mcp_detached: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$strip>>;
+    hub: z.ZodOptional<z.ZodObject<{
+        port: z.ZodNumber;
+        pid: z.ZodNumber;
+        version: z.ZodString;
+        workspaces: z.ZodArray<z.ZodString>;
+        webviews: z.ZodNumber;
+        mcp_servers: z.ZodNumber;
+        pending_count: z.ZodNumber;
+        mcp_detached_count: z.ZodNumber;
     }, z.core.$strip>>;
 }, z.core.$strip>;
 export declare const PreToolUseOutputSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{

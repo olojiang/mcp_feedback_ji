@@ -7,6 +7,11 @@ import {
     QueuePendingSchema,
     RegisterSchema,
 } from '../messageSchemas';
+import {
+    PipelineHop,
+    pipelineRejectReason,
+    type HubClientType,
+} from '../pipelineContracts';
 
 export interface ConnectedClientRef {
     clientType: 'webview' | 'mcp-server' | 'unknown';
@@ -16,10 +21,11 @@ export interface ConnectedClientRef {
 export interface MessageRouterDeps {
     onRegister: (clientType: 'webview' | 'mcp-server') => void;
     onFeedbackRequest: (ws: WebSocket, req: { summary: string; project_directory?: string }) => void;
-    onFeedbackResponse: (res: { feedback: string; images?: string[]; session_id?: string }) => void;
+    onFeedbackResponse: (res: { feedback: string; images?: string[]; session_id?: string; project_directory?: string }) => void;
     onQueuePending: (qp: { comments: string[]; images?: string[] }) => void;
     onDismiss: () => void;
     onGetState: (ws: WebSocket) => void;
+    onSessionDisplayed?: (sessionId: string) => void;
     onClipboardWrite?: (ws: WebSocket, msg: { text?: string }) => void;
     onClipboardPaste?: (ws: WebSocket, msg: { request_id?: string }) => void;
     sendPong: (ws: WebSocket) => void;
@@ -43,6 +49,14 @@ export function routeHubMessage(
             break;
         }
         case 'feedback_request': {
+            const reject = pipelineRejectReason(
+                PipelineHop.MCP_REQUEST,
+                client.clientType as HubClientType,
+            );
+            if (reject) {
+                deps.onProtocolError(reject);
+                break;
+            }
             const req = validateMessage(FeedbackRequestSchema, msg, 'feedback_request');
             if (!req) {
                 deps.onProtocolError('feedback_request');
@@ -52,6 +66,14 @@ export function routeHubMessage(
             break;
         }
         case 'feedback_response': {
+            const reject = pipelineRejectReason(
+                PipelineHop.UI_RESPONSE,
+                client.clientType as HubClientType,
+            );
+            if (reject) {
+                deps.onProtocolError(reject);
+                break;
+            }
             const res = validateMessage(FeedbackResponseSchema, msg, 'feedback_response');
             if (!res) {
                 deps.onProtocolError('feedback_response');
@@ -75,6 +97,12 @@ export function routeHubMessage(
         }
         case 'get_state': {
             deps.onGetState(ws);
+            break;
+        }
+        case 'session_displayed': {
+            const raw = msg as WSMessage & { session_id?: string };
+            const sid = typeof raw.session_id === 'string' ? raw.session_id : '';
+            if (sid) deps.onSessionDisplayed?.(sid);
             break;
         }
         case 'clipboard_write': {

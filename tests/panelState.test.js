@@ -36,6 +36,7 @@ describe('PanelState multi-session', () => {
       session_id: 'fb-1',
       session_label: 'a',
       summary: 'A',
+      project_directory: '/proj/a',
     })
     state.handleMessage({
       type: 'session_updated',
@@ -49,6 +50,7 @@ describe('PanelState multi-session', () => {
     const ws = cmds.find((c) => c.type === 'ws_send')
     assert.equal(ws.message.session_id, 'fb-1')
     assert.equal(ws.message.feedback, 'Reply to A first')
+    assert.equal(ws.message.project_directory, '/proj/a')
     assert.equal(state.sessions['fb-1'].waiting, false)
     assert.equal(state.sessions['fb-2'].waiting, true)
   })
@@ -68,6 +70,14 @@ describe('PanelState multi-session', () => {
     assert.ok(cmds.length > 0)
     assert.equal(state.sessions['fb-9'].waiting, true)
     assert.equal(state.sessions['fb-9'].messages[0].content, 'waiting summary')
+  })
+
+  it('connection_established requests state sync from server', () => {
+    const state = new PanelState()
+    const cmds = state.handleMessage({ type: 'connection_established' })
+    const ws = cmds.find((c) => c.type === 'ws_send')
+    assert.ok(ws)
+    assert.equal(ws.message.type, 'get_state')
   })
 
   it('activates latest pending session from state sync over a resolved session', () => {
@@ -127,6 +137,79 @@ describe('PanelState multi-session', () => {
     assert.deepEqual(state.sessionOrder, ['d'])
     state.closeOtherSessions('d')
     assert.deepEqual(state.sessionOrder, ['d'])
+  })
+
+  it('clears stale waiting flags from localStorage on deserialize', () => {
+    const state = new PanelState()
+    state.deserialize({
+      sessions: {
+        'fb-stale': {
+          id: 'fb-stale',
+          label: 'old',
+          summary: 'Old',
+          messages: [{ role: 'ai', content: 'Old', timestamp: '2026-01-01T00:00:00.000Z' }],
+          pendingQueue: [],
+          pendingImages: [],
+          inputDraft: '',
+          stagedImages: [],
+          waiting: true,
+          createdAt: 1,
+        },
+      },
+      sessionOrder: ['fb-stale'],
+      activeSessionId: 'fb-stale',
+    })
+    assert.equal(state.sessions['fb-stale'].waiting, false)
+  })
+
+  it('reconciles stale waiting tabs when state sync arrives', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-stale',
+      summary: 'Stale tab',
+    })
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-live', label: 'live', summary: 'Live question', waiting: true },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 1,
+      messages: [],
+    })
+    assert.equal(state.sessions['fb-stale'].waiting, false)
+    assert.equal(state.sessions['fb-live'].waiting, true)
+    assert.equal(state.activeSessionId, 'fb-live')
+  })
+
+  it('smartSend routes Continue to latest waiting session when active tab is resolved', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-old', summary: 'Old' })
+    state.submitFeedback('done', [], { session_id: 'fb-old' })
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-new', summary: 'New' })
+    state.setActiveSession('fb-old')
+
+    const cmds = state.smartSend('Continue', [])
+    const ws = cmds.find((c) => c.type === 'ws_send')
+    assert.equal(ws.message.session_id, 'fb-new')
+    assert.equal(ws.message.feedback, 'Continue')
+  })
+
+
+  it('ignores session_updated for foreign project_directory', () => {
+    const state = new PanelState()
+    state.panelWorkspace = '/Users/hunter/Workspace/spatial-smart-cc'
+    const cmds = state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-foreign',
+      summary: 'Should not appear',
+      project_directory: '/Users/hunter/Workspace/mcp_feedback_ji',
+    })
+    assert.equal(state.sessionOrder.length, 0)
+    assert.ok(state.routingMismatch)
+    assert.ok(cmds.some((c) => c.type === 'notify' && c.message.type === 'routing-mismatch'))
   })
 
     it('resolveWsUrl updates port after extension restart', () => {

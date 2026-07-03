@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routeHubMessage = routeHubMessage;
 const messageSchemas_1 = require("../messageSchemas");
+const pipelineContracts_1 = require("../pipelineContracts");
 function routeHubMessage(ws, client, msg, deps) {
     switch (msg.type) {
         case 'register': {
@@ -14,6 +15,11 @@ function routeHubMessage(ws, client, msg, deps) {
             break;
         }
         case 'feedback_request': {
+            const reject = (0, pipelineContracts_1.pipelineRejectReason)(pipelineContracts_1.PipelineHop.MCP_REQUEST, client.clientType);
+            if (reject) {
+                deps.onProtocolError(reject);
+                break;
+            }
             const req = (0, messageSchemas_1.validateMessage)(messageSchemas_1.FeedbackRequestSchema, msg, 'feedback_request');
             if (!req) {
                 deps.onProtocolError('feedback_request');
@@ -23,6 +29,11 @@ function routeHubMessage(ws, client, msg, deps) {
             break;
         }
         case 'feedback_response': {
+            const reject = (0, pipelineContracts_1.pipelineRejectReason)(pipelineContracts_1.PipelineHop.UI_RESPONSE, client.clientType);
+            if (reject) {
+                deps.onProtocolError(reject);
+                break;
+            }
             const res = (0, messageSchemas_1.validateMessage)(messageSchemas_1.FeedbackResponseSchema, msg, 'feedback_response');
             if (!res) {
                 deps.onProtocolError('feedback_response');
@@ -46,6 +57,13 @@ function routeHubMessage(ws, client, msg, deps) {
         }
         case 'get_state': {
             deps.onGetState(ws);
+            break;
+        }
+        case 'session_displayed': {
+            const raw = msg;
+            const sid = typeof raw.session_id === 'string' ? raw.session_id : '';
+            if (sid)
+                deps.onSessionDisplayed?.(sid);
             break;
         }
         case 'clipboard_write': {

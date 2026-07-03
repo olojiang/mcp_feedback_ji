@@ -17,6 +17,7 @@ import { exec, execSync } from 'child_process';
 import { FeedbackWSServer } from './wsServer';
 import { FeedbackViewProvider } from './feedbackViewProvider';
 import { readExtensionVersion } from './extensionVersion';
+import { extensionSyncDelaysMs, EXTENSION_PANEL_FOCUS_DELAYS_MS } from './activateSyncPolicy';
 
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
@@ -144,7 +145,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             vscode.commands.executeCommand('mcp-feedback-enhanced.feedbackPanelBottom.focus');
         }),
         vscode.commands.registerCommand('mcp-feedback-enhanced.reconnect', () => {
-            bottomProvider.syncServer(port);
             bottomProvider.reconnect();
         }),
         vscode.commands.registerCommand('mcp-feedback-enhanced.forceReset', async () => {
@@ -187,12 +187,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     const syncWebview = () => {
         bottomProvider.syncServer(port);
-        bottomProvider.reconnect();
     };
-    for (const delay of [1500, 3000, 5000]) {
+    for (const delay of EXTENSION_PANEL_FOCUS_DELAYS_MS) {
         setTimeout(activatePanel, delay);
     }
-    for (const delay of [0, 500, 1500, 3000]) {
+    for (const delay of extensionSyncDelaysMs()) {
         setTimeout(syncWebview, delay);
     }
 }

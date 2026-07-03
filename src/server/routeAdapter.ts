@@ -10,6 +10,7 @@ interface HubRouteHandlers {
     onQueuePending: (qp: { comments: string[]; images?: string[] }) => void;
     onDismiss: () => void;
     onGetState: (ws: WebSocket) => void;
+    onSessionDisplayed?: (sessionId: string) => void;
     onClipboardWrite?: (ws: WebSocket, msg: { text?: string }) => void;
     onClipboardPaste?: (ws: WebSocket, msg: { request_id?: string }) => void;
     sendPong: (ws: WebSocket) => void;
@@ -29,6 +30,7 @@ export function dispatchRouteMessage(
         onQueuePending: handlers.onQueuePending,
         onDismiss: handlers.onDismiss,
         onGetState: handlers.onGetState,
+        onSessionDisplayed: handlers.onSessionDisplayed,
         onClipboardWrite: handlers.onClipboardWrite,
         onClipboardPaste: handlers.onClipboardPaste,
         sendPong: handlers.sendPong,

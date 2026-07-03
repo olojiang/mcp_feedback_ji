@@ -23,6 +23,7 @@ exports.FeedbackResponseSchema = zod_1.z.object({
     feedback: zod_1.z.string(),
     images: zod_1.z.array(zod_1.z.string()).optional(),
     session_id: zod_1.z.string().optional(),
+    project_directory: zod_1.z.string().optional(),
 });
 exports.QueuePendingSchema = zod_1.z.object({
     type: zod_1.z.literal('queue-pending'),
@@ -72,7 +73,18 @@ exports.StateSyncOutSchema = zod_1.z.object({
         summary: zod_1.z.string(),
         projectDir: zod_1.z.string().optional(),
         waiting: zod_1.z.literal(true),
+        mcp_detached: zod_1.z.boolean().optional(),
     })),
+    hub: zod_1.z.object({
+        port: zod_1.z.number(),
+        pid: zod_1.z.number(),
+        version: zod_1.z.string(),
+        workspaces: zod_1.z.array(zod_1.z.string()),
+        webviews: zod_1.z.number(),
+        mcp_servers: zod_1.z.number(),
+        pending_count: zod_1.z.number(),
+        mcp_detached_count: zod_1.z.number(),
+    }).optional(),
 });
 // ─── 4. Hook output schemas (for contract tests) ───────────────────────────
 exports.PreToolUseOutputSchema = zod_1.z.discriminatedUnion('decision', [

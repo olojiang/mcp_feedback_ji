@@ -2,7 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FeedbackFlow = void 0;
 const ws_1 = require("ws");
-const fileStore_1 = require("../fileStore");
+const pipelineContracts_1 = require("../pipelineContracts");
+const feedbackDelivery_1 = require("../feedbackDelivery");
+const workspaceMatch_1 = require("../workspaceMatch");
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -17,8 +19,11 @@ class FeedbackFlow {
         this.deps.onFeedbackError = cb;
     }
     handleFeedbackRequest(mcpWs, req) {
-        if (req.project_directory) {
-            (0, fileStore_1.writeAgentContext)([req.project_directory]);
+        if (req.project_directory && !(0, workspaceMatch_1.hubAcceptsProject)(this.deps.getHubWorkspaces(), req.project_directory)) {
+            this.deps.log((0, workspaceMatch_1.projectMismatchLogLine)(req.project_directory, this.deps.getHubWorkspaces()));
+            this.deps.sendError(mcpWs, new Error(`Project mismatch: this hub serves ${this.deps.getHubWorkspaces().join(', ')}, `
+                + `not ${req.project_directory}`));
+            return;
         }
         this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
@@ -29,7 +34,7 @@ class FeedbackFlow {
                 content: req.summary,
                 timestamp: new Date().toISOString(),
             });
-            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
+            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory);
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
             return;
@@ -40,8 +45,10 @@ class FeedbackFlow {
             timestamp: new Date().toISOString(),
         });
         const { sessionId } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary);
+        this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
-        this.deps.broadcastSessionUpdated(req.summary, sessionId);
+        this.deps.log((0, feedbackDelivery_1.feedbackRequestAcceptedLogLine)(sessionId, req.project_directory));
+        this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory);
         this.deps.onFeedbackRequested?.();
         this._attachMcpPromiseHandlers(mcpWs, sessionId);
     }
@@ -78,7 +85,14 @@ class FeedbackFlow {
         return ws.readyState === ws_1.WebSocket.OPEN;
     }
     handleFeedbackResponse(res) {
-        this.deps.log(`feedbackResponse: session=${res.session_id ?? '(first)'} feedback=${res.feedback.slice(0, 80)}`);
+        const project = this._resolveProject(res);
+        if (res.project_directory && !(0, workspaceMatch_1.hubAcceptsProject)(this.deps.getHubWorkspaces(), res.project_directory)) {
+            this.deps.log((0, workspaceMatch_1.projectMismatchLogLine)(res.project_directory, this.deps.getHubWorkspaces()));
+            this.deps.log('feedbackResponse: rejected project_mismatch from panel');
+            return;
+        }
+        this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.UI_RESPONSE, `session=${res.session_id ?? '(first)'} project=${project ?? '(unknown)'} len=${res.feedback.length}`));
+        this.deps.log((0, feedbackDelivery_1.feedbackResponseLogLine)(res.session_id ?? '(first)', project, res.feedback.slice(0, 80)));
         this.deps.addMessage({
             role: 'user',
             content: res.feedback,
@@ -90,9 +104,17 @@ class FeedbackFlow {
             feedback: this.deps.appendReminder(res.feedback),
             images: res.images ?? undefined,
         };
-        const resolved = res.session_id
-            ? this.deps.feedback.resolveBySessionId(res.session_id, payload)
-            : this.deps.feedback.resolveFirst(payload);
+        let resolved = false;
+        if (res.session_id) {
+            resolved = this.deps.feedback.resolveBySessionId(res.session_id, payload);
+            if (!resolved && this.deps.feedback.pendingCount() === 1) {
+                this.deps.log(`feedbackResponse: stale session_id=${res.session_id}, fallback to sole pending session`);
+                resolved = this.deps.feedback.resolveFirst(payload);
+            }
+        }
+        else {
+            resolved = this.deps.feedback.resolveFirst(payload);
+        }
         if (!resolved) {
             this.deps.log('feedbackResponse: no pending session, routing to pending queue');
             this.deps.queueAsPending(res.feedback, res.images);
@@ -100,6 +122,23 @@ class FeedbackFlow {
         }
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
+    }
+    _resolveProject(res) {
+        if (res.session_id) {
+            const direct = this._sessionProject(res.session_id);
+            if (direct)
+                return direct;
+        }
+        const pending = this.deps.feedback.pendingSessions();
+        if (pending.length === 1)
+            return pending[0].projectDir;
+        return undefined;
+    }
+    _sessionProject(sessionId) {
+        if (!sessionId)
+            return undefined;
+        const snap = this.deps.feedback.pendingSessions().find((s) => s.id === sessionId);
+        return snap?.projectDir;
     }
     handleDismiss() {
         const resolved = this.deps.feedback.resolveFirst({ feedback: '[Dismissed by user]' });

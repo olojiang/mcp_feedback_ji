@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.48] - 2026-07-03
+
+### Added
+- **`activateSyncPolicy`**: single 800ms deferred `syncWebview` schedule (testable).
+- **Panel `forceReconnect` debounce** (1200ms) to absorb duplicate `please-reconnect`.
+- **Tests**: `panelTiming`, `timingE2E.integration`, `feedbackViewProvider` sync timing, Playwright `e2e/panel-timing.spec.cjs`.
+- **Workspace isolation** (`project_directory`), pipeline contracts, connection health, 167 unit tests.
+
+### Changed
+- Extension panel-focus delays extracted to `EXTENSION_PANEL_FOCUS_DELAYS_MS`.
+- `syncServer` soft path pushes `server-info` when bridge already active (no reconnect storm).
+
 ## [2.5.1-ji.30] - 2026-07-02
 
 ### Added
@@ -21,6 +33,95 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **Webview bridge duplicate registration**: Single bridge attach per panel lifecycle; panel init no longer double-fires `hub-connect` with `webview-ready`.
+
+## [2.5.1-ji.46] - 2026-07-03
+
+### Added
+- **`feedback_response.project_directory`** wire field (panel echoes session project on submit).
+- Hub rejects panel `feedback_response` with foreign `project_directory`.
+- Logs: `feedbackRequest: accepted session=... project=...`, `sessionDisplayed: ack ... project=...`.
+- TDD: panel submit carries project, response mismatch rejection, `session_updated` broadcast project tag.
+
+## [2.5.1-ji.45] - 2026-07-03
+
+### Added
+- **`project_directory` end-to-end**: `state_sync.pending_sessions` wire field, filtered `state_sync` on panel, project in `sessionUpdated`/`sessionReplay`/`feedbackResponse` logs, webview.log prefixed by hub workspace.
+- **TDD** `projectDirectory.pipeline.test.js` — discovery routing, wire payload, state_sync filter, extensionClient payload.
+
+### Changed
+- **`feedbackDelivery` log lines** include `project=` when available for traceability across hops.
+
+## [2.5.1-ji.44] - 2026-07-03
+
+### Fixed
+- **Double panel reconnect on load**: Extension no longer fires `please-reconnect` at 0/500/1500/3000ms; single deferred sync at 800ms. `syncServer` skips reconnect when bridge is already active (same port).
+- **Cross-workspace feedback bleed**: Hub rejects `feedback_request` when `project_directory` does not match hub workspaces (`project_mismatch`). Panel ignores foreign `session_updated` and shows Degraded routing warning.
+- **Removed global agent-context pollution** from `feedbackFlow` (was overwriting `agent-context.json` with MCP target project).
+
+### Added
+- **`workspaceMatch.ts`** — hub/panel project path isolation (TDD: `workspaceMatch.test.js`, `panelState` routing test, pipeline integration mismatch case).
+- **`session_updated.project_directory`** on broadcast and replay for panel-side filtering.
+
+## [2.5.1-ji.43] - 2026-07-03
+
+### Added
+- **Pipeline hop contracts** (`pipelineContracts.ts`): explicit Agent→MCP→Hub→UI hop IDs, client-type guards, `pipeline:` trace log lines.
+- **Message router isolation**: `feedback_request` rejected from webview; `feedback_response` rejected from mcp-server (protocol_error with `pipeline_reject:`).
+- **E2E integration tests** `feedbackPipeline.integration.test.js` — full round-trip, hop isolation, late replay, stale session_id fallback.
+- **Unit tests** `messageRouter.test.js`, `pipelineContracts.test.js`; expanded `feedbackFlow.test.js` pipeline trace coverage.
+- **`npm run test:coverage`** — c8 branch/line summary for `out/` modules exercised by tests.
+
+## [2.5.1-ji.42] - 2026-07-03
+
+### Fixed
+- **Undelivered session_updated logging**: Hub logs `UNDELIVERED` when no webview is connected; logs `delivered` with webview count when successful.
+- **Late webview replay**: On webview `register`, hub replays `session_updated` for all pending sessions (fixes Agent waiting while UI empty).
+- **UI sync mismatch detection**: Status shows Degraded when server has pending feedback but panel has fewer waiting tabs.
+- **session_displayed ack**: Panel acknowledges rendered sessions; logged as `sessionDisplayed: ack` for traceability.
+
+### Added
+- **Integration test** `feedbackDelivery.integration.test.js` — MCP request → webview delivery + late connect replay.
+- **Unit tests** `feedbackDelivery.test.js` — delivery evaluation and UI mismatch detection.
+
+## [2.5.1-ji.41] - 2026-07-03
+
+### Added
+- **Connection health UI**: Status bar shows `Connected` / `Degraded` / `Disconnected` with workspace (`WS:`), MCP count, pending count, and detached agents. Hover for issue list.
+- **Hub snapshot on state_sync and pong**: Each workspace hub reports isolated port/pid/workspaces/MCP/webview counts for truthful end-to-end status.
+- **TDD**: `connectionHealth.test.js`, `hubSnapshot.test.js` for cross-session/workspace isolation signals.
+
+## [2.5.1-ji.40] - 2026-07-03
+
+### Added
+- **Webview log file**: Panel `debugLog` events append to `~/.config/mcp-feedback-enhanced/logs/webview.log` (also listed in Debug panel).
+- **TDD transport tests**: `BridgeSessionGate`, `transportSendWithQueue`, and webview log unit tests cover init idempotency, reconnect, queue flush, and FIFO ordering.
+
+### Changed
+- **BridgeSessionGate** extracted to `panelState.js` (testable pure module used by panel.html).
+
+## [2.5.1-ji.39] - 2026-07-03
+
+### Fixed
+- **Panel single init per page load**: Bridge mode now sends only `webview-ready` on boot (not hub-connect + webview-ready). `onBridgeConnected` is idempotent — one `register` + one `state_sync` per session unless explicit reconnect.
+
+## [2.5.1-ji.38] - 2026-07-03
+
+### Fixed
+- **Lost session_updated on bridge attach**: Webview bridge clients are marked `webview` immediately so feedback broadcasts are not dropped before `register` arrives.
+- **Stale localStorage session tabs**: Restored tabs no longer keep `waiting=true`; `state_sync` reconciles against server pending sessions and activates the latest one.
+- **Continue on resolved tab**: Quick-reply / Send now targets the latest waiting session when the active tab is already resolved.
+- **Stale session_id delivery**: When exactly one MCP request is pending, panel responses with an unknown `session_id` fall back to that session instead of being silently queued.
+
+## [2.5.1-ji.37] - 2026-07-03
+
+### Fixed
+- **AWAITING SIGNAL after reconnect**: Bridge mode skipped `get_state` on connect; pending feedback sessions are now restored via `requestStateSync()` when the panel reconnects.
+
+## [2.5.1-ji.36] - 2026-07-03
+
+### Fixed
+- **Panel Continue lost during reconnect**: Queue `feedback_response` (and other outbound WS messages) when the webview bridge is briefly down instead of silently dropping them.
+- **Repeated webview reload on same port**: `syncServer` now soft-reconnects when the hub port is unchanged; full HTML reload only when the port changes.
 
 ## Unreleased
 

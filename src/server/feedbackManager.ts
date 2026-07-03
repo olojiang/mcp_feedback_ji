@@ -24,6 +24,7 @@ export interface PendingSessionSnapshot {
     summary: string;
     projectDir?: string;
     waiting: true;
+    mcp_detached?: boolean;
 }
 
 interface PendingFeedback {
@@ -111,6 +112,7 @@ export class FeedbackManager {
             summary: entry.summary,
             projectDir: entry.projectDir,
             waiting: true,
+            mcp_detached: entry.mcpDetached === true,
         }));
     }
 

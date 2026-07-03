@@ -10,6 +10,7 @@ function dispatchRouteMessage(ws, client, msg, handlers) {
         onQueuePending: handlers.onQueuePending,
         onDismiss: handlers.onDismiss,
         onGetState: handlers.onGetState,
+        onSessionDisplayed: handlers.onSessionDisplayed,
         onClipboardWrite: handlers.onClipboardWrite,
         onClipboardPaste: handlers.onClipboardPaste,
         sendPong: handlers.sendPong,

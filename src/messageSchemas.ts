@@ -25,6 +25,7 @@ export const FeedbackResponseSchema = z.object({
     feedback: z.string(),
     images: z.array(z.string()).optional(),
     session_id: z.string().optional(),
+    project_directory: z.string().optional(),
 });
 
 export const QueuePendingSchema = z.object({
@@ -82,7 +83,18 @@ export const StateSyncOutSchema = z.object({
         summary: z.string(),
         projectDir: z.string().optional(),
         waiting: z.literal(true),
+        mcp_detached: z.boolean().optional(),
     })),
+    hub: z.object({
+        port: z.number(),
+        pid: z.number(),
+        version: z.string(),
+        workspaces: z.array(z.string()),
+        webviews: z.number(),
+        mcp_servers: z.number(),
+        pending_count: z.number(),
+        mcp_detached_count: z.number(),
+    }).optional(),
 });
 
 // ─── 4. Hook output schemas (for contract tests) ───────────────────────────

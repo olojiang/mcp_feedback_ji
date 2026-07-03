@@ -73,6 +73,7 @@ class FeedbackManager {
             summary: entry.summary,
             projectDir: entry.projectDir,
             waiting: true,
+            mcp_detached: entry.mcpDetached === true,
         }));
     }
     promiseForSession(sessionId) {

@@ -2125,7 +2125,7 @@ var require_extension = __commonJS({
       if (dest[name] === void 0) dest[name] = [elem];
       else dest[name].push(elem);
     }
-    function parse3(header) {
+    function parse4(header) {
       const offers = /* @__PURE__ */ Object.create(null);
       let params = /* @__PURE__ */ Object.create(null);
       let mustUnescape = false;
@@ -2265,7 +2265,7 @@ var require_extension = __commonJS({
         }).join(", ");
       }).join(", ");
     }
-    module2.exports = { format, parse: parse3 };
+    module2.exports = { format, parse: parse4 };
   }
 });
 
@@ -2299,7 +2299,7 @@ var require_websocket = __commonJS({
     var {
       EventTarget: { addEventListener, removeEventListener }
     } = require_event_target();
-    var { format, parse: parse3 } = require_extension();
+    var { format, parse: parse4 } = require_extension();
     var { toBuffer } = require_buffer_util();
     var kAborted = /* @__PURE__ */ Symbol("kAborted");
     var protocolVersions = [8, 13];
@@ -2976,7 +2976,7 @@ var require_websocket = __commonJS({
           }
           let extensions;
           try {
-            extensions = parse3(secWebSocketExtensions);
+            extensions = parse4(secWebSocketExtensions);
           } catch (err) {
             const message = "Invalid Sec-WebSocket-Extensions header";
             abortHandshake(websocket, socket, message);
@@ -3268,7 +3268,7 @@ var require_subprotocol = __commonJS({
   "node_modules/ws/lib/subprotocol.js"(exports2, module2) {
     "use strict";
     var { tokenChars } = require_validation();
-    function parse3(header) {
+    function parse4(header) {
       const protocols = /* @__PURE__ */ new Set();
       let start = -1;
       let end = -1;
@@ -3304,7 +3304,7 @@ var require_subprotocol = __commonJS({
       protocols.add(protocol);
       return protocols;
     }
-    module2.exports = { parse: parse3 };
+    module2.exports = { parse: parse4 };
   }
 });
 
@@ -3717,15 +3717,15 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
-var fs6 = __toESM(require("fs"));
-var path6 = __toESM(require("path"));
-var os5 = __toESM(require("os"));
+var fs7 = __toESM(require("fs"));
+var path8 = __toESM(require("path"));
+var os6 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
 // src/server/wsHub.ts
 var http2 = __toESM(require("node:http"));
 var fs3 = __toESM(require("node:fs"));
-var path3 = __toESM(require("node:path"));
+var path4 = __toESM(require("node:path"));
 var os3 = __toESM(require("node:os"));
 
 // node_modules/ws/wrapper.mjs
@@ -3822,15 +3822,6 @@ function cleanupStaleServers() {
   return cleaned;
 }
 var AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, "agent-context.json");
-function writeAgentContext(workspaceRoots, traceId = "") {
-  const roots = workspaceRoots.map((r) => r.replace(/\/+$/, "")).filter(Boolean);
-  if (!roots.length) return;
-  safeWriteJSON(AGENT_CONTEXT_FILE, {
-    traceId,
-    workspaceRoots: roots,
-    updatedAt: Date.now()
-  });
-}
 
 // src/server/feedbackManager.ts
 function newSessionId() {
@@ -3891,7 +3882,8 @@ var FeedbackManager = class {
       label: entry.projectDir ?? entry.sessionId,
       summary: entry.summary,
       projectDir: entry.projectDir,
-      waiting: true
+      waiting: true,
+      mcp_detached: entry.mcpDetached === true
     }));
   }
   promiseForSession(sessionId) {
@@ -4223,6 +4215,99 @@ var ClientRegistry = class {
   }
 };
 
+// src/pipelineContracts.ts
+var PipelineHop = {
+  MCP_REQUEST: "mcp\u2192hub:feedback_request",
+  HUB_ENQUEUE: "hub:enqueue",
+  HUB_BROADCAST: "hub\u2192ui:session_updated",
+  UI_RESPONSE: "ui\u2192hub:feedback_response",
+  MCP_RESULT: "hub\u2192mcp:feedback_result",
+  UI_DISPLAYED: "ui\u2192hub:session_displayed"
+};
+function canSendFeedbackRequest(clientType) {
+  return clientType === "mcp-server" || clientType === "unknown";
+}
+function canSendFeedbackResponse(clientType) {
+  return clientType === "webview";
+}
+function pipelineRejectReason(hop, clientType) {
+  if (hop === PipelineHop.MCP_REQUEST && !canSendFeedbackRequest(clientType)) {
+    return `pipeline_reject:${hop}:client=${clientType}`;
+  }
+  if (hop === PipelineHop.UI_RESPONSE && !canSendFeedbackResponse(clientType)) {
+    return `pipeline_reject:${hop}:client=${clientType}`;
+  }
+  return null;
+}
+function pipelineTraceLine(hop, detail) {
+  return `pipeline: ${hop} ${detail}`;
+}
+
+// src/feedbackDelivery.ts
+function evaluateBroadcastDelivery(webviewCount) {
+  if (webviewCount <= 0) {
+    return {
+      delivered: false,
+      webviewCount: 0,
+      warn: "no_webview_connected"
+    };
+  }
+  return { delivered: true, webviewCount };
+}
+function sessionUpdatedLogLine(sessionId, delivery, projectDirectory) {
+  const project = projectDirectory ? ` project=${projectDirectory}` : "";
+  if (delivery.delivered) {
+    return `sessionUpdated: delivered session=${sessionId}${project} webviews=${delivery.webviewCount}`;
+  }
+  return `sessionUpdated: UNDELIVERED session=${sessionId}${project} reason=${delivery.warn ?? "unknown"}`;
+}
+function sessionReplayLogLine(sessionId, target, projectDirectory) {
+  const project = projectDirectory ? ` project=${projectDirectory}` : "";
+  return `sessionReplay: session=${sessionId}${project} target=${target}`;
+}
+function sessionDisplayedLogLine(sessionId, projectDirectory) {
+  const project = projectDirectory ? ` project=${projectDirectory}` : "";
+  return `sessionDisplayed: ack session=${sessionId}${project}`;
+}
+function feedbackRequestAcceptedLogLine(sessionId, projectDirectory) {
+  return `feedbackRequest: accepted session=${sessionId} project=${projectDirectory ?? "(none)"}`;
+}
+function feedbackResponseLogLine(sessionId, projectDirectory, feedbackPreview) {
+  const project = projectDirectory ? ` project=${projectDirectory}` : "";
+  return `feedbackResponse: session=${sessionId}${project} feedback=${feedbackPreview}`;
+}
+
+// src/workspaceMatch.ts
+var path2 = __toESM(require("node:path"));
+function normalizeProjectPath(dir) {
+  const normalized = path2.normalize(dir);
+  const root = path2.parse(normalized).root;
+  if (normalized === root) return root;
+  const stripped = normalized.replace(/[\\/]+$/, "");
+  return stripped || root || normalized;
+}
+function projectPathRelation(entryPath, want) {
+  if (!want) return "exact";
+  if (!entryPath) return "none";
+  const entry = normalizeProjectPath(entryPath);
+  const target = normalizeProjectPath(want);
+  if (entry === target) return "exact";
+  if (target.startsWith(entry + path2.sep)) return "ancestor";
+  if (entry.startsWith(target + path2.sep)) return "descendant";
+  return "none";
+}
+function projectPathMatches(entryPath, want) {
+  return projectPathRelation(entryPath, want) !== "none";
+}
+function hubAcceptsProject(hubWorkspaces, projectDirectory) {
+  if (!projectDirectory) return true;
+  if (!hubWorkspaces.length) return true;
+  return hubWorkspaces.some((ws) => projectPathMatches(ws, projectDirectory));
+}
+function projectMismatchLogLine(want, hubWorkspaces) {
+  return `feedbackRequest: rejected project_mismatch want=${want} hub=${hubWorkspaces.join("|")}`;
+}
+
 // src/server/feedbackFlow.ts
 var FeedbackFlow = class {
   constructor(deps) {
@@ -4238,8 +4323,15 @@ var FeedbackFlow = class {
     this.deps.onFeedbackError = cb;
   }
   handleFeedbackRequest(mcpWs, req) {
-    if (req.project_directory) {
-      writeAgentContext([req.project_directory]);
+    if (req.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), req.project_directory)) {
+      this.deps.log(projectMismatchLogLine(req.project_directory, this.deps.getHubWorkspaces()));
+      this.deps.sendError(
+        mcpWs,
+        new Error(
+          `Project mismatch: this hub serves ${this.deps.getHubWorkspaces().join(", ")}, not ${req.project_directory}`
+        )
+      );
+      return;
     }
     this.deps.log(
       `feedbackRequest: project=${req.project_directory ?? "(none)"} summary=${req.summary.slice(0, 80)}`
@@ -4258,7 +4350,7 @@ var FeedbackFlow = class {
         content: req.summary,
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       });
-      this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
+      this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory);
       this.deps.onFeedbackRequested?.();
       this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
       return;
@@ -4273,8 +4365,10 @@ var FeedbackFlow = class {
       req.project_directory,
       req.summary
     );
+    this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? "(none)"}`));
     this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
-    this.deps.broadcastSessionUpdated(req.summary, sessionId);
+    this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory));
+    this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory);
     this.deps.onFeedbackRequested?.();
     this._attachMcpPromiseHandlers(mcpWs, sessionId);
   }
@@ -4308,9 +4402,19 @@ var FeedbackFlow = class {
     return ws.readyState === import_websocket.default.OPEN;
   }
   handleFeedbackResponse(res) {
+    const project = this._resolveProject(res);
+    if (res.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), res.project_directory)) {
+      this.deps.log(projectMismatchLogLine(res.project_directory, this.deps.getHubWorkspaces()));
+      this.deps.log("feedbackResponse: rejected project_mismatch from panel");
+      return;
+    }
     this.deps.log(
-      `feedbackResponse: session=${res.session_id ?? "(first)"} feedback=${res.feedback.slice(0, 80)}`
+      pipelineTraceLine(
+        PipelineHop.UI_RESPONSE,
+        `session=${res.session_id ?? "(first)"} project=${project ?? "(unknown)"} len=${res.feedback.length}`
+      )
     );
+    this.deps.log(feedbackResponseLogLine(res.session_id ?? "(first)", project, res.feedback.slice(0, 80)));
     this.deps.addMessage({
       role: "user",
       content: res.feedback,
@@ -4322,7 +4426,18 @@ var FeedbackFlow = class {
       feedback: this.deps.appendReminder(res.feedback),
       images: res.images ?? void 0
     };
-    const resolved = res.session_id ? this.deps.feedback.resolveBySessionId(res.session_id, payload) : this.deps.feedback.resolveFirst(payload);
+    let resolved = false;
+    if (res.session_id) {
+      resolved = this.deps.feedback.resolveBySessionId(res.session_id, payload);
+      if (!resolved && this.deps.feedback.pendingCount() === 1) {
+        this.deps.log(
+          `feedbackResponse: stale session_id=${res.session_id}, fallback to sole pending session`
+        );
+        resolved = this.deps.feedback.resolveFirst(payload);
+      }
+    } else {
+      resolved = this.deps.feedback.resolveFirst(payload);
+    }
     if (!resolved) {
       this.deps.log("feedbackResponse: no pending session, routing to pending queue");
       this.deps.queueAsPending(res.feedback, res.images);
@@ -4330,6 +4445,20 @@ var FeedbackFlow = class {
     }
     this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
     this.deps.onFeedbackResolved?.();
+  }
+  _resolveProject(res) {
+    if (res.session_id) {
+      const direct = this._sessionProject(res.session_id);
+      if (direct) return direct;
+    }
+    const pending = this.deps.feedback.pendingSessions();
+    if (pending.length === 1) return pending[0].projectDir;
+    return void 0;
+  }
+  _sessionProject(sessionId) {
+    if (!sessionId) return void 0;
+    const snap = this.deps.feedback.pendingSessions().find((s) => s.id === sessionId);
+    return snap?.projectDir;
   }
   handleDismiss() {
     const resolved = this.deps.feedback.resolveFirst({ feedback: "[Dismissed by user]" });
@@ -4560,7 +4689,7 @@ __export(external_exports, {
   object: () => object,
   optional: () => optional,
   overwrite: () => _overwrite,
-  parse: () => parse2,
+  parse: () => parse3,
   parseAsync: () => parseAsync2,
   partialRecord: () => partialRecord,
   pipe: () => pipe,
@@ -4880,7 +5009,7 @@ __export(core_exports2, {
   isValidJWT: () => isValidJWT,
   locales: () => locales_exports,
   meta: () => meta,
-  parse: () => parse,
+  parse: () => parse2,
   parseAsync: () => parseAsync,
   prettifyError: () => prettifyError,
   process: () => process2,
@@ -5143,10 +5272,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path7) {
-  if (!path7)
+function getElementAtPath(obj, path9) {
+  if (!path9)
     return obj;
-  return path7.reduce((acc, key) => acc?.[key], obj);
+  return path9.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5555,11 +5684,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path7, issues) {
+function prefixIssues(path9, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path7);
+    iss.path.unshift(path9);
     return iss;
   });
 }
@@ -5706,16 +5835,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path7 = []) => {
+  const processError = (error52, path9 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path7, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else {
-        const fullpath = [...path7, ...issue2.path];
+        const fullpath = [...path9, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -5742,17 +5871,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path7 = []) => {
+  const processError = (error52, path9 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path7, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path7, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else {
-        const fullpath = [...path7, ...issue2.path];
+        const fullpath = [...path9, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -5784,8 +5913,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path7 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path7) {
+  const path9 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path9) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -5825,7 +5954,7 @@ var _parse = (_Err) => (schema, value, _ctx, _params) => {
   }
   return result.value;
 };
-var parse = /* @__PURE__ */ _parse($ZodRealError);
+var parse2 = /* @__PURE__ */ _parse($ZodRealError);
 var _parseAsync = (_Err) => async (schema, value, _ctx, params) => {
   const ctx = _ctx ? { ..._ctx, async: true } : { async: true };
   let result = schema._zod.run({ value, issues: [] }, ctx);
@@ -8617,10 +8746,10 @@ var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
       throw new Error("implement() must be called with a function");
     }
     return function(...args) {
-      const parsedArgs = inst._def.input ? parse(inst._def.input, args) : args;
+      const parsedArgs = inst._def.input ? parse2(inst._def.input, args) : args;
       const result = Reflect.apply(func, this, parsedArgs);
       if (inst._def.output) {
-        return parse(inst._def.output, result);
+        return parse2(inst._def.output, result);
       }
       return result;
     };
@@ -17054,7 +17183,7 @@ var ZodRealError = /* @__PURE__ */ $constructor("ZodError", initializer2, {
 });
 
 // node_modules/zod/v4/classic/parse.js
-var parse2 = /* @__PURE__ */ _parse(ZodRealError);
+var parse3 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse2 = /* @__PURE__ */ _safeParse(ZodRealError);
 var safeParseAsync2 = /* @__PURE__ */ _safeParseAsync(ZodRealError);
@@ -17117,7 +17246,7 @@ var ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
   inst.def = def;
   inst.type = def.type;
   Object.defineProperty(inst, "_def", { value: def });
-  inst.parse = (data, params) => parse2(inst, data, params, { callee: inst.parse });
+  inst.parse = (data, params) => parse3(inst, data, params, { callee: inst.parse });
   inst.safeParse = (data, params) => safeParse2(inst, data, params);
   inst.parseAsync = async (data, params) => parseAsync2(inst, data, params, { callee: inst.parseAsync });
   inst.safeParseAsync = async (data, params) => safeParseAsync2(inst, data, params);
@@ -18477,13 +18606,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path7 = ref.slice(1).split("/").filter(Boolean);
-  if (path7.length === 0) {
+  const path9 = ref.slice(1).split("/").filter(Boolean);
+  if (path9.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path7[0] === defsKey) {
-    const key = path7[1];
+  if (path9[0] === defsKey) {
+    const key = path9[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -18905,7 +19034,8 @@ var FeedbackResponseSchema = external_exports.object({
   type: external_exports.literal("feedback_response"),
   feedback: external_exports.string(),
   images: external_exports.array(external_exports.string()).optional(),
-  session_id: external_exports.string().optional()
+  session_id: external_exports.string().optional(),
+  project_directory: external_exports.string().optional()
 });
 var QueuePendingSchema = external_exports.object({
   type: external_exports.literal("queue-pending"),
@@ -18953,8 +19083,19 @@ var StateSyncOutSchema = external_exports.object({
     label: external_exports.string(),
     summary: external_exports.string(),
     projectDir: external_exports.string().optional(),
-    waiting: external_exports.literal(true)
-  }))
+    waiting: external_exports.literal(true),
+    mcp_detached: external_exports.boolean().optional()
+  })),
+  hub: external_exports.object({
+    port: external_exports.number(),
+    pid: external_exports.number(),
+    version: external_exports.string(),
+    workspaces: external_exports.array(external_exports.string()),
+    webviews: external_exports.number(),
+    mcp_servers: external_exports.number(),
+    pending_count: external_exports.number(),
+    mcp_detached_count: external_exports.number()
+  }).optional()
 });
 var PreToolUseOutputSchema = external_exports.discriminatedUnion("decision", [
   external_exports.object({ decision: external_exports.literal("allow") }),
@@ -18993,6 +19134,14 @@ function routeHubMessage(ws, client, msg, deps) {
       break;
     }
     case "feedback_request": {
+      const reject = pipelineRejectReason(
+        PipelineHop.MCP_REQUEST,
+        client.clientType
+      );
+      if (reject) {
+        deps.onProtocolError(reject);
+        break;
+      }
       const req = validateMessage(FeedbackRequestSchema, msg, "feedback_request");
       if (!req) {
         deps.onProtocolError("feedback_request");
@@ -19002,6 +19151,14 @@ function routeHubMessage(ws, client, msg, deps) {
       break;
     }
     case "feedback_response": {
+      const reject = pipelineRejectReason(
+        PipelineHop.UI_RESPONSE,
+        client.clientType
+      );
+      if (reject) {
+        deps.onProtocolError(reject);
+        break;
+      }
       const res = validateMessage(FeedbackResponseSchema, msg, "feedback_response");
       if (!res) {
         deps.onProtocolError("feedback_response");
@@ -19025,6 +19182,12 @@ function routeHubMessage(ws, client, msg, deps) {
     }
     case "get_state": {
       deps.onGetState(ws);
+      break;
+    }
+    case "session_displayed": {
+      const raw = msg;
+      const sid = typeof raw.session_id === "string" ? raw.session_id : "";
+      if (sid) deps.onSessionDisplayed?.(sid);
       break;
     }
     case "clipboard_write": {
@@ -19055,6 +19218,7 @@ function dispatchRouteMessage(ws, client, msg, handlers) {
     onQueuePending: handlers.onQueuePending,
     onDismiss: handlers.onDismiss,
     onGetState: handlers.onGetState,
+    onSessionDisplayed: handlers.onSessionDisplayed,
     onClipboardWrite: handlers.onClipboardWrite,
     onClipboardPaste: handlers.onClipboardPaste,
     sendPong: handlers.sendPong,
@@ -19118,18 +19282,33 @@ function createWebviewBridge(postToPanel) {
   };
 }
 
+// src/hubSnapshot.ts
+function buildHubSnapshot(input) {
+  const mcpDetachedCount = input.pendingSessions.filter((s) => s.mcp_detached === true).length;
+  return {
+    port: input.port,
+    pid: input.pid,
+    version: input.version,
+    workspaces: input.workspaces.slice(),
+    webviews: input.webviews,
+    mcp_servers: input.mcpServers,
+    pending_count: input.pendingCount,
+    mcp_detached_count: mcpDetachedCount
+  };
+}
+
 // src/utils/clipboardImage.ts
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
 var fs2 = __toESM(require("node:fs"));
-var path2 = __toESM(require("node:path"));
+var path3 = __toESM(require("node:path"));
 var os2 = __toESM(require("node:os"));
 var execFileAsync = (0, import_node_util.promisify)(import_node_child_process.execFile);
-var LOG_DIR = path2.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var LOG_DIR = path3.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
 function clipLog(msg) {
   try {
     fs2.mkdirSync(LOG_DIR, { recursive: true });
-    fs2.appendFileSync(path2.join(LOG_DIR, "extension.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
+    fs2.appendFileSync(path3.join(LOG_DIR, "extension.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
 `);
   } catch {
   }
@@ -19178,11 +19357,11 @@ async function readClipboardImageBase64() {
 
 // src/server/wsHub.ts
 var vscode = __toESM(require("vscode"));
-var LOG_DIR2 = path3.join(os3.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var LOG_DIR2 = path4.join(os3.homedir(), ".config", "mcp-feedback-enhanced", "logs");
 function wsLog(msg) {
   try {
     fs3.mkdirSync(LOG_DIR2, { recursive: true });
-    const logFile = path3.join(LOG_DIR2, "extension.log");
+    const logFile = path4.join(LOG_DIR2, "extension.log");
     try {
       const stat = fs3.statSync(logFile);
       if (stat.size > 2 * 1024 * 1024) {
@@ -19218,14 +19397,11 @@ var WsHub = class {
     this.timeline = new ProjectTimeline(MESSAGE_CAP);
     this.feedbackFlow = new FeedbackFlow({
       feedback: this.feedback,
+      getHubWorkspaces: () => this.workspaces,
       appendReminder: (feedback) => feedback,
       addMessage: (msg) => this._addMessage(msg),
-      broadcastSessionUpdated: (summary, sessionId) => {
-        this._broadcastToWebviews({
-          type: "session_updated",
-          summary,
-          ...sessionId ? { session_id: sessionId } : {}
-        });
+      broadcastSessionUpdated: (summary, sessionId, projectDirectory) => {
+        this._broadcastSessionUpdated(summary, sessionId, projectDirectory);
       },
       broadcastFeedbackSubmitted: (feedback, sessionId) => {
         this._broadcastToWebviews({
@@ -19306,7 +19482,8 @@ var WsHub = class {
   /** In-process bridge for Cursor webview (avoids unreliable ws:// from webview sandbox). */
   attachWebview(postToPanel) {
     const bridge = createWebviewBridge(postToPanel);
-    this._bindClient(bridge.socket);
+    const client = this._bindClient(bridge.socket);
+    client.clientType = "webview";
     wsLog("client registered: type=webview (bridge)");
     return bridge;
   }
@@ -19412,18 +19589,26 @@ var WsHub = class {
         this.clients.remove(ws);
       }
     });
+    return client;
   }
   _routeMessage(ws, client, msg) {
     dispatchRouteMessage(ws, client, msg, {
       onRegister: (clientType) => {
         client.clientType = clientType;
         wsLog(`client registered: type=${client.clientType}`);
+        if (clientType === "webview") {
+          this._replayPendingSessions(ws);
+        }
       },
       onFeedbackRequest: (mcpWs, req) => this._handleFeedbackRequest(mcpWs, req),
       onFeedbackResponse: (res) => this._handleFeedbackResponse(res),
       onQueuePending: (qp) => this._handleQueuePending(qp),
       onDismiss: () => this._handleDismiss(),
       onGetState: (targetWs) => this._sendState(targetWs),
+      onSessionDisplayed: (sessionId) => {
+        const project = this.feedback.pendingSessions().find((s) => s.id === sessionId)?.projectDir;
+        wsLog(sessionDisplayedLogLine(sessionId, project));
+      },
       onClipboardWrite: (targetWs, msg2) => {
         const text = msg2.text || "";
         void Promise.resolve(vscode.env.clipboard.writeText(text)).then(() => {
@@ -19451,7 +19636,11 @@ var WsHub = class {
           image
         });
       },
-      sendPong: (targetWs) => this._send(targetWs, { type: "pong", body: "pong" }),
+      sendPong: (targetWs) => this._send(targetWs, {
+        type: "pong",
+        body: "pong",
+        hub: this._hubSnapshot()
+      }),
       onProtocolError: (context) => this._send(ws, {
         type: "protocol_error",
         error: `Invalid message: ${context}`
@@ -19497,11 +19686,25 @@ var WsHub = class {
     });
   }
   // ── State Sync ──────────────────────────────────────────
+  _hubSnapshot() {
+    const pendingSessions = this.feedback.pendingSessions();
+    return buildHubSnapshot({
+      port: this.port,
+      pid: process.pid,
+      version: this.version,
+      workspaces: this.workspaces,
+      webviews: this.clients.counts().webviews,
+      mcpServers: this.clients.counts().mcpServers,
+      pendingCount: this.feedback.pendingCount(),
+      pendingSessions
+    });
+  }
   _sendState(ws) {
     const entry = this.pending.read();
     const pendingSessions = this.feedback.pendingSessions();
+    const hub = this._hubSnapshot();
     wsLog(
-      `stateSync: version=${this.version} port=${this.port} pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()}`
+      `stateSync: version=${this.version} port=${this.port} workspaces=${JSON.stringify(this.workspaces)} pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count}`
     );
     this._send(ws, {
       type: "state_sync",
@@ -19509,7 +19712,15 @@ var WsHub = class {
       pending_comments: entry?.comments ?? [],
       pending_images: entry?.images ?? [],
       feedback_queue_size: this.feedback.pendingCount(),
-      pending_sessions: pendingSessions
+      pending_sessions: pendingSessions.map((s) => ({
+        id: s.id,
+        label: s.label,
+        summary: s.summary,
+        waiting: s.waiting,
+        mcp_detached: s.mcp_detached,
+        ...s.projectDir ? { project_directory: s.projectDir } : {}
+      })),
+      hub
     });
   }
   // ── Heartbeat ───────────────────────────────────────────
@@ -19538,20 +19749,97 @@ var WsHub = class {
       ws.send(JSON.stringify(data));
     }
   }
+  _broadcastSessionUpdated(summary, sessionId, projectDirectory) {
+    const payload = {
+      type: "session_updated",
+      summary,
+      ...sessionId ? { session_id: sessionId } : {},
+      ...projectDirectory ? { project_directory: projectDirectory } : {}
+    };
+    const count = this._broadcastToWebviews(payload);
+    const delivery = evaluateBroadcastDelivery(count);
+    wsLog(sessionUpdatedLogLine(sessionId ?? "(none)", delivery, projectDirectory));
+  }
+  _replayPendingSessions(ws) {
+    for (const session of this.feedback.pendingSessions()) {
+      wsLog(sessionReplayLogLine(session.id, "webview", session.projectDir));
+      this._send(ws, {
+        type: "session_updated",
+        summary: session.summary,
+        session_id: session.id,
+        session_label: session.label,
+        ...session.projectDir ? { project_directory: session.projectDir } : {}
+      });
+    }
+  }
   _broadcastToWebviews(data) {
-    this.clients.forEachWebview((ws) => this._send(ws, data));
+    let count = 0;
+    this.clients.forEachWebview((ws) => {
+      this._send(ws, data);
+      count++;
+    });
+    return count;
   }
 };
 
 // src/feedbackViewProvider.ts
 var vscode2 = __toESM(require("vscode"));
+var fs5 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
+var os5 = __toESM(require("os"));
+
+// src/webviewLog.ts
 var fs4 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
+var path5 = __toESM(require("path"));
+var DEFAULT_LOG_DIR = path5.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var DEFAULT_LOG_FILE = "webview.log";
+var MAX_BYTES = 2 * 1024 * 1024;
+var logDirOverride = null;
+function resolveLogDir() {
+  return logDirOverride ?? DEFAULT_LOG_DIR;
+}
+function appendWebviewLog(msg, projectPath) {
+  try {
+    const logDir = resolveLogDir();
+    fs4.mkdirSync(logDir, { recursive: true });
+    const logFile = path5.join(logDir, DEFAULT_LOG_FILE);
+    try {
+      const stat = fs4.statSync(logFile);
+      if (stat.size > MAX_BYTES) {
+        try {
+          fs4.unlinkSync(logFile + ".old");
+        } catch {
+        }
+        fs4.renameSync(logFile, logFile + ".old");
+      }
+    } catch {
+    }
+    const prefix = projectPath ? `[${projectPath}] ` : "";
+    fs4.appendFileSync(logFile, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}
+`);
+  } catch {
+  }
+}
+function webviewLogPath() {
+  return path5.join(resolveLogDir(), DEFAULT_LOG_FILE);
+}
+
+// src/webviewSyncPolicy.ts
+function shouldReloadWebview(lastSyncedPort, nextPort) {
+  return lastSyncedPort !== nextPort;
+}
+function shouldReconnectWebview(lastSyncedPort, nextPort, bridgeActive) {
+  if (shouldReloadWebview(lastSyncedPort, nextPort)) return true;
+  return !bridgeActive;
+}
+
+// src/feedbackViewProvider.ts
 var FeedbackViewProvider = class {
   constructor(getHtml, getPort, getVersion, getHub, extensionUri) {
     this._view = null;
     this._bridge = null;
+    this._lastSyncedPort = 0;
     this._getHtml = getHtml;
     this._getPort = getPort;
     this._getVersion = getVersion;
@@ -19575,6 +19863,7 @@ var FeedbackViewProvider = class {
     };
     this._setupMessageHandler(webviewView);
     webviewView.webview.html = this._injectWebviewResources(webviewView);
+    this._lastSyncedPort = this._getPort();
     this._setupHotReload(webviewView);
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible && !this._bridge) {
@@ -19591,6 +19880,7 @@ var FeedbackViewProvider = class {
   recreate() {
     if (this._view) {
       this._view.webview.html = this._injectWebviewResources(this._view);
+      this._lastSyncedPort = this._getPort();
     }
   }
   focusInput() {
@@ -19603,12 +19893,22 @@ var FeedbackViewProvider = class {
       this._view.webview.postMessage({ type: "please-reconnect" });
     }
   }
-  /** Refresh webview HTML and re-attach in-process bridge. */
-  syncServer(_port) {
+  /** Refresh webview when hub port changes; otherwise soft-reconnect only. */
+  syncServer(port) {
     if (!this._view) return;
-    this._bridge?.dispose();
-    this._bridge = null;
-    this._view.webview.html = this._injectWebviewResources(this._view);
+    if (shouldReloadWebview(this._lastSyncedPort, port)) {
+      this._lastSyncedPort = port;
+      this._bridge?.dispose();
+      this._bridge = null;
+      this._view.webview.html = this._injectWebviewResources(this._view);
+      return;
+    }
+    this._lastSyncedPort = port;
+    if (!shouldReconnectWebview(this._lastSyncedPort, port, this._bridge !== null)) {
+      this._pushServerInfo(this._view);
+      return;
+    }
+    this.reconnect();
   }
   _injectWebviewResources(view) {
     let html = this._getHtml();
@@ -19669,7 +19969,7 @@ var FeedbackViewProvider = class {
   }
   _handleDebugRequest(view) {
     const hub = this._getHub();
-    const logDir = path4.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+    const logDir = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "logs");
     const report = {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       extension: {
@@ -19681,8 +19981,9 @@ var FeedbackViewProvider = class {
         ...hub?.getDebugInfo() ?? {}
       },
       logPaths: {
-        extension: path4.join(logDir, "extension.log"),
-        mcpServer: path4.join(logDir, "mcp-server.log")
+        extension: path6.join(logDir, "extension.log"),
+        mcpServer: path6.join(logDir, "mcp-server.log"),
+        webview: webviewLogPath()
       }
     };
     view.webview.postMessage({ type: "debug-report", report });
@@ -19694,9 +19995,15 @@ var FeedbackViewProvider = class {
           this._pushServerInfo(view);
           break;
         case "webview-ready":
-          this._pushServerInfo(view);
           if (!this._bridge) {
             this._connectBridge(view);
+          } else {
+            view.webview.postMessage({
+              type: "bridge-connected",
+              port: this._getPort(),
+              version: this._getVersion(),
+              pid: process.pid
+            });
           }
           break;
         case "hub-connect":
@@ -19752,6 +20059,11 @@ var FeedbackViewProvider = class {
           this._handleAtSearch(message.query, view);
           break;
         case "log":
+          if (typeof message.msg === "string") {
+            const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+            const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
+            appendWebviewLog(message.msg, typeof projectPath === "string" ? projectPath : void 0);
+          }
           break;
       }
     });
@@ -19771,7 +20083,7 @@ var FeedbackViewProvider = class {
         const rel = workspaceRoot ? vscode2.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
           kind: "file",
-          label: path4.basename(file2.fsPath),
+          label: path6.basename(file2.fsPath),
           detail: rel,
           insertText: rel
         });
@@ -19814,11 +20126,11 @@ var FeedbackViewProvider = class {
       return;
     }
     try {
-      const htmlDir = path4.join(__dirname, "webview");
-      if (!fs4.existsSync(htmlDir)) {
+      const htmlDir = path6.join(__dirname, "webview");
+      if (!fs5.existsSync(htmlDir)) {
         return;
       }
-      this._fileWatcher = fs4.watch(htmlDir, () => {
+      this._fileWatcher = fs5.watch(htmlDir, () => {
         if (view.visible) {
           view.webview.html = this._injectWebviewResources(view);
         }
@@ -19835,17 +20147,24 @@ var FeedbackViewProvider = class {
 };
 
 // src/extensionVersion.ts
-var fs5 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var fs6 = __toESM(require("fs"));
+var path7 = __toESM(require("path"));
 function readExtensionVersion(extensionPath) {
   try {
     const pkg = JSON.parse(
-      fs5.readFileSync(path5.join(extensionPath, "package.json"), "utf-8")
+      fs6.readFileSync(path7.join(extensionPath, "package.json"), "utf-8")
     );
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
   }
+}
+
+// src/activateSyncPolicy.ts
+var EXTENSION_SYNC_DELAY_MS = 800;
+var EXTENSION_PANEL_FOCUS_DELAYS_MS = [1500, 3e3, 5e3];
+function extensionSyncDelaysMs() {
+  return [EXTENSION_SYNC_DELAY_MS];
 }
 
 // src/extension.ts
@@ -19892,13 +20211,13 @@ function resolveNodeBin() {
 }
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path6.join(extensionPath, "out", "webview", "panel.html"),
-    path6.join(extensionPath, "static", "panel.html")
+    path8.join(extensionPath, "out", "webview", "panel.html"),
+    path8.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
-    if (fs6.existsSync(p)) {
-      html = fs6.readFileSync(p, "utf-8");
+    if (fs7.existsSync(p)) {
+      html = fs7.readFileSync(p, "utf-8");
       break;
     }
   }
@@ -19964,7 +20283,6 @@ async function activate(context) {
       vscode3.commands.executeCommand("mcp-feedback-enhanced.feedbackPanelBottom.focus");
     }),
     vscode3.commands.registerCommand("mcp-feedback-enhanced.reconnect", () => {
-      bottomProvider.syncServer(port);
       bottomProvider.reconnect();
     }),
     vscode3.commands.registerCommand("mcp-feedback-enhanced.forceReset", async () => {
@@ -20007,12 +20325,11 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
   };
   const syncWebview = () => {
     bottomProvider.syncServer(port);
-    bottomProvider.reconnect();
   };
-  for (const delay of [1500, 3e3, 5e3]) {
+  for (const delay of EXTENSION_PANEL_FOCUS_DELAYS_MS) {
     setTimeout(activatePanel, delay);
   }
-  for (const delay of [0, 500, 1500, 3e3]) {
+  for (const delay of extensionSyncDelaysMs()) {
     setTimeout(syncWebview, delay);
   }
 }
@@ -20033,7 +20350,7 @@ function _openEditorPanel(context, port) {
     {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode3.Uri.file(path6.join(context.extensionPath, "out"))]
+      localResourceRoots: [vscode3.Uri.file(path8.join(context.extensionPath, "out"))]
     }
   );
   panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
@@ -20041,13 +20358,13 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path6.join(os5.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path8.join(os6.homedir(), ".cursor", "mcp.json");
     let config2 = {};
-    if (fs6.existsSync(mcpConfigPath)) {
-      config2 = JSON.parse(fs6.readFileSync(mcpConfigPath, "utf-8"));
+    if (fs7.existsSync(mcpConfigPath)) {
+      config2 = JSON.parse(fs7.readFileSync(mcpConfigPath, "utf-8"));
     }
     const mcpServers = config2.mcpServers || {};
-    const localServerPath = path6.join(extensionPath, "mcp-server", "dist", "index.js");
+    const localServerPath = path8.join(extensionPath, "mcp-server", "dist", "index.js");
     const expectedCommand = resolveNodeBin();
     const expectedArgs = [localServerPath];
     const expectedEnv = { MCP_FEEDBACK_VERSION: version2 };
@@ -20063,35 +20380,35 @@ function ensureMcpConfig(extensionPath) {
     };
     delete mcpServers["mcp-feedback-v2"];
     config2.mcpServers = mcpServers;
-    fs6.mkdirSync(path6.dirname(mcpConfigPath), { recursive: true });
-    fs6.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
+    fs7.mkdirSync(path8.dirname(mcpConfigPath), { recursive: true });
+    fs7.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to update MCP config:", e);
   }
 }
 function deployCursorHooks(extensionPath) {
   try {
-    const hooksSourceDir = path6.join(extensionPath, "scripts", "hooks");
-    const targetDir = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
-    fs6.mkdirSync(targetDir, { recursive: true });
+    const hooksSourceDir = path8.join(extensionPath, "scripts", "hooks");
+    const targetDir = path8.join(os6.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    fs7.mkdirSync(targetDir, { recursive: true });
     const hookFiles = ["hook-utils.js", "consume-pending.js"];
     for (const file2 of hookFiles) {
-      const src = path6.join(hooksSourceDir, file2);
-      if (fs6.existsSync(src)) {
-        fs6.copyFileSync(src, path6.join(targetDir, file2));
+      const src = path8.join(hooksSourceDir, file2);
+      if (fs7.existsSync(src)) {
+        fs7.copyFileSync(src, path8.join(targetDir, file2));
       }
     }
     for (const old of ["check-pending.js", "agent-stop.js", "session-start.js", "enforce-feedback.js", "track-feedback.js", "compact-flag.js"]) {
       try {
-        fs6.unlinkSync(path6.join(targetDir, old));
+        fs7.unlinkSync(path8.join(targetDir, old));
       } catch {
       }
     }
-    const preToolUseHook = path6.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path6.join(os5.homedir(), ".cursor", "hooks.json");
+    const preToolUseHook = path8.join(targetDir, "consume-pending.js");
+    const hooksConfigPath = path8.join(os6.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
-    if (fs6.existsSync(hooksConfigPath)) {
-      hooksConfig = JSON.parse(fs6.readFileSync(hooksConfigPath, "utf-8"));
+    if (fs7.existsSync(hooksConfigPath)) {
+      hooksConfig = JSON.parse(fs7.readFileSync(hooksConfigPath, "utf-8"));
     }
     if (!hooksConfig.version) {
       hooksConfig.version = 1;
@@ -20127,8 +20444,8 @@ function deployCursorHooks(extensionPath) {
       }
     }
     hooksConfig.hooks = hooks;
-    fs6.mkdirSync(path6.dirname(hooksConfigPath), { recursive: true });
-    fs6.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
+    fs7.mkdirSync(path8.dirname(hooksConfigPath), { recursive: true });
+    fs7.writeFileSync(hooksConfigPath, JSON.stringify(hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
   }
@@ -20163,23 +20480,23 @@ var RULES_CONTENT = [
 ].join("\n");
 function deployCursorRules() {
   try {
-    const rulesDir = path6.join(os5.homedir(), ".cursor", "rules");
-    const ruleFile = path6.join(rulesDir, "mcp-feedback-enhanced.mdc");
-    fs6.mkdirSync(rulesDir, { recursive: true });
+    const rulesDir = path8.join(os6.homedir(), ".cursor", "rules");
+    const ruleFile = path8.join(rulesDir, "mcp-feedback-enhanced.mdc");
+    fs7.mkdirSync(rulesDir, { recursive: true });
     let needsWrite = true;
-    if (fs6.existsSync(ruleFile)) {
-      const existing = fs6.readFileSync(ruleFile, "utf-8");
+    if (fs7.existsSync(ruleFile)) {
+      const existing = fs7.readFileSync(ruleFile, "utf-8");
       if (existing === RULES_CONTENT) {
         needsWrite = false;
       }
     }
     if (needsWrite) {
-      fs6.writeFileSync(ruleFile, RULES_CONTENT);
+      fs7.writeFileSync(ruleFile, RULES_CONTENT);
     }
     for (const ws of getWorkspaces()) {
-      const wsRuleFile = path6.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
+      const wsRuleFile = path8.join(ws, ".cursor", "rules", "mcp-feedback-enhanced.mdc");
       try {
-        fs6.unlinkSync(wsRuleFile);
+        fs7.unlinkSync(wsRuleFile);
       } catch {
       }
     }
@@ -20189,21 +20506,21 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path6.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
-    if (!fs6.existsSync(pendingDir)) return;
-    const files = fs6.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
+    const pendingDir = path8.join(os6.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    if (!fs7.existsSync(pendingDir)) return;
+    const files = fs7.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) {
-      fs6.rmdirSync(pendingDir);
+      fs7.rmdirSync(pendingDir);
       return;
     }
     for (const f of files) {
       try {
-        fs6.unlinkSync(path6.join(pendingDir, f));
+        fs7.unlinkSync(path8.join(pendingDir, f));
       } catch {
       }
     }
     try {
-      fs6.rmdirSync(pendingDir);
+      fs7.rmdirSync(pendingDir);
     } catch {
     }
   } catch {

@@ -17,6 +17,7 @@ interface HubRouteHandlers {
     }) => void;
     onDismiss: () => void;
     onGetState: (ws: WebSocket) => void;
+    onSessionDisplayed?: (sessionId: string) => void;
     onClipboardWrite?: (ws: WebSocket, msg: {
         text?: string;
     }) => void;

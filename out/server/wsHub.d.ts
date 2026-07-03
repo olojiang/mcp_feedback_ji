@@ -49,9 +49,12 @@ export declare class WsHub {
     private _handleDismiss;
     private _handleQueuePending;
     private _onPendingDelivered;
+    private _hubSnapshot;
     private _sendState;
     private _startHeartbeat;
     private _ensureServerRegistration;
     private _send;
+    private _broadcastSessionUpdated;
+    private _replayPendingSessions;
     private _broadcastToWebviews;
 }

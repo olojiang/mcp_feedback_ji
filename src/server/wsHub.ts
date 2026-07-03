@@ -33,6 +33,13 @@ import { findAvailablePort } from './portFinder';
 import { dispatchRouteMessage } from './routeAdapter';
 import { decodeWsMessage } from './wsMessageCodec';
 import { createWebviewBridge, type WebviewBridge } from './webviewBridge';
+import { buildHubSnapshot } from '../hubSnapshot';
+import {
+    evaluateBroadcastDelivery,
+    sessionDisplayedLogLine,
+    sessionReplayLogLine,
+    sessionUpdatedLogLine,
+} from '../feedbackDelivery';
 import { readClipboardImageBase64 } from '../utils/clipboardImage';
 import * as vscode from 'vscode';
 
@@ -80,14 +87,11 @@ export class WsHub {
         this.timeline = new ProjectTimeline(MESSAGE_CAP);
         this.feedbackFlow = new FeedbackFlow({
             feedback: this.feedback,
+            getHubWorkspaces: () => this.workspaces,
             appendReminder: (feedback) => feedback,
             addMessage: (msg) => this._addMessage(msg),
-            broadcastSessionUpdated: (summary, sessionId) => {
-                this._broadcastToWebviews({
-                    type: 'session_updated',
-                    summary,
-                    ...(sessionId ? { session_id: sessionId } : {}),
-                });
+            broadcastSessionUpdated: (summary, sessionId, projectDirectory) => {
+                this._broadcastSessionUpdated(summary, sessionId, projectDirectory);
             },
             broadcastFeedbackSubmitted: (feedback, sessionId) => {
                 this._broadcastToWebviews({
@@ -180,7 +184,9 @@ export class WsHub {
     /** In-process bridge for Cursor webview (avoids unreliable ws:// from webview sandbox). */
     attachWebview(postToPanel: (msg: Record<string, unknown>) => void): WebviewBridge {
         const bridge = createWebviewBridge(postToPanel);
-        this._bindClient(bridge.socket);
+        const client = this._bindClient(bridge.socket);
+        // Mark immediately so session_updated broadcasts are not dropped before register arrives.
+        client.clientType = 'webview';
         wsLog('client registered: type=webview (bridge)');
         return bridge;
     }
@@ -277,7 +283,7 @@ export class WsHub {
         this._bindClient(ws);
     }
 
-    private _bindClient(ws: WebSocket): void {
+    private _bindClient(ws: WebSocket): ConnectedClient {
         const client = this.clients.add(ws);
 
         this._send(ws, {
@@ -303,6 +309,7 @@ export class WsHub {
                 this.clients.remove(ws);
             },
         });
+        return client;
     }
 
     private _routeMessage(ws: WebSocket, client: ConnectedClient, msg: WSMessage): void {
@@ -310,12 +317,19 @@ export class WsHub {
             onRegister: (clientType) => {
                 client.clientType = clientType;
                 wsLog(`client registered: type=${client.clientType}`);
+                if (clientType === 'webview') {
+                    this._replayPendingSessions(ws);
+                }
             },
             onFeedbackRequest: (mcpWs, req) => this._handleFeedbackRequest(mcpWs, req),
             onFeedbackResponse: (res) => this._handleFeedbackResponse(res),
             onQueuePending: (qp) => this._handleQueuePending(qp),
             onDismiss: () => this._handleDismiss(),
             onGetState: (targetWs) => this._sendState(targetWs),
+            onSessionDisplayed: (sessionId) => {
+                const project = this.feedback.pendingSessions().find((s) => s.id === sessionId)?.projectDir;
+                wsLog(sessionDisplayedLogLine(sessionId, project));
+            },
             onClipboardWrite: (targetWs, msg) => {
                 const text = msg.text || '';
                 void Promise.resolve(vscode.env.clipboard.writeText(text))
@@ -344,7 +358,11 @@ export class WsHub {
                     image,
                 });
             },
-            sendPong: (targetWs) => this._send(targetWs, { type: 'pong', body: 'pong' }),
+            sendPong: (targetWs) => this._send(targetWs, {
+                type: 'pong',
+                body: 'pong',
+                hub: this._hubSnapshot(),
+            }),
             onProtocolError: (context) => this._send(ws, {
                 type: 'protocol_error',
                 error: `Invalid message: ${context}`,
@@ -403,12 +421,29 @@ export class WsHub {
 
     // ── State Sync ──────────────────────────────────────────
 
+    private _hubSnapshot() {
+        const pendingSessions = this.feedback.pendingSessions();
+        return buildHubSnapshot({
+            port: this.port,
+            pid: process.pid,
+            version: this.version,
+            workspaces: this.workspaces,
+            webviews: this.clients.counts().webviews,
+            mcpServers: this.clients.counts().mcpServers,
+            pendingCount: this.feedback.pendingCount(),
+            pendingSessions,
+        });
+    }
+
     private _sendState(ws: WebSocket): void {
         const entry = this.pending.read();
         const pendingSessions = this.feedback.pendingSessions();
+        const hub = this._hubSnapshot();
         wsLog(
             `stateSync: version=${this.version} port=${this.port} `
-            + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()}`
+            + `workspaces=${JSON.stringify(this.workspaces)} `
+            + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} `
+            + `mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count}`,
         );
         this._send(ws, {
             type: 'state_sync',
@@ -416,7 +451,15 @@ export class WsHub {
             pending_comments: entry?.comments ?? [],
             pending_images: entry?.images ?? [],
             feedback_queue_size: this.feedback.pendingCount(),
-            pending_sessions: pendingSessions,
+            pending_sessions: pendingSessions.map((s) => ({
+                id: s.id,
+                label: s.label,
+                summary: s.summary,
+                waiting: s.waiting,
+                mcp_detached: s.mcp_detached,
+                ...(s.projectDir ? { project_directory: s.projectDir } : {}),
+            })),
+            hub,
         });
     }
 
@@ -450,7 +493,37 @@ export class WsHub {
         }
     }
 
-    private _broadcastToWebviews(data: Record<string, unknown>): void {
-        this.clients.forEachWebview((ws) => this._send(ws, data));
+    private _broadcastSessionUpdated(summary: string, sessionId?: string, projectDirectory?: string): void {
+        const payload: Record<string, unknown> = {
+            type: 'session_updated',
+            summary,
+            ...(sessionId ? { session_id: sessionId } : {}),
+            ...(projectDirectory ? { project_directory: projectDirectory } : {}),
+        };
+        const count = this._broadcastToWebviews(payload);
+        const delivery = evaluateBroadcastDelivery(count);
+        wsLog(sessionUpdatedLogLine(sessionId ?? '(none)', delivery, projectDirectory));
+    }
+
+    private _replayPendingSessions(ws: WebSocket): void {
+        for (const session of this.feedback.pendingSessions()) {
+            wsLog(sessionReplayLogLine(session.id, 'webview', session.projectDir));
+            this._send(ws, {
+                type: 'session_updated',
+                summary: session.summary,
+                session_id: session.id,
+                session_label: session.label,
+                ...(session.projectDir ? { project_directory: session.projectDir } : {}),
+            });
+        }
+    }
+
+    private _broadcastToWebviews(data: Record<string, unknown>): number {
+        let count = 0;
+        this.clients.forEachWebview((ws) => {
+            this._send(ws, data);
+            count++;
+        });
+        return count;
     }
 }

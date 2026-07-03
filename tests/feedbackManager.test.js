@@ -57,6 +57,7 @@ describe('FeedbackManager', () => {
         summary: 'Need feedback',
         projectDir: project,
         waiting: true,
+        mcp_detached: false,
       },
     ])
   })
@@ -69,6 +70,7 @@ describe('FeedbackManager', () => {
 
     assert.deepEqual(fm.detachMcpClient(ws), [request.sessionId])
     assert.equal(fm.isMcpDetached(request.sessionId), true)
+    assert.equal(fm.pendingSessions()[0].mcp_detached, true)
 
     assert.equal(fm.resolveBySessionId(request.sessionId, { feedback: 'late reply' }), true)
     const resolved = await request.promise

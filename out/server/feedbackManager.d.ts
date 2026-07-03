@@ -20,6 +20,7 @@ export interface PendingSessionSnapshot {
     summary: string;
     projectDir?: string;
     waiting: true;
+    mcp_detached?: boolean;
 }
 export declare class FeedbackManager {
     private queue;

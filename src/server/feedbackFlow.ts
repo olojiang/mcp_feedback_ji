@@ -1,13 +1,19 @@
 import { WebSocket } from 'ws';
 import type { ConversationMessage } from '../types';
-import { writeAgentContext } from '../fileStore';
 import { FeedbackManager } from './feedbackManager';
+import { PipelineHop, pipelineTraceLine } from '../pipelineContracts';
+import {
+    feedbackRequestAcceptedLogLine,
+    feedbackResponseLogLine,
+} from '../feedbackDelivery';
+import { hubAcceptsProject, projectMismatchLogLine } from '../workspaceMatch';
 
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
+    getHubWorkspaces: () => string[];
     appendReminder: (feedback: string) => string;
     addMessage: (msg: ConversationMessage) => void;
-    broadcastSessionUpdated: (summary: string, sessionId?: string) => void;
+    broadcastSessionUpdated: (summary: string, sessionId?: string, projectDirectory?: string) => void;
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
@@ -39,8 +45,16 @@ export class FeedbackFlow {
     }
 
     handleFeedbackRequest(mcpWs: WebSocket, req: { summary: string; project_directory?: string }): void {
-        if (req.project_directory) {
-            writeAgentContext([req.project_directory]);
+        if (req.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), req.project_directory)) {
+            this.deps.log(projectMismatchLogLine(req.project_directory, this.deps.getHubWorkspaces()));
+            this.deps.sendError(
+                mcpWs,
+                new Error(
+                    `Project mismatch: this hub serves ${this.deps.getHubWorkspaces().join(', ')}, `
+                    + `not ${req.project_directory}`,
+                ),
+            );
+            return;
         }
 
         this.deps.log(
@@ -61,7 +75,7 @@ export class FeedbackFlow {
                 content: req.summary,
                 timestamp: new Date().toISOString(),
             });
-            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId);
+            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory);
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
             return;
@@ -78,8 +92,10 @@ export class FeedbackFlow {
             req.project_directory,
             req.summary,
         );
+        this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
-        this.deps.broadcastSessionUpdated(req.summary, sessionId);
+        this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory));
+        this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory);
         this.deps.onFeedbackRequested?.();
         this._attachMcpPromiseHandlers(mcpWs, sessionId);
     }
@@ -115,10 +131,26 @@ export class FeedbackFlow {
         return ws.readyState === WebSocket.OPEN;
     }
 
-    handleFeedbackResponse(res: { feedback: string; images?: string[]; session_id?: string }): void {
+    handleFeedbackResponse(res: {
+        feedback: string;
+        images?: string[];
+        session_id?: string;
+        project_directory?: string;
+    }): void {
+        const project = this._resolveProject(res);
+        if (res.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), res.project_directory)) {
+            this.deps.log(projectMismatchLogLine(res.project_directory, this.deps.getHubWorkspaces()));
+            this.deps.log('feedbackResponse: rejected project_mismatch from panel');
+            return;
+        }
+
         this.deps.log(
-            `feedbackResponse: session=${res.session_id ?? '(first)'} feedback=${res.feedback.slice(0, 80)}`,
+            pipelineTraceLine(
+                PipelineHop.UI_RESPONSE,
+                `session=${res.session_id ?? '(first)'} project=${project ?? '(unknown)'} len=${res.feedback.length}`,
+            ),
         );
+        this.deps.log(feedbackResponseLogLine(res.session_id ?? '(first)', project, res.feedback.slice(0, 80)));
 
         this.deps.addMessage({
             role: 'user',
@@ -132,9 +164,18 @@ export class FeedbackFlow {
             feedback: this.deps.appendReminder(res.feedback),
             images: res.images ?? undefined,
         };
-        const resolved = res.session_id
-            ? this.deps.feedback.resolveBySessionId(res.session_id, payload)
-            : this.deps.feedback.resolveFirst(payload);
+        let resolved = false;
+        if (res.session_id) {
+            resolved = this.deps.feedback.resolveBySessionId(res.session_id, payload);
+            if (!resolved && this.deps.feedback.pendingCount() === 1) {
+                this.deps.log(
+                    `feedbackResponse: stale session_id=${res.session_id}, fallback to sole pending session`,
+                );
+                resolved = this.deps.feedback.resolveFirst(payload);
+            }
+        } else {
+            resolved = this.deps.feedback.resolveFirst(payload);
+        }
         if (!resolved) {
             this.deps.log('feedbackResponse: no pending session, routing to pending queue');
             this.deps.queueAsPending(res.feedback, res.images);
@@ -142,6 +183,22 @@ export class FeedbackFlow {
         }
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
+    }
+
+    private _resolveProject(res: { session_id?: string }): string | undefined {
+        if (res.session_id) {
+            const direct = this._sessionProject(res.session_id);
+            if (direct) return direct;
+        }
+        const pending = this.deps.feedback.pendingSessions();
+        if (pending.length === 1) return pending[0].projectDir;
+        return undefined;
+    }
+
+    private _sessionProject(sessionId?: string): string | undefined {
+        if (!sessionId) return undefined;
+        const snap = this.deps.feedback.pendingSessions().find((s) => s.id === sessionId);
+        return snap?.projectDir;
     }
 
     handleDismiss(): void {

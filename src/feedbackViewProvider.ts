@@ -15,6 +15,8 @@ import * as os from 'os';
 
 import type { FeedbackWSServer } from './wsServer';
 import type { WebviewBridge } from './server/webviewBridge';
+import { appendWebviewLog, webviewLogPath } from './webviewLog';
+import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
 
 type HtmlGetter = () => string;
 type PortGetter = () => number;
@@ -29,6 +31,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _getHub: HubGetter;
     private _extensionUri: vscode.Uri;
     private _bridge: WebviewBridge | null = null;
+    private _lastSyncedPort = 0;
     private _forceResetCallback?: () => Promise<number>;
     private _fileWatcher?: fs.FSWatcher;
 
@@ -65,6 +68,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
         this._setupMessageHandler(webviewView);
         webviewView.webview.html = this._injectWebviewResources(webviewView);
+        this._lastSyncedPort = this._getPort();
         this._setupHotReload(webviewView);
 
         webviewView.onDidChangeVisibility(() => {
@@ -84,6 +88,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     recreate(): void {
         if (this._view) {
             this._view.webview.html = this._injectWebviewResources(this._view);
+            this._lastSyncedPort = this._getPort();
         }
     }
 
@@ -99,12 +104,22 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    /** Refresh webview HTML and re-attach in-process bridge. */
-    syncServer(_port: number): void {
+    /** Refresh webview when hub port changes; otherwise soft-reconnect only. */
+    syncServer(port: number): void {
         if (!this._view) return;
-        this._bridge?.dispose();
-        this._bridge = null;
-        this._view.webview.html = this._injectWebviewResources(this._view);
+        if (shouldReloadWebview(this._lastSyncedPort, port)) {
+            this._lastSyncedPort = port;
+            this._bridge?.dispose();
+            this._bridge = null;
+            this._view.webview.html = this._injectWebviewResources(this._view);
+            return;
+        }
+        this._lastSyncedPort = port;
+        if (!shouldReconnectWebview(this._lastSyncedPort, port, this._bridge !== null)) {
+            this._pushServerInfo(this._view);
+            return;
+        }
+        this.reconnect();
     }
 
     private _injectWebviewResources(view: vscode.WebviewView): string {
@@ -189,6 +204,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             logPaths: {
                 extension: path.join(logDir, 'extension.log'),
                 mcpServer: path.join(logDir, 'mcp-server.log'),
+                webview: webviewLogPath(),
             },
         };
 
@@ -203,9 +219,15 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'webview-ready':
-                    this._pushServerInfo(view);
                     if (!this._bridge) {
                         this._connectBridge(view);
+                    } else {
+                        view.webview.postMessage({
+                            type: 'bridge-connected',
+                            port: this._getPort(),
+                            version: this._getVersion(),
+                            pid: process.pid,
+                        });
                     }
                     break;
 
@@ -275,6 +297,11 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'log':
+                    if (typeof message.msg === 'string') {
+                        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                        const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                        appendWebviewLog(message.msg, typeof projectPath === 'string' ? projectPath : undefined);
+                    }
                     break;
             }
         });

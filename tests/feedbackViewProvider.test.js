@@ -1,0 +1,100 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import Module from 'node:module'
+
+const require = createRequire(import.meta.url)
+const origLoad = Module._load
+Module._load = function (request, parent, isMain) {
+  if (request === 'vscode') {
+    return require('./stubs/vscode.cjs')
+  }
+  return origLoad.call(this, request, parent, isMain)
+}
+
+const { FeedbackViewProvider } = require('../out/feedbackViewProvider.js')
+
+function makeProvider() {
+  const posts = []
+  let onMessage = null
+  const hub = {
+    attachWebview: () => ({
+      dispose() {},
+      deliver() {},
+      socket: { on() {} },
+    }),
+    getDebugInfo: () => ({ workspaces: ['/tmp/ws'] }),
+  }
+  const provider = new FeedbackViewProvider(
+    () => '<html></html>',
+    () => 48201,
+    () => '2.5.1-test',
+    () => hub,
+    { fsPath: '/ext' },
+  )
+  const view = {
+    visible: true,
+    webview: {
+      html: '',
+      cspSource: 'csp:',
+      options: {},
+      onDidReceiveMessage: (cb) => { onMessage = cb },
+      postMessage: (msg) => posts.push(msg),
+      asWebviewUri: (uri) => uri,
+    },
+    onDidChangeVisibility: () => {},
+    onDidDispose: () => {},
+  }
+  provider.resolveWebviewView(view, {}, {})
+  return { provider, posts, onMessage, view }
+}
+
+describe('FeedbackViewProvider sync timing', () => {
+  it('soft sync does not send please-reconnect when port unchanged and bridge active', () => {
+    const { provider, posts, onMessage } = makeProvider()
+    onMessage({ type: 'hub-connect' })
+    posts.length = 0
+    provider.syncServer(48201)
+    assert.equal(posts.filter((m) => m.type === 'please-reconnect').length, 0)
+    assert.ok(posts.some((m) => m.type === 'server-info'))
+  })
+
+  it('hard sync disposes bridge when port changes', () => {
+    let bridgeDisposed = false
+    const posts = []
+    let onMessage = null
+    const hub = {
+      attachWebview: () => ({
+        dispose() { bridgeDisposed = true },
+        deliver() {},
+        socket: { on() {} },
+      }),
+      getDebugInfo: () => ({}),
+    }
+    const provider = new FeedbackViewProvider(
+      () => '<html></html>',
+      () => 48201,
+      () => '2.5.1-test',
+      () => hub,
+      { fsPath: '/ext' },
+    )
+    const view = {
+      visible: true,
+      webview: {
+        html: '',
+        cspSource: 'csp:',
+        options: {},
+        onDidReceiveMessage: (cb) => { onMessage = cb },
+        postMessage: (msg) => posts.push(msg),
+        asWebviewUri: (uri) => uri,
+      },
+      onDidChangeVisibility: () => {},
+      onDidDispose: () => {},
+    }
+    provider.resolveWebviewView(view, {}, {})
+    onMessage({ type: 'hub-connect' })
+    provider.syncServer(48202)
+    assert.equal(bridgeDisposed, true)
+    assert.equal(posts.filter((m) => m.type === 'please-reconnect').length, 0)
+  })
+})

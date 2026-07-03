@@ -35,6 +35,7 @@
       stagedImages: [],
       waiting: true,
       createdAt: Date.now(),
+      projectDirectory: '',
     }
   }
 
@@ -52,6 +53,10 @@
       this.autoReplyText = 'Continue'
       this.globalPendingQueue = []
       this.globalPendingImages = []
+      this.hubSnapshot = null
+      this.lastPendingSessionIds = []
+      this.panelWorkspace = ''
+      this.routingMismatch = null
     }
 
     getActiveSession() {
@@ -182,11 +187,42 @@
       }
     }
 
+    _reconcileWaitingWithServer(pendingSessions) {
+      var pendingIds = {}
+      for (var i = 0; i < pendingSessions.length; i++) {
+        var p = pendingSessions[i]
+        if (p && p.id) pendingIds[p.id] = true
+      }
+      for (var j = 0; j < this.sessionOrder.length; j++) {
+        var sid = this.sessionOrder[j]
+        var sess = this.sessions[sid]
+        if (sess && sess.waiting && !pendingIds[sid]) {
+          sess.waiting = false
+        }
+      }
+    }
+
+    _latestWaitingSessionId() {
+      for (var i = this.sessionOrder.length - 1; i >= 0; i--) {
+        var sid = this.sessionOrder[i]
+        var s = this.sessions[sid]
+        if (s && s.waiting) return sid
+      }
+      return null
+    }
+
     _onStateSync(msg) {
       var pending = msg.pending_sessions || []
+      var hubWs = (msg.hub && msg.hub.workspaces) || (this.hubSnapshot && this.hubSnapshot.workspaces)
+      var acceptedPending = []
       var latestPendingId = null
       for (var i = 0; i < pending.length; i++) {
         var p = pending[i]
+        var projectDir = p.project_directory || p.projectDir
+        if (projectDir && !PanelState.sessionBelongsToPanel(this.panelWorkspace, projectDir, hubWs)) {
+          continue
+        }
+        acceptedPending.push(p)
         this.ensureSession(p.id, p.label, p.summary)
         latestPendingId = p.id || latestPendingId
         if (p.summary) {
@@ -200,6 +236,7 @@
           }
         }
       }
+      this._reconcileWaitingWithServer(acceptedPending)
       if (latestPendingId && this.sessions[latestPendingId] && this.sessions[latestPendingId].waiting) {
         this.activeSessionId = latestPendingId
       } else if (!this.activeSessionId && this.sessionOrder.length > 0) {
@@ -207,14 +244,31 @@
       }
       this.globalPendingQueue = msg.pending_comments || []
       this.globalPendingImages = msg.pending_images || []
+      this.hubSnapshot = msg.hub || null
+      this.lastPendingSessionIds = acceptedPending.map(function (p) { return p.id })
       return [render('tabs', 'messages', 'pending', 'input'), dom('save_state')]
     }
 
     _onSessionUpdated(msg) {
+      var hubWs = this.hubSnapshot && this.hubSnapshot.workspaces
+      if (msg.project_directory && !PanelState.sessionBelongsToPanel(this.panelWorkspace, msg.project_directory, hubWs)) {
+        this.routingMismatch = {
+          project: msg.project_directory,
+          summary: (msg.summary || '').slice(0, 120),
+        }
+        return [
+          notify({ type: 'routing-mismatch', project: msg.project_directory }),
+          render('connection'),
+          dom('save_state'),
+        ]
+      }
+      this.routingMismatch = null
+
       var id = msg.session_id
       if (!id) return this._onSessionUpdatedLegacy(msg)
 
       var sess = this.ensureSession(id, msg.session_label, msg.summary)
+      if (msg.project_directory) sess.projectDirectory = msg.project_directory
       this.activeSessionId = id
       sess.messages.push({
         role: 'ai',
@@ -328,6 +382,15 @@
       }
       var active = this.getActiveSession()
       if (active && active.waiting) return this.submitFeedback(text, images)
+      if (this.waitingCount > 0) {
+        var latest = this._latestWaitingSessionId()
+        if (latest) {
+          this.activeSessionId = latest
+          return [
+            render('tabs', 'messages', 'pending', 'input'),
+          ].concat(this.submitFeedback(text, images, { session_id: latest }))
+        }
+      }
       return this.addToPending(text, images)
     }
 
@@ -350,6 +413,7 @@
           session_id: id,
           feedback: text || '',
           images: images || [],
+          ...(sess.projectDirectory ? { project_directory: sess.projectDirectory } : {}),
         }),
         render('tabs', 'messages', 'input'),
       ]
@@ -535,6 +599,12 @@
       this.globalPendingImages = data.globalPendingImages || []
       this.autoReply = data.autoReply || false
       this.autoReplyText = data.autoReplyText || 'Continue'
+      // waiting flags are authoritative from server sync, not localStorage
+      for (var i = 0; i < this.sessionOrder.length; i++) {
+        var sid = this.sessionOrder[i]
+        var sess = this.sessions[sid]
+        if (sess) sess.waiting = false
+      }
     }
 
     static md(text) {
@@ -726,10 +796,201 @@
     static tabTitle = tabTitle
   }
 
+  class OutboundQueue {
+    constructor(limit) {
+      this.limit = typeof limit === 'number' && limit > 0 ? limit : 32
+      this.items = []
+    }
+
+    enqueue(message) {
+      if (!message || typeof message !== 'object') return 0
+      if (this.items.length >= this.limit) this.items.shift()
+      this.items.push(message)
+      return this.items.length
+    }
+
+    drain() {
+      var items = this.items.slice()
+      this.items = []
+      return items
+    }
+
+    hasFeedbackResponse() {
+      for (var i = 0; i < this.items.length; i++) {
+        if (this.items[i] && this.items[i].type === 'feedback_response') return true
+      }
+      return false
+    }
+
+    get size() {
+      return this.items.length
+    }
+  }
+
+  class BridgeSessionGate {
+    constructor() {
+      this.ready = false
+      this.registered = false
+      this.initialized = false
+    }
+
+    resetForReconnect() {
+      this.ready = false
+      this.registered = false
+      this.initialized = false
+    }
+
+    isReady() {
+      return this.ready
+    }
+
+    onBridgeConnected() {
+      this.ready = true
+      if (this.initialized) {
+        return { register: false, stateSync: false, labels: true }
+      }
+      this.initialized = true
+      var register = !this.registered
+      if (register) this.registered = true
+      return { register: register, stateSync: true, labels: true }
+    }
+
+    shouldInitFromConnectionEstablished() {
+      return !this.initialized
+    }
+
+    shouldInitFromServerInfo() {
+      return !this.initialized
+    }
+
+    snapshot() {
+      return {
+        ready: this.ready,
+        registered: this.registered,
+        initialized: this.initialized,
+      }
+    }
+  }
+
+  function transportSendWithQueue(message, readyFn, sendFn, queueFn) {
+    if (readyFn()) {
+      sendFn(message)
+      return true
+    }
+    queueFn(message)
+    return false
+  }
+
+  class ConnectionHealth {
+    static countStaleLocalWaiting(sessions, sessionOrder, pendingSessions) {
+      var pendingIds = {}
+      for (var i = 0; i < (pendingSessions || []).length; i++) {
+        var p = pendingSessions[i]
+        if (p && p.id) pendingIds[p.id] = true
+      }
+      var stale = 0
+      for (var j = 0; j < (sessionOrder || []).length; j++) {
+        var sid = sessionOrder[j]
+        var sess = sessions[sid]
+        if (sess && sess.waiting && !pendingIds[sid]) stale++
+      }
+      return stale
+    }
+
+    static workspaceLabel(workspaces) {
+      if (!workspaces || !workspaces.length) return ''
+      var p = workspaces[0]
+      var parts = String(p).split(/[/\\]/)
+      return parts[parts.length - 1] || p
+    }
+
+    static evaluate(opts) {
+      var issues = []
+      var bridgeReady = !!opts.bridgeReady
+      var hub = opts.hub || null
+      var mcpServers = hub ? hub.mcp_servers : 0
+      var pendingCount = hub ? hub.pending_count : (opts.pendingCount || 0)
+      var mcpDetached = hub ? hub.mcp_detached_count : 0
+      var staleLocal = opts.staleLocalWaiting || 0
+
+      if (!bridgeReady) issues.push('Bridge not connected')
+      if (opts.pingStale) issues.push('Hub ping timeout')
+      if (opts.hubPidMismatch) issues.push('Hub restarted (pid changed)')
+      if (mcpDetached > 0) {
+        issues.push(mcpDetached + ' pending: Agent disconnected')
+      }
+      if (pendingCount > 0 && mcpServers === 0) {
+        issues.push('No MCP server connected to this workspace hub')
+      }
+      if (staleLocal > 0) {
+        issues.push(staleLocal + ' local tab(s) not on server queue')
+      }
+      var localWaiting = typeof opts.localWaitingCount === 'number' ? opts.localWaitingCount : null
+      if (localWaiting !== null && pendingCount > 0 && localWaiting < pendingCount) {
+        issues.push('UI missing ' + (pendingCount - localWaiting) + ' waiting tab(s) — click Reconnect')
+      }
+      if (opts.routingMismatchProject) {
+        issues.push('Feedback routed to other workspace: ' + opts.routingMismatchProject)
+      }
+
+      var level = 'disconnected'
+      if (bridgeReady) {
+        level = issues.length ? 'degraded' : 'ok'
+      }
+
+      var wsLabel = ConnectionHealth.workspaceLabel(hub && hub.workspaces)
+      var detailParts = []
+      if (wsLabel) detailParts.push('WS:' + wsLabel)
+      detailParts.push('MCP:' + mcpServers)
+      detailParts.push('Pending:' + pendingCount)
+      if (mcpDetached > 0) detailParts.push('Detached:' + mcpDetached)
+
+      var label = level === 'ok' ? 'Connected' : (level === 'degraded' ? 'Degraded' : 'Disconnected')
+      var portPid = hub ? (':' + hub.port + ' pid=' + hub.pid) : (opts.port ? (':' + opts.port) : '')
+
+      return {
+        level: level,
+        label: label,
+        detail: detailParts.join(' | '),
+        portPid: portPid,
+        issues: issues,
+        workspace: wsLabel,
+      }
+    }
+  }
+
   PanelState.PING_COMMAND = PING_COMMAND
   PanelState.PONG_REPLY = PONG_REPLY
+  PanelState.sessionBelongsToPanel = function (panelWorkspace, projectDirectory, hubWorkspaces) {
+    if (!projectDirectory) return true
+    var roots = (hubWorkspaces && hubWorkspaces.length)
+      ? hubWorkspaces
+      : (panelWorkspace ? [panelWorkspace] : [])
+    if (!roots.length) return true
+    for (var i = 0; i < roots.length; i++) {
+      if (PanelState.projectPathMatches(roots[i], projectDirectory)) return true
+    }
+    return false
+  }
+  PanelState.projectPathMatches = function (entryPath, want) {
+    if (!want || !entryPath) return !want
+    var entry = String(entryPath).replace(/[\\/]+$/, '')
+    var target = String(want).replace(/[\\/]+$/, '')
+    if (entry === target) return true
+    if (target.indexOf(entry + '/') === 0 || target.indexOf(entry + '\\') === 0) return true
+    if (entry.indexOf(target + '/') === 0 || entry.indexOf(target + '\\') === 0) return true
+    return false
+  }
+  PanelState.shouldDebounceReconnect = function (lastAt, now, windowMs) {
+    windowMs = windowMs || 1200
+    return lastAt > 0 && (now - lastAt) < windowMs
+  }
   PanelState.cmd = { wsSend, render, dom, notify }
   exports.PanelState = PanelState
+  exports.OutboundQueue = OutboundQueue
+  exports.BridgeSessionGate = BridgeSessionGate
+  exports.transportSendWithQueue = transportSendWithQueue
+  exports.ConnectionHealth = ConnectionHealth
 })(typeof window !== 'undefined'
   ? (window.PanelStateModule = {})
   : (typeof module !== 'undefined' ? module.exports : {}))
