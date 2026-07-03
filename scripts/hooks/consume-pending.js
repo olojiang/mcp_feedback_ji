@@ -1,9 +1,29 @@
 #!/usr/bin/env node
 
-const { log, output, readStdin, httpGet, findServer, readFeedbackState, writeFeedbackState, readEnforcementConfig, writeAgentContext } = require('./hook-utils');
+const { log, output, readStdin, httpGet, findServer, readFeedbackState, writeFeedbackState, readEnforcementConfig, writeAgentContext, workspaceKey } = require('./hook-utils');
 
 const ALLOWLIST_TOOLS = ['interactive_feedback', 'get_system_info', 'mcp-feedback-enhanced'];
-const PASSTHROUGH_TOOLS = ['task', 'switchmode', 'read', 'grep', 'glob', 'semanticsearch', 'readlints', 'todowrite', 'askquestion'];
+const PASSTHROUGH_TOOLS = ['task', 'switchmode', 'read', 'grep', 'glob', 'semanticsearch', 'readlints', 'todowrite', 'askquestion', 'websearch', 'webfetch', 'fetchmcpresource'];
+var STOP_LOOP_LIMIT = 3;
+
+async function consumePending(port) {
+    try {
+        var result = await httpGet(port, '/pending?consume=1');
+        if (result.status === 200 && result.data) {
+            var comments = result.data.comments || [];
+            if (comments.length > 0 || result.data.images) {
+                var combined = comments.join('\n\n') || '(image pending)';
+                log('  consumed pending comments=' + comments.length);
+                return combined;
+            }
+        }
+        log('  no pending (status=' + result.status + ')');
+        return null;
+    } catch (err) {
+        log('  HTTP error ' + err.message);
+        return null;
+    }
+}
 
 function isAllowlisted(toolName) {
     if (!toolName) return false;
@@ -13,21 +33,21 @@ function isAllowlisted(toolName) {
     return false;
 }
 
-var FEEDBACK_REMINDER = '\n\nReminder: use interactive_feedback to respond if needed, or adjust your plan and continue working.';
-
 function fmtAgent(text) {
     var tail = (text && String(text).trim().toLowerCase() === 'finished')
         ? '\n\nUser sent Finished. You may stop calling interactive_feedback.'
-        : '\n\nUnless the user sent Finished, call interactive_feedback again before ending your turn.';
-    return '[User Feedback] The user has submitted new feedback. Read it carefully and adjust your plan accordingly:\n\n"' + text + '"\n\nIf this feedback asks a question, seeks discussion, or needs confirmation, call interactive_feedback to respond. If it is guidance or instructions, adjust your plan and continue working.' + FEEDBACK_REMINDER + tail;
+        : '\n\nCall interactive_feedback again before ending your turn, unless user sent Finished.';
+    return '[User Feedback] New feedback from user:\n\n"' + text + '"' + tail;
 }
 
 function fmtUser(text) {
     return 'Pending comment delivered: "' + text + '"';
 }
 
+var _wsKey = '_global';
+
 function updateCounter(toolName) {
-    var state = readFeedbackState();
+    var state = readFeedbackState(_wsKey);
     if (toolName.toLowerCase().includes('interactive_feedback')) {
         state.lastFeedbackAt = Date.now();
         state.toolsSinceFeedback = 0;
@@ -36,7 +56,7 @@ function updateCounter(toolName) {
     }
     state.lastToolAt = Date.now();
     state.lastTool = toolName.toLowerCase();
-    writeFeedbackState(state);
+    writeFeedbackState(state, _wsKey);
     return state;
 }
 
@@ -44,12 +64,27 @@ async function main() {
     var input = readStdin();
     if (!input) { output({}); return; }
 
+    var hook = input.hook_event_name || 'preToolUse';
     var toolName = input.tool_name || '';
     var workspaceRoots = input.workspace_roots || [];
     var traceId = input.trace_id || input.cursor_trace_id || input.conversation_id || '';
+    var loopCount = input.loop_count || 0;
 
+    _wsKey = workspaceKey(workspaceRoots);
     writeAgentContext(workspaceRoots, { traceId: traceId });
-    log('preToolUse: tool=' + toolName);
+    log(hook + ': tool=' + toolName);
+
+    if (hook === 'stop') {
+        if (loopCount >= STOP_LOOP_LIMIT) { output({}); return; }
+        var stopServer = findServer(workspaceRoots);
+        var stopPort = stopServer ? stopServer.port : null;
+        if (stopPort) {
+            var stopPending = await consumePending(stopPort);
+            if (stopPending) { output({ followup_message: fmtAgent(stopPending) }); return; }
+        }
+        output({ followup_message: 'Call interactive_feedback before ending your turn, unless user sent Finished.' });
+        return;
+    }
 
     if (isAllowlisted(toolName)) {
         log('  preToolUse: allowlisted tool=' + toolName);
@@ -59,34 +94,16 @@ async function main() {
     }
 
     var state = updateCounter(toolName);
-
     var server = findServer(workspaceRoots);
     var port = server ? server.port : null;
-    if (!port) {
-        log('  preToolUse: no server found');
-        checkEnforcement(state);
+    if (!port) { log('  preToolUse: no server found'); checkEnforcement(state); return; }
+
+    var pending = await consumePending(port);
+    if (pending) {
+        output({ permission: 'deny', user_message: fmtUser(pending), agent_message: fmtAgent(pending) });
         return;
     }
-
-    try {
-        var result = await httpGet(port, '/pending?consume=1');
-        if (result.status === 200 && result.data) {
-            var comments = result.data.comments || [];
-            var combined = comments.join('\n\n') || '(image pending)';
-            log('  preToolUse: consumed pending comments=' + comments.length);
-            output({
-                permission: 'deny',
-                user_message: fmtUser(combined),
-                agent_message: fmtAgent(combined),
-            });
-            return;
-        }
-        log('  preToolUse: no pending (status=' + result.status + ')');
-        checkEnforcement(state);
-    } catch (err) {
-        log('  preToolUse: HTTP error ' + err.message);
-        checkEnforcement(state);
-    }
+    checkEnforcement(state);
 }
 
 function checkEnforcement(state) {
@@ -102,13 +119,11 @@ function checkEnforcement(state) {
         log('  preToolUse: rules refresh (count=' + count + ', minutes=' + Math.round(minutesSince) + ')');
         state.toolsSinceFeedback = 0;
         state.lastFeedbackAt = Date.now();
-        writeFeedbackState(state);
+        writeFeedbackState(state, _wsKey);
         output({
             permission: 'deny',
             user_message: 'Rules refresh',
-            agent_message: 'Reminder: you appear to have been executing a long task. '
-                + 'Please re-read the always-applied rules in your context to make sure you haven\'t overlooked them. '
-                + 'Then retry your tool call and continue working.',
+            agent_message: 'Long task checkpoint: call interactive_feedback to check in with the user, then continue.',
         });
         return;
     }

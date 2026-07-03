@@ -128,18 +128,39 @@ var FEEDBACK_STATE_FILE = path.join(CONFIG_DIR, 'feedback-state.json');
 var ENFORCEMENT_CONFIG_FILE = path.join(CONFIG_DIR, 'enforcement-config.json');
 
 var DEFAULT_ENFORCEMENT = {
-    maxToolCalls: 15,
-    maxMinutes: 5,
+    maxToolCalls: 50,
+    maxMinutes: 15,
 };
 
-function readFeedbackState() {
-    return readJSON(FEEDBACK_STATE_FILE) || {};
+function workspaceKey(workspaceRoots) {
+    if (!workspaceRoots || !workspaceRoots.length) return '_global';
+    var first = (workspaceRoots[0] || '').replace(/\/+$/, '');
+    return first || '_global';
 }
 
-function writeFeedbackState(state) {
+function readFeedbackState(wsKey) {
+    var all = readJSON(FEEDBACK_STATE_FILE) || {};
+    var key = wsKey || '_global';
+    // Migrate flat format (pre per-workspace) to nested
+    if (all.toolsSinceFeedback !== undefined || all.lastToolAt !== undefined) {
+        var migrated = {};
+        migrated[key] = all;
+        try {
+            fs.mkdirSync(CONFIG_DIR, { recursive: true });
+            fs.writeFileSync(FEEDBACK_STATE_FILE, JSON.stringify(migrated));
+        } catch (e) {}
+        return all;
+    }
+    return all[key] || {};
+}
+
+function writeFeedbackState(state, wsKey) {
     try {
         fs.mkdirSync(CONFIG_DIR, { recursive: true });
-        fs.writeFileSync(FEEDBACK_STATE_FILE, JSON.stringify(state));
+        var all = readJSON(FEEDBACK_STATE_FILE) || {};
+        var key = wsKey || '_global';
+        all[key] = state;
+        fs.writeFileSync(FEEDBACK_STATE_FILE, JSON.stringify(all));
     } catch (e) {
         log('writeFeedbackState error: ' + e.message);
     }
@@ -184,6 +205,7 @@ module.exports = {
     readStdin,
     httpGet,
     findServer,
+    workspaceKey,
     readFeedbackState,
     writeFeedbackState,
     readEnforcementConfig,

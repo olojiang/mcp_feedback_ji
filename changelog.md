@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.90] - 2026-07-04
+
+### Feature — Cursor Request 零浪费保护
+
+全面消除插件自身可能导致的 Cursor Request 浪费，参考 `shenghanqin/mcp-feedback-enhanced-vscode-good` 分支经验并结合自身架构改进。
+
+#### Request 节省
+- **`already_pending` 忽略**: extensionClient 收到 `already_pending` 时不完成工具调用，继续等待真正的用户回复，避免 Cursor 启动新 Agent 轮次
+- **超时 resolve 而非 reject**: MCP 24h 超时返回 `{ status: 'timeout' }` 而非抛错，不触发 Agent 错误处理循环
+- **`stop` hook 重新启用**: 使用 `followup_message` 零成本提醒 Agent 调用 `interactive_feedback`（`STOP_LOOP_LIMIT=3` 防止无限循环）
+- **enforcement 阈值大幅提高**: `maxToolCalls` 15→50, `maxMinutes` 5→15, 正常使用不触发 deny
+- **精简提示文本**: 去掉冗余 `FEEDBACK_REMINDER`，缩短 `fmtAgent` 和 enforcement 消息
+
+#### 连接优化
+- **MCP 重连减速**: `rediscovery` 6→3 轮, `extensionAttempts` 3→2, 失败时更快放弃
+- **toolHandlers 状态处理**: `already_pending` / `timeout` 等非正常状态返回提示文本而非用户反馈
+
+#### 多窗口隔离
+- **per-workspace feedback state**: `feedback-state.json` 改为 `{ workspacePath: state }` 嵌套结构，多窗口独立计数
+- **平滑迁移**: 旧的平面 `feedback-state.json` 自动迁移到嵌套格式
+
+#### 系统保护
+- **Sleep 检测**: WS Hub 心跳检测系统休眠（gap > 2min），合盖恢复时弹出 VS Code 警告
+- **PASSTHROUGH_TOOLS 扩展**: 新增 `websearch`, `webfetch`, `fetchmcpresource` 为只读直通工具
+
+### 文档
+- `local_docs/compare_implement_for_waste_cursor_request.md`: 完整的对比分析文档
+
 ## [2.5.1-ji.89] - 2026-07-03
 
 ### Fix

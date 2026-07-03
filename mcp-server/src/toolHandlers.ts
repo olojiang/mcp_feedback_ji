@@ -11,7 +11,7 @@ import { mcpLog } from './logger.js';
 
 export { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
 
-export const FEEDBACK_REMINDER = '\n\n[Reminder] Read through all your active rules now. For each rule, check: am I following it? If you have forgotten any, read ~/.cursor/rules/ before continuing.';
+export const FEEDBACK_REMINDER = '';
 
 export const PONG_TEXT = 'pong';
 
@@ -75,8 +75,8 @@ interface ToolHandlerDeps {
     stdioKeepaliveTick?: (traceId?: string, projectDirectory?: string) => void | Promise<void>;
 }
 
-const DEFAULT_EXTENSION_ATTEMPTS = 3;
-const DEFAULT_REDISCOVERY_ATTEMPTS = 6;
+const DEFAULT_EXTENSION_ATTEMPTS = 2;
+const DEFAULT_REDISCOVERY_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 500;
 
 function sleep(ms: number): Promise<void> {
@@ -207,8 +207,16 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                     });
                     deps.log(
                         `[MCP Feedback] Feedback via extension port=${extensionServer.port} `
-                        + `pid=${extensionServer.pid}`
+                        + `pid=${extensionServer.pid} status=${result.status ?? 'submitted'}`
                     );
+                    if (result.status && result.status !== 'submitted' && result.status !== 'ok' && !result.feedback) {
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: `[${result.status}] Feedback request did not complete. Please retry or continue working.` + feedbackSuffix(),
+                            }],
+                        };
+                    }
                     const content: ToolContent = [
                         { type: 'text', text: result.feedback + feedbackSuffix(result.feedback) },
                     ];

@@ -27,7 +27,7 @@ interface FeedbackFlowDeps {
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
-    sendResult: (ws: WebSocket, result: { feedback: string; images?: string[] }) => void;
+    sendResult: (ws: WebSocket, result: { status?: string; feedback: string; images?: string[] }) => void;
     sendError: (ws: WebSocket, error: Error) => void;
     onFeedbackRequested?: () => void;
     onFeedbackResolved?: () => void;
@@ -188,8 +188,12 @@ export class FeedbackFlow {
                 summaryPreview: req.summary,
             });
             this.deps.log(
-                `feedbackRequest: duplicate ignored session=${traceReuse.sessionId ?? 'unknown'}`,
+                `feedbackRequest: already_pending session=${traceReuse.sessionId ?? 'unknown'}`,
             );
+            this.deps.sendResult(mcpWs, {
+                status: 'already_pending',
+                feedback: '',
+            });
             return;
         }
         if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {

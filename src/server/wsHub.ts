@@ -133,6 +133,7 @@ export class WsHub {
                 }
                 this._send(ws, {
                     type: 'feedback_result',
+                    status: result.status ?? 'submitted',
                     feedback: result.feedback,
                     images: result.images,
                 });
@@ -551,9 +552,26 @@ export class WsHub {
 
     // ── Heartbeat ───────────────────────────────────────────
 
+    public onSleepResumeWithPending?: (minutesSleep: number) => void;
+    private lastHeartbeatAt = Date.now();
+    private sleepResumeNotifiedAt = 0;
+
     private _startHeartbeat(): void {
         this.heartbeatTimer = setInterval(() => {
-            this.clients.sweepStale(Date.now(), CLIENT_TIMEOUT, () => { });
+            const now = Date.now();
+            const gap = now - this.lastHeartbeatAt;
+            this.lastHeartbeatAt = now;
+
+            if (gap > 120_000 && this.feedback.pendingCount() > 0) {
+                const minutesSleep = Math.round(gap / 60_000);
+                if (now - this.sleepResumeNotifiedAt > 300_000) {
+                    this.sleepResumeNotifiedAt = now;
+                    wsLog(`sleep_resume_detected: gap=${minutesSleep}min pending=${this.feedback.pendingCount()}`);
+                    this.onSleepResumeWithPending?.(minutesSleep);
+                }
+            }
+
+            this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
             this._ensureServerRegistration();
         }, HEARTBEAT_INTERVAL);
     }

@@ -43,7 +43,7 @@ export function requestFeedback(
     projectDirectory?: string,
     traceId?: string,
     deps?: RequestFeedbackDeps,
-): Promise<{ feedback: string; images?: string[] }> {
+): Promise<{ status?: string; feedback: string; images?: string[] }> {
     const log = deps?.log ?? mcpLog;
     const heartbeatMs = deps?.heartbeatMs ?? FEEDBACK_WAIT_HEARTBEAT_MS;
     const stdioKeepaliveMs = deps?.stdioKeepaliveMs ?? STDIO_KEEPALIVE_MS;
@@ -51,7 +51,7 @@ export function requestFeedback(
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
             cleanup();
-            reject(new Error('Feedback timeout (24h)'));
+            resolve({ status: 'timeout', feedback: '' });
         }, 86_400_000);
 
         const waitHeartbeat = setInterval(() => {
@@ -77,9 +77,17 @@ export function requestFeedback(
             try {
                 const msg = JSON.parse(raw.toString());
                 if (msg.type === 'feedback_result') {
+                    // already_pending: Hub re-bound this WS to existing session.
+                    // Do NOT resolve — wait for the real 'submitted' result.
+                    // Resolving early would complete the tool call, causing Cursor
+                    // to start a new agent turn (wasting a request).
+                    if (msg.status === 'already_pending') {
+                        log('feedback_result: already_pending — staying subscribed');
+                        return;
+                    }
                     cleanup();
                     ws.off('message', handler);
-                    resolve({ feedback: msg.feedback || '', images: msg.images });
+                    resolve({ status: msg.status, feedback: msg.feedback || '', images: msg.images });
                 } else if (msg.type === 'feedback_error') {
                     cleanup();
                     ws.off('message', handler);

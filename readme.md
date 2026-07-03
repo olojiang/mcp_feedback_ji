@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.86`**
+**当前版本：`2.5.1-ji.90`**
 
 ---
 
@@ -10,6 +10,7 @@
 
 | 能力 | 说明 |
 |------|------|
+| **零浪费 Request 保护** | 用户通过面板回复 = 免费；多重机制防止插件自身消耗额外 Cursor Request（详见下方） |
 | **IDE 内嵌面板** | Agent 调用 `interactive_feedback` 时，消息进入底部 **MCP Feedback Enhanced** 面板，默认不弹浏览器 |
 | **多 Tab 并发会话** | 多个 Agent 同时等待反馈时，每个 `session_id` 独立 Tab，可任意顺序回复 |
 | **多窗口 / 多项目路由** | 按 workspace hash 注册端口，支持子目录匹配；MCP 自动 discovery + 有限重试 |
@@ -19,6 +20,22 @@
 | **按天轮转日志** | `webview-YYYY-MM-DD.log` 保留 7 天；`webview.log` 为当天别名；支持一键清空 |
 | **Deploy 工作流** | `npm run deploy` 自动 bump、编译、同步到 `~/.cursor/extensions/` 并更新 `mcp.json` |
 | **312+ 单测** | 协议路由、剪贴板、多 Tab、pipeline、E2E 等全覆盖 |
+
+### Cursor Request 节省机制
+
+本插件的核心价值是**减少 Cursor Request 消耗**——用户通过 MCP 面板回复是免费的（不消耗 Request），而在聊天框输入每条消息都消耗 1 个 Request。
+
+同时，插件自身采用多重保护，避免引入额外消耗：
+
+| 保护机制 | 原理 |
+|----------|------|
+| **`already_pending` 忽略** | 重复的 `interactive_feedback` 调用不完成工具调用，Cursor 不启动新 Agent 轮次 |
+| **`stop` hook + followup_message** | Agent 结束前零成本提醒调用 `interactive_feedback`，不使用 `deny`（deny 会消耗 1 request） |
+| **超时 resolve** | MCP 等待超时返回结果而非抛错，避免 Agent 进入错误处理循环 |
+| **高阈值 enforcement** | 安全网阈值 50 次工具调用 / 15 分钟，正常使用不触发 |
+| **per-workspace 计数** | 多窗口独立计数，互不干扰 |
+| **Sleep 检测** | macOS 合盖恢复时检测并警告用户 |
+| **全部本地通信** | 插件通信走 stdio / localhost WS，网络不稳定不影响 |
 
 ---
 
@@ -70,7 +87,7 @@ npm run deploy            # bump 版本 + 编译 + 同步到已安装扩展
 ## 面板一览
 
 ```
-v2.5.1-ji.86   ● Connected :48201 pid=20071   ↻
+v2.5.1-ji.90   ● Connected :48201 pid=20071   ↻
 Chat fb-abc123  |  Chat fb-def456
 ─────────────────────────────────────────────
   AI  请确认是否继续…
@@ -99,7 +116,7 @@ Chat fb-abc123  |  Chat fb-def456
 | 按 workspace hash 注册 | `~/.config/mcp-feedback-enhanced/servers/{hash}.json` |
 | 目录匹配 | `exact / ancestor / descendant` 项目路径 |
 | cwd 推断 | 未传 `project_directory` 时从 MCP cwd 匹配已注册 workspace |
-| Rediscovery | 扩展重启时同一次调用内最多 6 轮 discovery |
+| Rediscovery | 扩展重启时同一次调用内最多 3 轮 discovery |
 | 禁用 browser fallback | 默认不弹浏览器；需 `MCP_FEEDBACK_BROWSER_FALLBACK=1` |
 | Stale webview 修复 | Reload 后强制刷新 panel HTML；early boot + bridge 广播 dedupe |
 
@@ -169,7 +186,7 @@ mcp_feedback_ji/
       "command": "/path/to/node",
       "args": ["/path/to/mcp-server/dist/index.js"],
       "env": {
-        "MCP_FEEDBACK_VERSION": "2.5.1-ji.86"
+        "MCP_FEEDBACK_VERSION": "2.5.1-ji.90"
       }
     }
   }

@@ -136,6 +136,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.showWarningMessage(`MCP Feedback error: ${reason}`);
     });
 
+    wsServer.onSleepResumeWithPending = (minutesSleep) => {
+        const isChinese = vscode.env.language.startsWith('zh');
+        const msg = isChinese
+            ? `系统休眠了约 ${minutesSleep} 分钟，当前仍有活跃的 Agent 会话。Agent 可能在休眠期间继续消耗 Cursor Request。`
+            : `System slept for ~${minutesSleep} min with active agent sessions. Requests may have been consumed during sleep.`;
+        vscode.window.showWarningMessage(msg);
+    };
+
     const getHtml = () => _loadWebviewHtml(extensionPath, port, getVersion());
     bottomProvider = new FeedbackViewProvider(
         getHtml, () => port, getVersion, () => wsServer, context.extensionUri, getMemoryVersion,
