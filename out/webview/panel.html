@@ -743,6 +743,7 @@ window.onerror = function (msg, src, line, col, err) {
     var useBridge = !!vscode;
     var bridgeGate = new PS.BridgeSessionGate();
     var outboundQueue = new PS.OutboundQueue();
+    var transportMetrics = new PS.TransportMetrics();
 
     function transportReady() {
         if (useBridge) return bridgeGate.isReady();
@@ -752,10 +753,12 @@ window.onerror = function (msg, src, line, col, err) {
     function transportSend(obj) {
         if (useBridge) {
             if (!bridgeGate.isReady()) return false;
+            transportMetrics.record('bridge');
             vscode.postMessage({ type: 'hub-message', data: obj });
             return true;
         }
         if (ws && ws.readyState === WebSocket.OPEN) {
+            transportMetrics.record('ws');
             ws.send(JSON.stringify(obj));
             return true;
         }
@@ -920,6 +923,7 @@ window.onerror = function (msg, src, line, col, err) {
                 vscodeApi: !!vscode,
                 transportReady: transportReady(),
                 outboundQueued: outboundQueue.size,
+                transportMetrics: transportMetrics.snapshot(),
                 erudaInited: erudaInited,
             },
             events: debugEvents.slice(-30),

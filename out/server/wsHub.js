@@ -46,6 +46,8 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const ws_1 = require("ws");
 const fileStore_1 = require("../fileStore");
+const registryLock_1 = require("../registryLock");
+const transportMetrics_1 = require("../transportMetrics");
 const feedbackManager_1 = require("./feedbackManager");
 const pendingManager_1 = require("./pendingManager");
 const httpRoutes_1 = require("./httpRoutes");
@@ -183,11 +185,13 @@ class WsHub {
         this.clients.setLastPong(ws, ts);
     }
     getDebugInfo() {
+        const transport = (0, transportMetrics_1.buildTransportMetrics)(this.clients.transportCounts());
         return {
             hubPort: this.port,
             hubVersion: this.version,
             workspaces: this.workspaces,
             clients: this.clients.counts(),
+            transportMetrics: transport,
             hasPending: this.feedback.hasPending(),
             serverListening: this.server !== null,
         };
@@ -202,8 +206,8 @@ class WsHub {
     attachWebview(postToPanel) {
         const bridge = (0, webviewBridge_1.createWebviewBridge)(postToPanel);
         const client = this._bindClient(bridge.socket);
-        // Mark immediately so session_updated broadcasts are not dropped before register arrives.
         client.clientType = 'webview';
+        client.webviewTransport = 'bridge';
         wsLog('client registered: type=webview (bridge)');
         return bridge;
     }
@@ -241,6 +245,9 @@ class WsHub {
         for (const ws of this.workspaces) {
             (0, fileStore_1.deleteServerByHash)((0, fileStore_1.projectHash)(ws));
         }
+        if ((0, registryLock_1.releaseRegistryLockIfOwner)((0, fileStore_1.readRegistryLock)(), process.pid)) {
+            (0, fileStore_1.clearRegistryLock)();
+        }
     }
     _addMessage(msg) {
         this.timeline.addMessage(msg);
@@ -271,15 +278,34 @@ class WsHub {
         res.end(JSON.stringify({ error: 'not_found' }));
     }
     _registerServer() {
-        for (const ws of this.workspaces) {
-            (0, fileStore_1.writeServer)((0, fileStore_1.projectHash)(ws), {
+        const startedAt = Date.now();
+        const result = (0, registryLock_1.writeServersBatch)({
+            workspaces: this.workspaces,
+            info: {
                 port: this.port,
                 pid: process.pid,
-                projectPath: ws,
                 version: this.version,
-                started_at: Date.now(),
-            });
+                started_at: startedAt,
+            },
+            projectHash: fileStore_1.projectHash,
+            readLock: fileStore_1.readRegistryLock,
+            writeLock: fileStore_1.writeRegistryLock,
+            writeServer: fileStore_1.writeServer,
+            isAlive: (pid) => {
+                try {
+                    process.kill(pid, 0);
+                    return true;
+                }
+                catch {
+                    return false;
+                }
+            },
+        });
+        if (!result.ok) {
+            wsLog(`registry_write_skipped reason=${result.reason} pid=${process.pid} port=${this.port}`);
+            return;
         }
+        wsLog(`registry_write ok hashes=${result.hashes.join(',')} port=${this.port} pid=${process.pid}`);
     }
     // ── Connection Handling ─────────────────────────────────
     _handleConnection(ws) {
@@ -319,7 +345,10 @@ class WsHub {
         (0, routeAdapter_1.dispatchRouteMessage)(ws, client, msg, {
             onRegister: (clientType) => {
                 client.clientType = clientType;
-                wsLog(`client registered: type=${client.clientType}`);
+                if (clientType === 'webview' && !client.webviewTransport) {
+                    client.webviewTransport = 'tcp';
+                }
+                wsLog(`client registered: type=${client.clientType} transport=${client.webviewTransport || '-'}`);
                 if (clientType === 'webview') {
                     this._replayPendingSessions(ws);
                 }

@@ -866,6 +866,33 @@
     }
   }
 
+  class TransportMetrics {
+    constructor() {
+      this.bridge = 0
+      this.ws = 0
+    }
+
+    record(kind) {
+      if (kind === 'bridge') this.bridge++
+      else if (kind === 'ws') this.ws++
+    }
+
+    snapshot() {
+      var total = this.bridge + this.ws
+      var ratio = total > 0 ? Math.round((this.bridge / total) * 1000) / 1000 : 0
+      var primary = 'none'
+      if (this.bridge > 0 && this.ws === 0) primary = 'bridge'
+      else if (this.ws > 0 && this.bridge === 0) primary = 'ws'
+      else if (total > 0) primary = 'mixed'
+      return {
+        bridge_sends: this.bridge,
+        ws_sends: this.ws,
+        bridge_ratio: ratio,
+        primary_transport: primary,
+      }
+    }
+  }
+
   class BridgeSessionGate {
     constructor() {
       this.ready = false
@@ -1192,6 +1219,7 @@
   PanelState.cmd = { wsSend, render, dom, notify }
   exports.PanelState = PanelState
   exports.OutboundQueue = OutboundQueue
+  exports.TransportMetrics = TransportMetrics
   exports.BridgeSessionGate = BridgeSessionGate
   exports.transportSendWithQueue = transportSendWithQueue
 

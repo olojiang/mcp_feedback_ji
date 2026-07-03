@@ -35,6 +35,23 @@ class ClientRegistry {
         }
         return { webviews, mcpServers };
     }
+    transportCounts() {
+        let bridgeWebviews = 0;
+        let tcpWebviews = 0;
+        let mcpServers = 0;
+        for (const [, c] of this.clients) {
+            if (c.clientType === 'webview') {
+                if (c.webviewTransport === 'bridge')
+                    bridgeWebviews++;
+                else
+                    tcpWebviews++;
+            }
+            else if (c.clientType === 'mcp-server') {
+                mcpServers++;
+            }
+        }
+        return { bridgeWebviews, tcpWebviews, mcpServers };
+    }
     closeAll() {
         for (const [, client] of this.clients) {
             try {

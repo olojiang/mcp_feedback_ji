@@ -1,9 +1,11 @@
 import { WebSocket } from 'ws';
 export type ClientType = 'webview' | 'mcp-server' | 'unknown';
+export type WebviewTransport = 'bridge' | 'tcp';
 export interface ConnectedClient {
     ws: WebSocket;
     clientType: ClientType;
     lastPong: number;
+    webviewTransport?: WebviewTransport;
 }
 export declare class ClientRegistry {
     private readonly clients;
@@ -12,6 +14,11 @@ export declare class ClientRegistry {
     setClientType(ws: WebSocket, clientType: Exclude<ClientType, 'unknown'>): void;
     counts(): {
         webviews: number;
+        mcpServers: number;
+    };
+    transportCounts(): {
+        bridgeWebviews: number;
+        tcpWebviews: number;
         mcpServers: number;
     };
     closeAll(): void;

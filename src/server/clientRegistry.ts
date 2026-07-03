@@ -4,10 +4,13 @@ import { formatDisconnectEvent } from '../disconnectReason.js';
 
 export type ClientType = 'webview' | 'mcp-server' | 'unknown';
 
+export type WebviewTransport = 'bridge' | 'tcp';
+
 export interface ConnectedClient {
     ws: WebSocket;
     clientType: ClientType;
     lastPong: number;
+    webviewTransport?: WebviewTransport;
 }
 
 export class ClientRegistry {
@@ -40,6 +43,21 @@ export class ClientRegistry {
             else if (c.clientType === 'mcp-server') mcpServers++;
         }
         return { webviews, mcpServers };
+    }
+
+    transportCounts(): { bridgeWebviews: number; tcpWebviews: number; mcpServers: number } {
+        let bridgeWebviews = 0;
+        let tcpWebviews = 0;
+        let mcpServers = 0;
+        for (const [, c] of this.clients) {
+            if (c.clientType === 'webview') {
+                if (c.webviewTransport === 'bridge') bridgeWebviews++;
+                else tcpWebviews++;
+            } else if (c.clientType === 'mcp-server') {
+                mcpServers++;
+            }
+        }
+        return { bridgeWebviews, tcpWebviews, mcpServers };
     }
 
     closeAll(): void {

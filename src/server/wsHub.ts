@@ -21,7 +21,12 @@ import {
     deleteServerByHash,
     projectHash,
     cleanupStaleServers,
+    readRegistryLock,
+    writeRegistryLock,
+    clearRegistryLock,
 } from '../fileStore';
+import { writeServersBatch, releaseRegistryLockIfOwner } from '../registryLock';
+import { buildTransportMetrics } from '../transportMetrics';
 import { FeedbackManager } from './feedbackManager';
 import { PendingManager } from './pendingManager';
 import { handleHttpRoute } from './httpRoutes';
@@ -181,11 +186,13 @@ export class WsHub {
     }
 
     getDebugInfo(): Record<string, unknown> {
+        const transport = buildTransportMetrics(this.clients.transportCounts());
         return {
             hubPort: this.port,
             hubVersion: this.version,
             workspaces: this.workspaces,
             clients: this.clients.counts(),
+            transportMetrics: transport,
             hasPending: this.feedback.hasPending(),
             serverListening: this.server !== null,
         };
@@ -203,8 +210,8 @@ export class WsHub {
     attachWebview(postToPanel: (msg: Record<string, unknown>) => void): WebviewBridge {
         const bridge = createWebviewBridge(postToPanel);
         const client = this._bindClient(bridge.socket);
-        // Mark immediately so session_updated broadcasts are not dropped before register arrives.
         client.clientType = 'webview';
+        client.webviewTransport = 'bridge';
         wsLog('client registered: type=webview (bridge)');
         return bridge;
     }
@@ -248,6 +255,9 @@ export class WsHub {
         for (const ws of this.workspaces) {
             deleteServerByHash(projectHash(ws));
         }
+        if (releaseRegistryLockIfOwner(readRegistryLock(), process.pid)) {
+            clearRegistryLock();
+        }
     }
 
     private _addMessage(msg: ConversationMessage): void {
@@ -284,15 +294,33 @@ export class WsHub {
     }
 
     private _registerServer(): void {
-        for (const ws of this.workspaces) {
-            writeServer(projectHash(ws), {
+        const startedAt = Date.now();
+        const result = writeServersBatch({
+            workspaces: this.workspaces,
+            info: {
                 port: this.port,
                 pid: process.pid,
-                projectPath: ws,
                 version: this.version,
-                started_at: Date.now(),
-            });
+                started_at: startedAt,
+            },
+            projectHash,
+            readLock: readRegistryLock,
+            writeLock: writeRegistryLock,
+            writeServer,
+            isAlive: (pid) => {
+                try {
+                    process.kill(pid, 0);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+        });
+        if (!result.ok) {
+            wsLog(`registry_write_skipped reason=${result.reason} pid=${process.pid} port=${this.port}`);
+            return;
         }
+        wsLog(`registry_write ok hashes=${result.hashes.join(',')} port=${this.port} pid=${process.pid}`);
     }
 
     // ── Connection Handling ─────────────────────────────────
@@ -336,7 +364,10 @@ export class WsHub {
         dispatchRouteMessage(ws, client, msg, {
             onRegister: (clientType) => {
                 client.clientType = clientType;
-                wsLog(`client registered: type=${client.clientType}`);
+                if (clientType === 'webview' && !client.webviewTransport) {
+                    client.webviewTransport = 'tcp';
+                }
+                wsLog(`client registered: type=${client.clientType} transport=${client.webviewTransport || '-'}`);
                 if (clientType === 'webview') {
                     this._replayPendingSessions(ws);
                 }

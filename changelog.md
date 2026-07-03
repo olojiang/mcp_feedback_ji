@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.67] - 2026-07-03
+
+### Added (P4 架构)
+- **Bridge vs WS 指标**：hub `transportMetrics`（bridge/tcp webview 比例）+ panel `TransportMetrics`（出站消息统计）。
+- **Registry 单实例锁**：`_instance.lock.json` + `writeServersBatch` 多根 workspace 原子写入，避免竞态覆盖。
+
 ## [2.5.1-ji.66] - 2026-07-03
 
 ### Added (P0–P3)

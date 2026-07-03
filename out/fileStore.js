@@ -43,6 +43,9 @@ exports.readProject = readProject;
 exports.writeProject = writeProject;
 exports.readServerByHash = readServerByHash;
 exports.writeServer = writeServer;
+exports.readRegistryLock = readRegistryLock;
+exports.writeRegistryLock = writeRegistryLock;
+exports.clearRegistryLock = clearRegistryLock;
 exports.deleteServerByHash = deleteServerByHash;
 exports.cleanupStaleServers = cleanupStaleServers;
 exports.writeAgentContext = writeAgentContext;
@@ -112,6 +115,15 @@ function readServerByHash(hash) {
 }
 function writeServer(hash, data) {
     safeWriteJSON(path.join((0, configPaths_1.getServersDir)(), `${hash}.json`), data);
+}
+function readRegistryLock() {
+    return safeReadJSON(path.join((0, configPaths_1.getServersDir)(), '_instance.lock.json'));
+}
+function writeRegistryLock(lock) {
+    safeWriteJSON(path.join((0, configPaths_1.getServersDir)(), '_instance.lock.json'), lock);
+}
+function clearRegistryLock() {
+    safeDelete(path.join((0, configPaths_1.getServersDir)(), '_instance.lock.json'));
 }
 function deleteServerByHash(hash) {
     return safeDelete(path.join((0, configPaths_1.getServersDir)(), `${hash}.json`));

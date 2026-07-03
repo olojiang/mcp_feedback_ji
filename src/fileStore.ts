@@ -10,6 +10,7 @@ import type {
     ProjectState,
     ServerInfo,
 } from './types';
+import type { RegistryLock } from './registryLock';
 import {
     getAgentContextPath,
     getConfigDir,
@@ -73,6 +74,18 @@ export function readServerByHash(hash: string): ServerInfo | null {
 
 export function writeServer(hash: string, data: ServerInfo): void {
     safeWriteJSON(path.join(getServersDir(), `${hash}.json`), data);
+}
+
+export function readRegistryLock(): RegistryLock | null {
+    return safeReadJSON<RegistryLock>(path.join(getServersDir(), '_instance.lock.json'));
+}
+
+export function writeRegistryLock(lock: RegistryLock): void {
+    safeWriteJSON(path.join(getServersDir(), '_instance.lock.json'), lock);
+}
+
+export function clearRegistryLock(): void {
+    safeDelete(path.join(getServersDir(), '_instance.lock.json'));
 }
 
 export function deleteServerByHash(hash: string): boolean {

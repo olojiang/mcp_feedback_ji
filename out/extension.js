@@ -3820,6 +3820,15 @@ function readServerByHash(hash2) {
 function writeServer(hash2, data) {
   safeWriteJSON(path2.join(getServersDir(), `${hash2}.json`), data);
 }
+function readRegistryLock() {
+  return safeReadJSON(path2.join(getServersDir(), "_instance.lock.json"));
+}
+function writeRegistryLock(lock) {
+  safeWriteJSON(path2.join(getServersDir(), "_instance.lock.json"), lock);
+}
+function clearRegistryLock() {
+  safeDelete(path2.join(getServersDir(), "_instance.lock.json"));
+}
 function deleteServerByHash(hash2) {
   return safeDelete(path2.join(getServersDir(), `${hash2}.json`));
 }
@@ -3879,6 +3888,64 @@ function pruneTestRegistryEntries(isAlive) {
     if (deleteServerByHash(entry.hash)) removed.push(entry.hash);
   }
   return { removed, skippedAlive };
+}
+
+// src/registryLock.ts
+function canAcquireRegistryLock(existing, owner, isAlive, now, staleMs = 1e4) {
+  if (!existing) return true;
+  if (existing.pid === owner.pid) return true;
+  if (!isAlive(existing.pid)) return true;
+  if (now - existing.acquired_at > staleMs) return true;
+  return false;
+}
+function writeServersBatch(deps) {
+  const now = deps.now ?? Date.now();
+  const lock = {
+    pid: deps.info.pid,
+    port: deps.info.port,
+    acquired_at: now,
+    workspaces: deps.workspaces.slice()
+  };
+  const existing = deps.readLock();
+  if (!canAcquireRegistryLock(existing, lock, deps.isAlive, now)) {
+    return { ok: false, reason: "registry_locked", hashes: [] };
+  }
+  deps.writeLock(lock);
+  const hashes = [];
+  for (const ws of deps.workspaces) {
+    const hash2 = deps.projectHash(ws);
+    deps.writeServer(hash2, {
+      port: deps.info.port,
+      pid: deps.info.pid,
+      version: deps.info.version,
+      started_at: deps.info.started_at,
+      projectPath: ws
+    });
+    hashes.push(hash2);
+  }
+  return { ok: true, hashes };
+}
+function releaseRegistryLockIfOwner(existing, pid) {
+  return !!(existing && existing.pid === pid);
+}
+
+// src/transportMetrics.ts
+function buildTransportMetrics(counts) {
+  const bridge = counts.bridgeWebviews;
+  const tcp = counts.tcpWebviews;
+  const total = bridge + tcp;
+  const bridgeRatio = total > 0 ? bridge / total : 0;
+  let primary = "none";
+  if (bridge > 0 && tcp === 0) primary = "bridge";
+  else if (tcp > 0 && bridge === 0) primary = "tcp";
+  else if (total > 0) primary = "mixed";
+  return {
+    bridge_webviews: bridge,
+    tcp_webviews: tcp,
+    mcp_servers: counts.mcpServers,
+    bridge_ratio: Math.round(bridgeRatio * 1e3) / 1e3,
+    primary_transport: primary
+  };
 }
 
 // src/server/feedbackManager.ts
@@ -4268,6 +4335,20 @@ var ClientRegistry = class {
       else if (c.clientType === "mcp-server") mcpServers++;
     }
     return { webviews, mcpServers };
+  }
+  transportCounts() {
+    let bridgeWebviews = 0;
+    let tcpWebviews = 0;
+    let mcpServers = 0;
+    for (const [, c] of this.clients) {
+      if (c.clientType === "webview") {
+        if (c.webviewTransport === "bridge") bridgeWebviews++;
+        else tcpWebviews++;
+      } else if (c.clientType === "mcp-server") {
+        mcpServers++;
+      }
+    }
+    return { bridgeWebviews, tcpWebviews, mcpServers };
   }
   closeAll() {
     for (const [, client] of this.clients) {
@@ -19617,11 +19698,13 @@ var WsHub = class {
     this.clients.setLastPong(ws, ts);
   }
   getDebugInfo() {
+    const transport = buildTransportMetrics(this.clients.transportCounts());
     return {
       hubPort: this.port,
       hubVersion: this.version,
       workspaces: this.workspaces,
       clients: this.clients.counts(),
+      transportMetrics: transport,
       hasPending: this.feedback.hasPending(),
       serverListening: this.server !== null
     };
@@ -19637,6 +19720,7 @@ var WsHub = class {
     const bridge = createWebviewBridge(postToPanel);
     const client = this._bindClient(bridge.socket);
     client.clientType = "webview";
+    client.webviewTransport = "bridge";
     wsLog("client registered: type=webview (bridge)");
     return bridge;
   }
@@ -19674,6 +19758,9 @@ var WsHub = class {
     for (const ws of this.workspaces) {
       deleteServerByHash(projectHash(ws));
     }
+    if (releaseRegistryLockIfOwner(readRegistryLock(), process.pid)) {
+      clearRegistryLock();
+    }
   }
   _addMessage(msg) {
     this.timeline.addMessage(msg);
@@ -19703,15 +19790,33 @@ var WsHub = class {
     res.end(JSON.stringify({ error: "not_found" }));
   }
   _registerServer() {
-    for (const ws of this.workspaces) {
-      writeServer(projectHash(ws), {
+    const startedAt = Date.now();
+    const result = writeServersBatch({
+      workspaces: this.workspaces,
+      info: {
         port: this.port,
         pid: process.pid,
-        projectPath: ws,
         version: this.version,
-        started_at: Date.now()
-      });
+        started_at: startedAt
+      },
+      projectHash,
+      readLock: readRegistryLock,
+      writeLock: writeRegistryLock,
+      writeServer,
+      isAlive: (pid) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    });
+    if (!result.ok) {
+      wsLog(`registry_write_skipped reason=${result.reason} pid=${process.pid} port=${this.port}`);
+      return;
     }
+    wsLog(`registry_write ok hashes=${result.hashes.join(",")} port=${this.port} pid=${process.pid}`);
   }
   // ── Connection Handling ─────────────────────────────────
   _handleConnection(ws) {
@@ -19750,7 +19855,10 @@ var WsHub = class {
     dispatchRouteMessage(ws, client, msg, {
       onRegister: (clientType) => {
         client.clientType = clientType;
-        wsLog(`client registered: type=${client.clientType}`);
+        if (clientType === "webview" && !client.webviewTransport) {
+          client.webviewTransport = "tcp";
+        }
+        wsLog(`client registered: type=${client.clientType} transport=${client.webviewTransport || "-"}`);
         if (clientType === "webview") {
           this._replayPendingSessions(ws);
         }
