@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.87] - 2026-07-03
+
+### Fix
+- **Duplicate feedback tabs**: same `trace_id` with parallel MCP WebSockets now **trace_steal** (reuse tab) instead of spawning extra sessions.
+- **Session lifecycle logging**: grep `sessionLifecycle:` in extension.log for create / transport_reuse / trace_steal / mcp_detach / resolve.
+
 ## [2.5.1-ji.86] - 2026-07-03
 
 ### Fix

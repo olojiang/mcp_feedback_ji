@@ -64,6 +64,7 @@ const clipboardImage_1 = require("../utils/clipboardImage");
 const clipboardHandlers_js_1 = require("./clipboardHandlers.js");
 const extensionFileLog_js_1 = require("../extensionFileLog.js");
 const stateSyncPayload_js_1 = require("../stateSyncPayload.js");
+const sessionLifecycleLog_js_1 = require("../sessionLifecycleLog.js");
 function wsLog(msg) {
     (0, extensionFileLog_js_1.hubLog)(msg);
 }
@@ -82,6 +83,8 @@ class WsHub {
         this.workspaces = [];
         this.stateSyncGenerations = new Map();
         this.stateSyncFingerprints = new Map();
+        this._mcpConnSeq = 0;
+        this._mcpConnIds = new WeakMap();
         this.version = version;
         this.clipboard = options.clipboard ?? {
             writeText: async () => { throw new Error('clipboard port not configured'); },
@@ -323,6 +326,11 @@ class WsHub {
                     wsLog(`mcp disconnected: ${(0, disconnectReason_1.formatDisconnectEvent)('extension_ws_close', {
                         sessions: detached.join(','),
                     })}`);
+                    wsLog((0, sessionLifecycleLog_js_1.formatSessionLifecycleLine)({
+                        event: 'mcp_detach',
+                        detail: detached.join(','),
+                        pendingCount: this.feedback.pendingCount(),
+                    }));
                 }
                 this.clients.remove(ws);
                 this.stateSyncGenerations.delete(ws);
@@ -345,6 +353,17 @@ class WsHub {
                     client.webviewTransport = 'tcp';
                 }
                 wsLog(`client registered: type=${client.clientType} transport=${client.webviewTransport || '-'}`);
+                if (clientType === 'mcp-server') {
+                    const connId = ++this._mcpConnSeq;
+                    this._mcpConnIds.set(ws, connId);
+                    wsLog((0, sessionLifecycleLog_js_1.formatSessionLifecycleLine)({
+                        event: 'mcp_connect',
+                        mcpConnId: connId,
+                        mcpReadyState: ws.readyState,
+                        pendingCount: this.feedback.pendingCount(),
+                        reason: 'mcp_ws_registered',
+                    }));
+                }
                 if (clientType === 'webview') {
                     this._replayPendingSessions(ws);
                 }

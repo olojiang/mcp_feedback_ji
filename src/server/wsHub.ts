@@ -52,6 +52,7 @@ import { createClipboardHandlers } from './clipboardHandlers.js';
 import { getLogsDir } from '../configPaths.js';
 import { hubLog, hubStructuredLog } from '../extensionFileLog.js';
 import { buildStateSyncPayload, hubFingerprint, pendingSessionsFingerprint } from '../stateSyncPayload.js';
+import { formatSessionLifecycleLine } from '../sessionLifecycleLog.js';
 
 function wsLog(msg: string): void {
     hubLog(msg);
@@ -88,6 +89,8 @@ export class WsHub {
         messageCount: number;
     }>();
     private readonly clipboard: ClipboardPort;
+    private _mcpConnSeq = 0;
+    private readonly _mcpConnIds = new WeakMap<WebSocket, number>();
 
     constructor(version = '0.0.0', options: WsHubOptions = {}) {
         this.version = version;
@@ -359,6 +362,11 @@ export class WsHub {
                     wsLog(`mcp disconnected: ${formatDisconnectEvent('extension_ws_close', {
                         sessions: detached.join(','),
                     })}`);
+                    wsLog(formatSessionLifecycleLine({
+                        event: 'mcp_detach',
+                        detail: detached.join(','),
+                        pendingCount: this.feedback.pendingCount(),
+                    }));
                 }
                 this.clients.remove(ws);
                 this.stateSyncGenerations.delete(ws);
@@ -382,6 +390,17 @@ export class WsHub {
                     client.webviewTransport = 'tcp';
                 }
                 wsLog(`client registered: type=${client.clientType} transport=${client.webviewTransport || '-'}`);
+                if (clientType === 'mcp-server') {
+                    const connId = ++this._mcpConnSeq;
+                    this._mcpConnIds.set(ws, connId);
+                    wsLog(formatSessionLifecycleLine({
+                        event: 'mcp_connect',
+                        mcpConnId: connId,
+                        mcpReadyState: ws.readyState,
+                        pendingCount: this.feedback.pendingCount(),
+                        reason: 'mcp_ws_registered',
+                    }));
+                }
                 if (clientType === 'webview') {
                     this._replayPendingSessions(ws);
                 }

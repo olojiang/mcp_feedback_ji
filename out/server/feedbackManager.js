@@ -50,17 +50,61 @@ class FeedbackManager {
     }
     updateTransport(newWs, projectDir, summary) {
         if (!projectDir)
-            return { updated: false };
+            return { updated: false, skipReason: 'no_project' };
+        let blockedSessionId;
         for (const entry of this.queue) {
-            if (entry.projectDir && entry.projectDir === projectDir && !isMcpTransportOpen(entry.mcpClient)) {
+            if (entry.projectDir !== projectDir)
+                continue;
+            if (!isMcpTransportOpen(entry.mcpClient)) {
                 entry.mcpClient = newWs;
                 entry.mcpDetached = false;
                 if (summary)
                     entry.summary = summary;
                 return { updated: true, sessionId: entry.sessionId };
             }
+            blockedSessionId = entry.sessionId;
         }
-        return { updated: false };
+        if (blockedSessionId) {
+            return { updated: false, skipReason: 'live_mcp_still_open', blockedSessionId };
+        }
+        return { updated: false, skipReason: 'no_pending' };
+    }
+    /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
+    reuseByTraceId(mcpWs, traceId, summary) {
+        if (!traceId)
+            return { action: 'none' };
+        for (const entry of this.queue) {
+            if (entry.traceId !== traceId)
+                continue;
+            if (!isMcpTransportOpen(entry.mcpClient)) {
+                entry.mcpClient = mcpWs;
+                entry.mcpDetached = false;
+                if (summary)
+                    entry.summary = summary;
+                return { action: 'reuse', sessionId: entry.sessionId };
+            }
+            if (entry.mcpClient !== mcpWs) {
+                entry.mcpClient = mcpWs;
+                entry.mcpDetached = false;
+                if (summary)
+                    entry.summary = summary;
+                return { action: 'steal', sessionId: entry.sessionId };
+            }
+            return { action: 'none', sessionId: entry.sessionId };
+        }
+        return { action: 'none' };
+    }
+    explainNewSession(mcpWs, projectDir) {
+        if (!projectDir)
+            return 'no_project_directory';
+        const sameProject = this.queue.filter((e) => e.projectDir === projectDir);
+        if (sameProject.length === 0)
+            return 'new_request';
+        const liveOther = sameProject.filter((e) => isMcpTransportOpen(e.mcpClient) && e.mcpClient !== mcpWs);
+        if (liveOther.length > 0) {
+            return `parallel_live_mcp:${liveOther.map((e) => e.sessionId).join('|')}`;
+        }
+        return 'new_request';
     }
     hasPending() {
         return this.queue.length > 0;

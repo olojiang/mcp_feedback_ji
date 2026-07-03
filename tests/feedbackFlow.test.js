@@ -110,6 +110,42 @@ describe('FeedbackFlow stale session_id fallback', () => {
     assert.equal(sentResult?.feedback, 'Reply')
   })
 
+  it('trace steal avoids duplicate session when same trace opens second mcp ws', () => {
+    const { feedback, logs } = createFlow()
+    const ws1 = { readyState: 1 }
+    const ws2 = { readyState: 1 }
+    const trace = 'same-trace-id'
+
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => ['/proj'],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => {},
+      sendResult: () => {},
+      sendError: () => {},
+      log: (msg) => logs.push(msg),
+    })
+
+    flow.handleFeedbackRequest(ws1, {
+      summary: 'First',
+      project_directory: '/proj',
+      trace_id: trace,
+    })
+    flow.handleFeedbackRequest(ws2, {
+      summary: 'Second',
+      project_directory: '/proj',
+      trace_id: trace,
+    })
+
+    assert.equal(feedback.pendingCount(), 1)
+    assert.ok(logs.some((l) => l.includes('sessionLifecycle: event=trace_steal')))
+    assert.ok(logs.some((l) => l.includes('feedbackRequest: trace steal')))
+  })
+
   it('rejects feedback_request for project outside hub workspaces', () => {
     const { logs } = createFlow(['/spatial-smart-cc'])
     const fakeWs = { readyState: 1 }

@@ -35,6 +35,34 @@ describe('FeedbackManager', () => {
     fm.enqueue(ws1, project, 'first summary')
     const transport = fm.updateTransport(ws2, project, 'second summary')
     assert.equal(transport.updated, false)
+    assert.equal(transport.skipReason, 'live_mcp_still_open')
+    assert.equal(fm.pendingCount(), 1)
+  })
+
+  it('reuseByTraceId steals transport when same trace has live mcp on different ws', () => {
+    const fm = new FeedbackManager()
+    const ws1 = { id: 'ws1', readyState: 1 }
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const project = '/Users/hunter/Workspace/mcp_feedback_ji'
+    const trace = 'cursor-trace-abc'
+
+    const first = fm.enqueue(ws1, project, 'first', trace)
+    const reuse = fm.reuseByTraceId(ws2, trace, 'second summary')
+    assert.equal(reuse.action, 'steal')
+    assert.equal(reuse.sessionId, first.sessionId)
+    assert.equal(fm.pendingCount(), 1)
+    assert.equal(fm.pendingSessions()[0].summary, 'second summary')
+  })
+
+  it('reuseByTraceId reuses dead mcp transport for same trace', () => {
+    const fm = new FeedbackManager()
+    const ws1 = { id: 'ws1', readyState: 3 }
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const trace = 'cursor-trace-dead'
+    const first = fm.enqueue(ws1, '/proj', 'q', trace)
+    const reuse = fm.reuseByTraceId(ws2, trace, 'q2')
+    assert.equal(reuse.action, 'reuse')
+    assert.equal(reuse.sessionId, first.sessionId)
     assert.equal(fm.pendingCount(), 1)
   })
 

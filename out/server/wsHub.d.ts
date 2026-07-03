@@ -26,6 +26,8 @@ export declare class WsHub {
     private readonly stateSyncGenerations;
     private readonly stateSyncFingerprints;
     private readonly clipboard;
+    private _mcpConnSeq;
+    private readonly _mcpConnIds;
     constructor(version?: string, options?: WsHubOptions);
     setWorkspaces(workspaces: string[]): void;
     onFeedbackRequest(cb: () => void): void;

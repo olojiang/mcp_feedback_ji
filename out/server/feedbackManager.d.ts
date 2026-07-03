@@ -14,6 +14,16 @@ export interface FeedbackResult {
 export interface ResolvedFeedback extends FeedbackResult {
     transport: WebSocket;
 }
+export type TransportUpdateResult = {
+    updated: boolean;
+    sessionId?: string;
+    skipReason?: 'no_project' | 'no_pending' | 'live_mcp_still_open';
+    blockedSessionId?: string;
+};
+export type TraceReuseResult = {
+    action: 'none' | 'reuse' | 'steal';
+    sessionId?: string;
+};
 export interface PendingSessionSnapshot {
     id: string;
     label: string;
@@ -32,10 +42,10 @@ export declare class FeedbackManager {
     };
     resolveFirst(result: FeedbackResult): boolean;
     resolveBySessionId(sessionId: string, result: FeedbackResult): boolean;
-    updateTransport(newWs: WebSocket, projectDir?: string, summary?: string): {
-        updated: boolean;
-        sessionId?: string;
-    };
+    updateTransport(newWs: WebSocket, projectDir?: string, summary?: string): TransportUpdateResult;
+    /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
+    reuseByTraceId(mcpWs: WebSocket, traceId: string | undefined, summary?: string): TraceReuseResult;
+    explainNewSession(mcpWs: WebSocket, projectDir?: string): string;
     hasPending(): boolean;
     pendingCount(): number;
     pendingSessions(): PendingSessionSnapshot[];

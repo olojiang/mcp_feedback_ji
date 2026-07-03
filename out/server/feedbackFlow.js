@@ -6,6 +6,7 @@ const pipelineContracts_1 = require("../pipelineContracts");
 const feedbackDelivery_1 = require("../feedbackDelivery");
 const workspaceMatch_1 = require("../workspaceMatch");
 const traceContext_1 = require("../traceContext");
+const sessionLifecycleLog_1 = require("../sessionLifecycleLog");
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -31,6 +32,14 @@ class FeedbackFlow {
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
         if (transport.updated && transport.sessionId) {
             this.deps.log(`feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`);
+            this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
+                event: 'transport_reuse',
+                sessionId: transport.sessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+            }));
             this.deps.addMessage({
                 role: 'ai',
                 content: req.summary,
@@ -41,12 +50,55 @@ class FeedbackFlow {
             this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
             return;
         }
+        if (transport.skipReason === 'live_mcp_still_open') {
+            this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
+                event: 'transport_skip',
+                sessionId: transport.blockedSessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+                reason: transport.skipReason,
+            }));
+        }
+        const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
+        if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {
+            this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
+                event: traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse',
+                sessionId: traceReuse.sessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+                reason: traceReuse.action,
+            }));
+            this.deps.log(`feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`);
+            this.deps.addMessage({
+                role: 'ai',
+                content: req.summary,
+                timestamp: new Date().toISOString(),
+            });
+            this.deps.broadcastSessionUpdated(req.summary, traceReuse.sessionId, req.project_directory, traceId);
+            this.deps.onFeedbackRequested?.();
+            this._attachMcpPromiseHandlers(mcpWs, traceReuse.sessionId);
+            return;
+        }
         this.deps.addMessage({
             role: 'ai',
             content: req.summary,
             timestamp: new Date().toISOString(),
         });
         const { sessionId } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary, traceId);
+        const createReason = this.deps.feedback.explainNewSession(mcpWs, req.project_directory);
+        this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
+            event: 'create',
+            sessionId,
+            project: req.project_directory,
+            traceId,
+            mcpReadyState: mcpWs.readyState,
+            pendingCount: this.deps.feedback.pendingCount(),
+            reason: createReason,
+        }));
         this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
         this.deps.log((0, feedbackDelivery_1.feedbackRequestAcceptedLogLine)(sessionId, req.project_directory, traceId));
@@ -123,6 +175,13 @@ class FeedbackFlow {
             this.deps.queueAsPending(res.feedback, res.images);
             return;
         }
+        this.deps.log((0, sessionLifecycleLog_1.formatSessionLifecycleLine)({
+            event: 'resolve',
+            sessionId: res.session_id,
+            project,
+            traceId: responseTraceId,
+            pendingCount: this.deps.feedback.pendingCount(),
+        }));
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }

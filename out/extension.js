@@ -3990,16 +3990,55 @@ var FeedbackManager = class {
     return true;
   }
   updateTransport(newWs, projectDir, summary) {
-    if (!projectDir) return { updated: false };
+    if (!projectDir) return { updated: false, skipReason: "no_project" };
+    let blockedSessionId;
     for (const entry of this.queue) {
-      if (entry.projectDir && entry.projectDir === projectDir && !isMcpTransportOpen(entry.mcpClient)) {
+      if (entry.projectDir !== projectDir) continue;
+      if (!isMcpTransportOpen(entry.mcpClient)) {
         entry.mcpClient = newWs;
         entry.mcpDetached = false;
         if (summary) entry.summary = summary;
         return { updated: true, sessionId: entry.sessionId };
       }
+      blockedSessionId = entry.sessionId;
     }
-    return { updated: false };
+    if (blockedSessionId) {
+      return { updated: false, skipReason: "live_mcp_still_open", blockedSessionId };
+    }
+    return { updated: false, skipReason: "no_pending" };
+  }
+  /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
+  reuseByTraceId(mcpWs, traceId, summary) {
+    if (!traceId) return { action: "none" };
+    for (const entry of this.queue) {
+      if (entry.traceId !== traceId) continue;
+      if (!isMcpTransportOpen(entry.mcpClient)) {
+        entry.mcpClient = mcpWs;
+        entry.mcpDetached = false;
+        if (summary) entry.summary = summary;
+        return { action: "reuse", sessionId: entry.sessionId };
+      }
+      if (entry.mcpClient !== mcpWs) {
+        entry.mcpClient = mcpWs;
+        entry.mcpDetached = false;
+        if (summary) entry.summary = summary;
+        return { action: "steal", sessionId: entry.sessionId };
+      }
+      return { action: "none", sessionId: entry.sessionId };
+    }
+    return { action: "none" };
+  }
+  explainNewSession(mcpWs, projectDir) {
+    if (!projectDir) return "no_project_directory";
+    const sameProject = this.queue.filter((e) => e.projectDir === projectDir);
+    if (sameProject.length === 0) return "new_request";
+    const liveOther = sameProject.filter(
+      (e) => isMcpTransportOpen(e.mcpClient) && e.mcpClient !== mcpWs
+    );
+    if (liveOther.length > 0) {
+      return `parallel_live_mcp:${liveOther.map((e) => e.sessionId).join("|")}`;
+    }
+    return "new_request";
   }
   hasPending() {
     return this.queue.length > 0;
@@ -4504,6 +4543,20 @@ function projectMismatchLogLine(want, hubWorkspaces) {
   return `feedbackRequest: rejected project_mismatch want=${want} hub=${hubWorkspaces.join("|")}`;
 }
 
+// src/sessionLifecycleLog.ts
+function formatSessionLifecycleLine(fields) {
+  const parts = [`sessionLifecycle: event=${fields.event}`];
+  if (fields.sessionId) parts.push(`session=${fields.sessionId}`);
+  if (fields.project) parts.push(`project=${fields.project}`);
+  if (fields.traceId) parts.push(`trace=${fields.traceId}`);
+  if (fields.mcpConnId !== void 0) parts.push(`mcpConn=${fields.mcpConnId}`);
+  if (fields.mcpReadyState !== void 0) parts.push(`mcpRs=${fields.mcpReadyState}`);
+  if (fields.pendingCount !== void 0) parts.push(`pending=${fields.pendingCount}`);
+  if (fields.reason) parts.push(`reason=${fields.reason}`);
+  if (fields.detail) parts.push(`detail=${fields.detail}`);
+  return parts.join(" ");
+}
+
 // src/server/feedbackFlow.ts
 var FeedbackFlow = class {
   constructor(deps) {
@@ -4542,6 +4595,14 @@ var FeedbackFlow = class {
       this.deps.log(
         `feedbackRequest: transport updated session=${transport.sessionId ?? "unknown"}`
       );
+      this.deps.log(formatSessionLifecycleLine({
+        event: "transport_reuse",
+        sessionId: transport.sessionId,
+        project: req.project_directory,
+        traceId,
+        mcpReadyState: mcpWs.readyState,
+        pendingCount: this.deps.feedback.pendingCount()
+      }));
       this.deps.addMessage({
         role: "ai",
         content: req.summary,
@@ -4557,6 +4618,46 @@ var FeedbackFlow = class {
       this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
       return;
     }
+    if (transport.skipReason === "live_mcp_still_open") {
+      this.deps.log(formatSessionLifecycleLine({
+        event: "transport_skip",
+        sessionId: transport.blockedSessionId,
+        project: req.project_directory,
+        traceId,
+        mcpReadyState: mcpWs.readyState,
+        pendingCount: this.deps.feedback.pendingCount(),
+        reason: transport.skipReason
+      }));
+    }
+    const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
+    if (traceReuse.action === "reuse" || traceReuse.action === "steal") {
+      this.deps.log(formatSessionLifecycleLine({
+        event: traceReuse.action === "steal" ? "trace_steal" : "trace_reuse",
+        sessionId: traceReuse.sessionId,
+        project: req.project_directory,
+        traceId,
+        mcpReadyState: mcpWs.readyState,
+        pendingCount: this.deps.feedback.pendingCount(),
+        reason: traceReuse.action
+      }));
+      this.deps.log(
+        `feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? "unknown"}`
+      );
+      this.deps.addMessage({
+        role: "ai",
+        content: req.summary,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      this.deps.broadcastSessionUpdated(
+        req.summary,
+        traceReuse.sessionId,
+        req.project_directory,
+        traceId
+      );
+      this.deps.onFeedbackRequested?.();
+      this._attachMcpPromiseHandlers(mcpWs, traceReuse.sessionId);
+      return;
+    }
     this.deps.addMessage({
       role: "ai",
       content: req.summary,
@@ -4568,6 +4669,16 @@ var FeedbackFlow = class {
       req.summary,
       traceId
     );
+    const createReason = this.deps.feedback.explainNewSession(mcpWs, req.project_directory);
+    this.deps.log(formatSessionLifecycleLine({
+      event: "create",
+      sessionId,
+      project: req.project_directory,
+      traceId,
+      mcpReadyState: mcpWs.readyState,
+      pendingCount: this.deps.feedback.pendingCount(),
+      reason: createReason
+    }));
     this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? "(none)"}`));
     this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
     this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory, traceId));
@@ -4652,6 +4763,13 @@ var FeedbackFlow = class {
       this.deps.queueAsPending(res.feedback, res.images);
       return;
     }
+    this.deps.log(formatSessionLifecycleLine({
+      event: "resolve",
+      sessionId: res.session_id,
+      project,
+      traceId: responseTraceId,
+      pendingCount: this.deps.feedback.pendingCount()
+    }));
     this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
     this.deps.onFeedbackResolved?.();
   }
@@ -19780,6 +19898,8 @@ var WsHub = class {
     this.workspaces = [];
     this.stateSyncGenerations = /* @__PURE__ */ new Map();
     this.stateSyncFingerprints = /* @__PURE__ */ new Map();
+    this._mcpConnSeq = 0;
+    this._mcpConnIds = /* @__PURE__ */ new WeakMap();
     this.version = version2;
     this.clipboard = options.clipboard ?? {
       writeText: async () => {
@@ -20021,6 +20141,11 @@ var WsHub = class {
           wsLog(`mcp disconnected: ${formatDisconnectEvent("extension_ws_close", {
             sessions: detached.join(",")
           })}`);
+          wsLog(formatSessionLifecycleLine({
+            event: "mcp_detach",
+            detail: detached.join(","),
+            pendingCount: this.feedback.pendingCount()
+          }));
         }
         this.clients.remove(ws);
         this.stateSyncGenerations.delete(ws);
@@ -20043,6 +20168,17 @@ var WsHub = class {
           client.webviewTransport = "tcp";
         }
         wsLog(`client registered: type=${client.clientType} transport=${client.webviewTransport || "-"}`);
+        if (clientType === "mcp-server") {
+          const connId = ++this._mcpConnSeq;
+          this._mcpConnIds.set(ws, connId);
+          wsLog(formatSessionLifecycleLine({
+            event: "mcp_connect",
+            mcpConnId: connId,
+            mcpReadyState: ws.readyState,
+            pendingCount: this.feedback.pendingCount(),
+            reason: "mcp_ws_registered"
+          }));
+        }
         if (clientType === "webview") {
           this._replayPendingSessions(ws);
         }

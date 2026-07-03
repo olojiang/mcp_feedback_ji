@@ -8,6 +8,7 @@ import {
 } from '../feedbackDelivery';
 import { hubAcceptsProject, projectMismatchLogLine } from '../workspaceMatch';
 import { resolveTraceId } from '../traceContext';
+import { formatSessionLifecycleLine } from '../sessionLifecycleLog';
 
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
@@ -81,6 +82,14 @@ export class FeedbackFlow {
             this.deps.log(
                 `feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`,
             );
+            this.deps.log(formatSessionLifecycleLine({
+                event: 'transport_reuse',
+                sessionId: transport.sessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+            }));
             this.deps.addMessage({
                 role: 'ai',
                 content: req.summary,
@@ -97,6 +106,48 @@ export class FeedbackFlow {
             return;
         }
 
+        if (transport.skipReason === 'live_mcp_still_open') {
+            this.deps.log(formatSessionLifecycleLine({
+                event: 'transport_skip',
+                sessionId: transport.blockedSessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+                reason: transport.skipReason,
+            }));
+        }
+
+        const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
+        if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {
+            this.deps.log(formatSessionLifecycleLine({
+                event: traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse',
+                sessionId: traceReuse.sessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+                reason: traceReuse.action,
+            }));
+            this.deps.log(
+                `feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`,
+            );
+            this.deps.addMessage({
+                role: 'ai',
+                content: req.summary,
+                timestamp: new Date().toISOString(),
+            });
+            this.deps.broadcastSessionUpdated(
+                req.summary,
+                traceReuse.sessionId,
+                req.project_directory,
+                traceId,
+            );
+            this.deps.onFeedbackRequested?.();
+            this._attachMcpPromiseHandlers(mcpWs, traceReuse.sessionId!);
+            return;
+        }
+
         this.deps.addMessage({
             role: 'ai',
             content: req.summary,
@@ -109,6 +160,16 @@ export class FeedbackFlow {
             req.summary,
             traceId,
         );
+        const createReason = this.deps.feedback.explainNewSession(mcpWs, req.project_directory);
+        this.deps.log(formatSessionLifecycleLine({
+            event: 'create',
+            sessionId,
+            project: req.project_directory,
+            traceId,
+            mcpReadyState: mcpWs.readyState,
+            pendingCount: this.deps.feedback.pendingCount(),
+            reason: createReason,
+        }));
         this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
         this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory, traceId));
@@ -204,6 +265,13 @@ export class FeedbackFlow {
             this.deps.queueAsPending(res.feedback, res.images);
             return;
         }
+        this.deps.log(formatSessionLifecycleLine({
+            event: 'resolve',
+            sessionId: res.session_id,
+            project,
+            traceId: responseTraceId,
+            pendingCount: this.deps.feedback.pendingCount(),
+        }));
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }
