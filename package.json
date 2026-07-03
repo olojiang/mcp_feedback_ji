@@ -2,7 +2,7 @@
 	"name": "mcp-feedback-enhanced",
 	"displayName": "MCP Feedback Enhanced",
 	"description": "Interactive feedback collection for AI assistants with multi-session tabs (Hunter fork)",
-	"version": "2.5.1-ji.65",
+	"version": "2.5.1-ji.66",
 	"publisher": "mcp-feedback",
 	"license": "MIT",
 	"repository": {
@@ -74,7 +74,42 @@
 				"command": "mcp-feedback-enhanced.showStatus",
 				"title": "MCP Feedback Enhanced: Show Status"
 			}
-		]
+		],
+		"configuration": {
+			"title": "MCP Feedback Enhanced",
+			"properties": {
+				"mcpFeedback.quickReplies": {
+					"type": "array",
+					"default": [],
+					"description": "Override quick reply button text by id (continue, looks-good, fix, pause, test-verify, finished).",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"label": {
+								"type": "string"
+							},
+							"text": {
+								"type": "string"
+							},
+							"icon": {
+								"type": "string"
+							},
+							"finished": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"id",
+							"label",
+							"text"
+						]
+					}
+				}
+			}
+		}
 	},
 	"scripts": {
 		"vscode:prepublish": "cd mcp-server && npm run build && cd .. && node scripts/generate-webview.js --prod && node scripts/validate-build.js && npm run esbuild-base -- --minify && npm run verify",

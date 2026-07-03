@@ -53,15 +53,18 @@ const fileStore_1 = require("./fileStore");
 const registrySnapshot_1 = require("./registrySnapshot");
 const deployStamp_1 = require("./deployStamp");
 const deployStampReader_1 = require("./deployStampReader");
+const logTail_1 = require("./logTail");
+const quickReplySettings_1 = require("./quickReplySettings");
 const webviewSyncPolicy_1 = require("./webviewSyncPolicy");
 class FeedbackViewProvider {
-    constructor(getHtml, getPort, getVersion, getHub, extensionUri) {
+    constructor(getHtml, getPort, getVersion, getHub, extensionUri, getMemoryVersion) {
         this._view = null;
         this._bridge = null;
         this._lastSyncedPort = 0;
         this._getHtml = getHtml;
         this._getPort = getPort;
         this._getVersion = getVersion;
+        this._getMemoryVersion = getMemoryVersion ?? getVersion;
         this._getHub = getHub;
         this._extensionUri = extensionUri;
     }
@@ -174,16 +177,33 @@ class FeedbackViewProvider {
     _versionWarnings() {
         return (0, registrySnapshot_1.versionSkewWarnings)(this._registryEntries(), this._getVersion(), process.pid);
     }
+    _quickRepliesFromSettings() {
+        try {
+            const getConfiguration = vscode.workspace?.getConfiguration;
+            if (typeof getConfiguration !== 'function') {
+                return (0, quickReplySettings_1.quickRepliesFromConfig)(undefined);
+            }
+            return (0, quickReplySettings_1.quickRepliesFromConfig)(getConfiguration.call(vscode.workspace, 'mcpFeedback').get('quickReplies'));
+        }
+        catch {
+            return (0, quickReplySettings_1.quickRepliesFromConfig)(undefined);
+        }
+    }
     _bridgePayload() {
         const deployStamp = (0, deployStampReader_1.readDeployStamp)();
+        const version = this._getVersion();
+        const memoryVersion = this._getMemoryVersion();
         return {
             type: 'bridge-connected',
             port: this._getPort(),
-            version: this._getVersion(),
+            version,
+            memoryVersion,
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
             deployStamp,
-            deployLabel: (0, deployStamp_1.formatDeployStampLabel)(deployStamp, this._getVersion()),
+            deployLabel: (0, deployStamp_1.formatDeployStampLabel)(deployStamp, version),
+            deployReloadBanner: (0, deployStamp_1.deployReloadBannerText)(memoryVersion, version, deployStamp),
+            quickReplies: this._quickRepliesFromSettings(),
         };
     }
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
@@ -197,14 +217,19 @@ class FeedbackViewProvider {
     }
     _pushServerInfo(view) {
         const deployStamp = (0, deployStampReader_1.readDeployStamp)();
+        const version = this._getVersion();
+        const memoryVersion = this._getMemoryVersion();
         view.webview.postMessage({
             type: 'server-info',
             port: this._getPort(),
-            version: this._getVersion(),
+            version,
+            memoryVersion,
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
             deployStamp,
-            deployLabel: (0, deployStamp_1.formatDeployStampLabel)(deployStamp, this._getVersion()),
+            deployLabel: (0, deployStamp_1.formatDeployStampLabel)(deployStamp, version),
+            deployReloadBanner: (0, deployStamp_1.deployReloadBannerText)(memoryVersion, version, deployStamp),
+            quickReplies: this._quickRepliesFromSettings(),
         });
     }
     _handleDebugRequest(view) {
@@ -220,6 +245,7 @@ class FeedbackViewProvider {
             }
         });
         const skew = (0, registrySnapshot_1.versionSkewWarnings)(registry, this._getVersion(), process.pid);
+        const mcpLogPath = (0, logPaths_1.resolveFeedbackLogPath)('mcp-server');
         const report = {
             timestamp: new Date().toISOString(),
             extension: {
@@ -239,8 +265,11 @@ class FeedbackViewProvider {
             deployStamp: (0, deployStampReader_1.readDeployStamp)(),
             logPaths: {
                 extension: (0, logPaths_1.resolveFeedbackLogPath)('extension'),
-                mcpServer: (0, logPaths_1.resolveFeedbackLogPath)('mcp-server'),
+                mcpServer: mcpLogPath,
                 webview: (0, logPaths_1.resolveFeedbackLogPath)('webview'),
+            },
+            logTail: {
+                mcpServer: (0, logTail_1.readLogTailLines)(mcpLogPath, 50),
             },
         };
         report.diagnoseBundle = (0, registrySnapshot_1.buildDiagnoseBundle)(report);

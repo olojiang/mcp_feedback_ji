@@ -58,6 +58,7 @@ const routeAdapter_1 = require("./routeAdapter");
 const wsMessageCodec_1 = require("./wsMessageCodec");
 const webviewBridge_1 = require("./webviewBridge");
 const hubSnapshot_1 = require("../hubSnapshot");
+const disconnectReason_1 = require("../disconnectReason");
 const feedbackDelivery_1 = require("../feedbackDelivery");
 const clipboardImage_1 = require("../utils/clipboardImage");
 const vscode = __importStar(require("vscode"));
@@ -305,7 +306,9 @@ class WsHub {
             onDisconnect: () => {
                 const detached = this.feedback.detachMcpClient(ws);
                 if (detached.length) {
-                    wsLog(`mcp disconnected: detached sessions=${detached.join(',')}`);
+                    wsLog(`mcp disconnected: ${(0, disconnectReason_1.formatDisconnectEvent)('extension_ws_close', {
+                        sessions: detached.join(','),
+                    })}`);
                 }
                 this.clients.remove(ws);
             },

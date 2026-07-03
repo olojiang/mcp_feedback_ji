@@ -34,6 +34,7 @@ import { dispatchRouteMessage } from './routeAdapter';
 import { decodeWsMessage } from './wsMessageCodec';
 import { createWebviewBridge, type WebviewBridge } from './webviewBridge';
 import { buildHubSnapshot } from '../hubSnapshot';
+import { formatDisconnectEvent } from '../disconnectReason';
 import {
     evaluateBroadcastDelivery,
     sessionDisplayedLogLine,
@@ -321,7 +322,9 @@ export class WsHub {
             onDisconnect: () => {
                 const detached = this.feedback.detachMcpClient(ws);
                 if (detached.length) {
-                    wsLog(`mcp disconnected: detached sessions=${detached.join(',')}`);
+                    wsLog(`mcp disconnected: ${formatDisconnectEvent('extension_ws_close', {
+                        sessions: detached.join(','),
+                    })}`);
                 }
                 this.clients.remove(ws);
             },

@@ -9,6 +9,6 @@ describe('extensionClient close errors', () => {
   it('formats extension close with actionable hint', () => {
     const msg = formatExtensionCloseError('waiting feedback')
     assert.match(msg, /Extension connection closed/i)
-    assert.match(msg, /Reload Window/i)
+    assert.match(msg, /reason=extension_ws_close/)
   })
 })

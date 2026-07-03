@@ -110,6 +110,11 @@ body{
   background:rgba(245,158,11,0.12);border-bottom:1px solid rgba(245,158,11,0.35);
 }
 .version-skew-banner.visible{display:block}
+.deploy-reload-banner{
+  display:none;padding:6px 12px;font-size:11px;color:#93c5fd;
+  background:rgba(59,130,246,0.12);border-bottom:1px solid rgba(59,130,246,0.35);
+}
+.deploy-reload-banner.visible{display:block}
 .scroll-bottom-btn{
   position:absolute;right:14px;bottom:10px;z-index:5;
   background:rgba(124,58,237,0.85);color:#fff;border:none;border-radius:16px;
@@ -609,6 +614,10 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
       <pre id="debugAgentContext" style="margin-top:4px;font-size:10px">Open DBG to load...</pre>
     </details>
     <details style="margin-bottom:4px">
+      <summary style="cursor:pointer;font-size:10px;color:var(--fg-dim);user-select:none">MCP log tail (50 lines)</summary>
+      <pre id="debugMcpLogTail" style="margin-top:4px;font-size:10px">Open DBG to load...</pre>
+    </details>
+    <details style="margin-bottom:4px">
       <summary style="cursor:pointer;font-size:10px;color:var(--fg-dim);user-select:none">Bridge Diagnostic JSON</summary>
       <pre id="debugJson" style="margin-top:4px">Loading...</pre>
     </details>
@@ -637,6 +646,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 </div>
 <div class="tab-context-menu" id="tabContextMenu"></div>
 <div class="version-skew-banner" id="versionSkewBanner"></div>
+<div class="deploy-reload-banner" id="deployReloadBanner"></div>
 <div class="panel-main" id="panelMain">
 <div class="messages-pane" id="messagesPane">
 <div class="messages" id="messages">
@@ -819,6 +829,8 @@ window.onerror = function (msg, src, line, col, err) {
     var paneSplitter = document.getElementById('paneSplitter');
     var scrollBottomBtn = document.getElementById('scrollBottomBtn');
     var versionSkewBannerEl = document.getElementById('versionSkewBanner');
+    var deployReloadBannerEl = document.getElementById('deployReloadBanner');
+    var deployStampLabelEl = document.getElementById('deployStampLabel');
     var ctrlEnterCheck = document.getElementById('ctrlEnterCheck');
     var confirmFinishedCheck = document.getElementById('confirmFinishedCheck');
     var inputPaneHeightInput = document.getElementById('inputPaneHeightInput');
@@ -941,6 +953,11 @@ window.onerror = function (msg, src, line, col, err) {
                 2,
             );
         }
+        var debugMcpLogTailEl = document.getElementById('debugMcpLogTail');
+        if (debugMcpLogTailEl && lastExtensionDebugReport && lastExtensionDebugReport.logTail) {
+            var tail = lastExtensionDebugReport.logTail.mcpServer || [];
+            debugMcpLogTailEl.textContent = tail.length ? tail.join('\n') : '(mcp log empty or missing)';
+        }
     }
 
     function showRoutingBanner(project) {
@@ -963,6 +980,42 @@ window.onerror = function (msg, src, line, col, err) {
         }
         versionSkewBannerEl.textContent = 'Version skew: ' + text + ' — Reload Window on each Cursor window.';
         versionSkewBannerEl.classList.add('visible');
+    }
+
+    function showDeployReloadBanner(msg) {
+        if (!deployReloadBannerEl) return;
+        var text = (msg && msg.deployReloadBanner)
+            || PS.PanelState.deployReloadBannerText(
+                (msg && msg.memoryVersion) || '',
+                (msg && msg.version) || '',
+                msg && msg.deployStamp,
+            );
+        if (!text) {
+            deployReloadBannerEl.classList.remove('visible');
+            deployReloadBannerEl.textContent = '';
+            return;
+        }
+        deployReloadBannerEl.textContent = text;
+        deployReloadBannerEl.classList.add('visible');
+    }
+
+    function applyDeployLabel(msg) {
+        if (!deployStampLabelEl || !msg) return;
+        if (msg.deployLabel) {
+            deployStampLabelEl.textContent = msg.deployLabel;
+            deployStampLabelEl.title = msg.deployLabel;
+        }
+        if (msg.memoryVersion && msg.version && msg.memoryVersion !== msg.version) {
+            var vl = document.getElementById('versionLabel');
+            if (vl) vl.textContent = 'v' + msg.version + ' (mem ' + msg.memoryVersion + ')';
+        }
+    }
+
+    function applyQuickRepliesFromHost(msg) {
+        if (!msg || !msg.quickReplies || !msg.quickReplies.length) return;
+        state.quickReplies = PS.PanelState.normalizeQuickReplies(msg.quickReplies);
+        if (quickRepliesConfig) quickRepliesConfig.value = quickRepliesToConfigText(state.quickReplies);
+        renderQuickReplies();
     }
 
     function quickRepliesToConfigText(list) {
@@ -1876,7 +1929,7 @@ window.onerror = function (msg, src, line, col, err) {
             if (!vscode) return;
             vscode.postMessage({
                 type: 'export-sessions',
-                data: PS.PanelState.exportSessionsSnapshot(state),
+                data: PS.PanelState.exportAgentContinuationJson(state),
             });
         });
     }
@@ -2125,8 +2178,15 @@ window.onerror = function (msg, src, line, col, err) {
         if (!msg) return;
         if (msg.version) {
             var vl = document.getElementById('versionLabel');
-            if (vl) vl.textContent = 'v' + msg.version;
+            if (vl) {
+                vl.textContent = (msg.memoryVersion && msg.memoryVersion !== msg.version)
+                    ? ('v' + msg.version + ' (mem ' + msg.memoryVersion + ')')
+                    : ('v' + msg.version);
+            }
         }
+        applyDeployLabel(msg);
+        showDeployReloadBanner(msg);
+        applyQuickRepliesFromHost(msg);
         if (msg.port) {
             connectedHubPid = msg.pid || connectedHubPid;
             wsUrl = PS.PanelState.resolveWsUrl(wsUrl, msg.port);

@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws';
 import { formatLogEvent } from '../structuredLog.js';
+import { formatDisconnectEvent } from '../disconnectReason.js';
 
 export type ClientType = 'webview' | 'mcp-server' | 'unknown';
 
@@ -74,6 +75,12 @@ export class ClientRegistry {
             if (now - client.lastPong > timeoutMs) {
                 try { ws.close(); } catch { /* ignore */ }
                 this.clients.delete(ws);
+                console.log(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
+                    action: 'close',
+                    client_type: client.clientType,
+                    idle_ms: now - client.lastPong,
+                    detail: formatDisconnectEvent('hub_sweep'),
+                }));
                 onStale(ws);
                 continue;
             }

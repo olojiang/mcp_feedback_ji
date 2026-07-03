@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.66] - 2026-07-03
+
+### Added (P0–P3)
+- Deploy reload banner (memory vs disk version), MCP reconnect hints in ConnectionHealth.
+- Disconnect reason tags in logs/errors; DBG MCP log tail (50 lines).
+- `mcpFeedback.quickReplies` setting; agent handoff JSON export.
+- Tests: `p0p3Features`, `mcpStdioKeepalive.integration`, `multiWorkspaceRouting`.
+- CI: `publish.yml` VSIX packaging on version tags.
+
 ## [2.5.1-ji.65] - 2026-07-03
 
 ### Fixed

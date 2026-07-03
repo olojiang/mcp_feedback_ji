@@ -44,6 +44,7 @@ describe('ConnectionHealth', () => {
       hubPidMismatch: false,
     })
     assert.equal(health.level, 'degraded')
+    assert.ok(health.issues.some((i) => i.includes('Settings')))
     assert.ok(health.issues.some((i) => i.includes('Agent disconnected')))
   })
 

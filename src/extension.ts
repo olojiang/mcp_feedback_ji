@@ -16,7 +16,7 @@ import * as os from 'os';
 import { exec, execSync } from 'child_process';
 import { FeedbackWSServer } from './wsServer';
 import { FeedbackViewProvider } from './feedbackViewProvider';
-import { readExtensionVersion } from './extensionVersion';
+import { readExtensionVersion, readMemoryExtensionVersion } from './extensionVersion';
 import { extensionSyncDelaysMs, EXTENSION_PANEL_FOCUS_DELAYS_MS } from './activateSyncPolicy';
 import { shouldPromptReloadAfterVersionChange } from './deployStamp';
 
@@ -88,7 +88,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     const extensionPath = context.extensionPath;
     const getVersion = () => readExtensionVersion(extensionPath);
+    const getMemoryVersion = () => readMemoryExtensionVersion(context.extension.packageJSON);
     const pkgVersion = getVersion();
+    const memoryVersion = getMemoryVersion();
     wsServer = new FeedbackWSServer(pkgVersion);
     wsServer.setWorkspaces(getWorkspaces());
 
@@ -117,7 +119,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
 
     const getHtml = () => _loadWebviewHtml(extensionPath, port, getVersion());
-    bottomProvider = new FeedbackViewProvider(getHtml, () => port, getVersion, () => wsServer, context.extensionUri);
+    bottomProvider = new FeedbackViewProvider(
+        getHtml, () => port, getVersion, () => wsServer, context.extensionUri, getMemoryVersion,
+    );
 
     const forceResetCallback = async (): Promise<number> => {
         await wsServer.stop();
@@ -197,9 +201,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const prevActivated = context.globalState.get<string>('mcpFeedback.lastActivatedVersion');
-    if (shouldPromptReloadAfterVersionChange(prevActivated, pkgVersion)) {
+    if (shouldPromptReloadAfterVersionChange(prevActivated, pkgVersion) || memoryVersion !== pkgVersion) {
         void vscode.window.showInformationMessage(
-            `MCP Feedback ${pkgVersion} is on disk — Reload Window to load it (was ${prevActivated})`,
+            `MCP Feedback ${pkgVersion} on disk (running ${memoryVersion}) — Reload Window to load it`,
             'Reload Window',
         ).then((choice) => {
             if (choice === 'Reload Window') {

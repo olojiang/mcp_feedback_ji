@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ClientRegistry = void 0;
 const structuredLog_js_1 = require("../structuredLog.js");
+const disconnectReason_js_1 = require("../disconnectReason.js");
 class ClientRegistry {
     constructor() {
         this.clients = new Map();
@@ -72,6 +73,12 @@ class ClientRegistry {
                 }
                 catch { /* ignore */ }
                 this.clients.delete(ws);
+                console.log((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
+                    action: 'close',
+                    client_type: client.clientType,
+                    idle_ms: now - client.lastPong,
+                    detail: (0, disconnectReason_js_1.formatDisconnectEvent)('hub_sweep'),
+                }));
                 onStale(ws);
                 continue;
             }

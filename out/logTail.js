@@ -33,22 +33,21 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.readExtensionVersion = readExtensionVersion;
-exports.readMemoryExtensionVersion = readMemoryExtensionVersion;
-const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
-/** Read package.json version from disk — may be newer than Extension Host in-memory code until Reload. */
-function readExtensionVersion(extensionPath) {
+exports.readLogTailLines = readLogTailLines;
+const fs = __importStar(require("node:fs"));
+/** Read last N lines from a log file (best-effort; missing file returns []). */
+function readLogTailLines(filePath, maxLines = 50) {
+    if (!filePath || maxLines <= 0)
+        return [];
     try {
-        const pkg = JSON.parse(fs.readFileSync(path.join(extensionPath, 'package.json'), 'utf-8'));
-        return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+        if (!fs.existsSync(filePath))
+            return [];
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const lines = raw.split(/\r?\n/).filter((line) => line.length > 0);
+        return lines.slice(-maxLines);
     }
     catch {
-        return '0.0.0';
+        return [];
     }
 }
-/** Version of code currently loaded in Extension Host (may lag disk after deploy). */
-function readMemoryExtensionVersion(packageJson) {
-    return typeof packageJson?.version === 'string' ? packageJson.version : '0.0.0';
-}
-//# sourceMappingURL=extensionVersion.js.map
+//# sourceMappingURL=logTail.js.map

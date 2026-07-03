@@ -19,6 +19,20 @@ export function shouldPromptReloadAfterVersionChange(
     return !!previousActivated && previousActivated !== diskVersion;
 }
 
+export function deployReloadBannerText(
+    memoryVersion: string,
+    diskVersion: string,
+    stamp: DeployStamp | null,
+): string {
+    if (memoryVersion && diskVersion && memoryVersion !== diskVersion) {
+        return `Running ${memoryVersion} — Reload Window to load ${diskVersion} from disk`;
+    }
+    if (shouldPromptReloadAfterDeploy(memoryVersion, stamp)) {
+        return `Deploy ${stamp!.version} on disk — Reload Window (running ${memoryVersion})`;
+    }
+    return '';
+}
+
 export function formatDeployStampLabel(stamp: DeployStamp | null, runningVersion: string): string {
     if (!stamp) return '';
     const when = new Date(stamp.at).toISOString().replace('T', ' ').slice(0, 19);

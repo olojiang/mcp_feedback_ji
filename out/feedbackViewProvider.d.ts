@@ -18,13 +18,14 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     private _getHtml;
     private _getPort;
     private _getVersion;
+    private _getMemoryVersion;
     private _getHub;
     private _extensionUri;
     private _bridge;
     private _lastSyncedPort;
     private _forceResetCallback?;
     private _fileWatcher?;
-    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter, getHub: HubGetter, extensionUri: vscode.Uri);
+    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter, getHub: HubGetter, extensionUri: vscode.Uri, getMemoryVersion?: VersionGetter);
     updateHtmlGetter(getHtml: HtmlGetter): void;
     onForceReset(callback: () => Promise<number>): void;
     resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void;
@@ -37,6 +38,7 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     private _attachBridge;
     private _registryEntries;
     private _versionWarnings;
+    private _quickRepliesFromSettings;
     private _bridgePayload;
     /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
     private _connectBridge;

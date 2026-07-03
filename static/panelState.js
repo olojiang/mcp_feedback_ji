@@ -965,10 +965,10 @@
       if (opts.pingStale) issues.push('Hub ping timeout')
       if (opts.hubPidMismatch) issues.push('Hub restarted (pid changed)')
       if (mcpDetached > 0) {
-        issues.push(mcpDetached + ' pending: Agent disconnected')
+        issues.push(mcpDetached + ' pending: Agent disconnected — Settings → MCP: toggle off/on')
       }
       if (pendingCount > 0 && mcpServers === 0) {
-        issues.push('No MCP server connected to this workspace hub')
+        issues.push('No MCP server connected — Settings → MCP: toggle mcp-feedback-enhanced off/on')
       }
       if (staleLocal > 0) {
         issues.push(staleLocal + ' local tab(s) not on server queue')
@@ -1148,6 +1148,35 @@
   PanelState.versionSkewBannerText = function (warnings) {
     if (!warnings || !warnings.length) return ''
     return String(warnings[0])
+  }
+  PanelState.deployReloadBannerText = function (memoryVersion, diskVersion, deployStamp) {
+    if (memoryVersion && diskVersion && memoryVersion !== diskVersion) {
+      return 'Running ' + memoryVersion + ' — Reload Window to load ' + diskVersion + ' from disk'
+    }
+    if (!deployStamp || !memoryVersion) return ''
+    if (deployStamp.version === memoryVersion) return ''
+    return 'Deploy ' + deployStamp.version + ' on disk — Reload Window (running ' + memoryVersion + ')'
+  }
+  PanelState.exportAgentContinuationJson = function (state) {
+    var snap = PanelState.exportSessionsSnapshot(state)
+    return {
+      purpose: 'agent_session_handoff',
+      exportedAt: snap.exportedAt,
+      panelWorkspace: snap.panelWorkspace,
+      activeSessionId: state.activeSessionId || '',
+      resumeHint: 'Feed sessions[].messages to the agent as prior context',
+      sessions: snap.sessions.map(function (s) {
+        return {
+          id: s.id,
+          label: s.label,
+          traceId: s.traceId,
+          project_directory: s.project_directory,
+          waiting: s.waiting,
+          summary: s.summary,
+          messages: s.messages,
+        }
+      }),
+    }
   }
   PanelState.debugSessionTraces = function (state) {
     return (state.sessionOrder || []).map(function (id) {

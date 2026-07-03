@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-/** Read package.json version from disk — Cursor caches context.extension.packageJSON until full app restart. */
+/** Read package.json version from disk — may be newer than Extension Host in-memory code until Reload. */
 export function readExtensionVersion(extensionPath: string): string {
     try {
         const pkg = JSON.parse(
@@ -11,4 +11,11 @@ export function readExtensionVersion(extensionPath: string): string {
     } catch {
         return '0.0.0';
     }
+}
+
+/** Version of code currently loaded in Extension Host (may lag disk after deploy). */
+export function readMemoryExtensionVersion(
+    packageJson: { version?: string } | undefined,
+): string {
+    return typeof packageJson?.version === 'string' ? packageJson.version : '0.0.0';
 }

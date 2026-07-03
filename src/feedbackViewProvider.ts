@@ -24,8 +24,10 @@ import {
     versionSkewWarnings,
     buildDiagnoseBundle,
 } from './registrySnapshot';
-import { formatDeployStampLabel } from './deployStamp';
+import { formatDeployStampLabel, deployReloadBannerText } from './deployStamp';
 import { readDeployStamp } from './deployStampReader';
+import { readLogTailLines } from './logTail';
+import { quickRepliesFromConfig } from './quickReplySettings';
 import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
 
 type HtmlGetter = () => string;
@@ -38,6 +40,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _getHtml: HtmlGetter;
     private _getPort: PortGetter;
     private _getVersion: VersionGetter;
+    private _getMemoryVersion: VersionGetter;
     private _getHub: HubGetter;
     private _extensionUri: vscode.Uri;
     private _bridge: WebviewBridge | null = null;
@@ -45,10 +48,18 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _forceResetCallback?: () => Promise<number>;
     private _fileWatcher?: fs.FSWatcher;
 
-    constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter, getHub: HubGetter, extensionUri: vscode.Uri) {
+    constructor(
+        getHtml: HtmlGetter,
+        getPort: PortGetter,
+        getVersion: VersionGetter,
+        getHub: HubGetter,
+        extensionUri: vscode.Uri,
+        getMemoryVersion?: VersionGetter,
+    ) {
         this._getHtml = getHtml;
         this._getPort = getPort;
         this._getVersion = getVersion;
+        this._getMemoryVersion = getMemoryVersion ?? getVersion;
         this._getHub = getHub;
         this._extensionUri = extensionUri;
     }
@@ -189,16 +200,35 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         return versionSkewWarnings(this._registryEntries(), this._getVersion(), process.pid);
     }
 
+    private _quickRepliesFromSettings() {
+        try {
+            const getConfiguration = vscode.workspace?.getConfiguration;
+            if (typeof getConfiguration !== 'function') {
+                return quickRepliesFromConfig(undefined);
+            }
+            return quickRepliesFromConfig(
+                getConfiguration.call(vscode.workspace, 'mcpFeedback').get('quickReplies'),
+            );
+        } catch {
+            return quickRepliesFromConfig(undefined);
+        }
+    }
+
     private _bridgePayload(): Record<string, unknown> {
         const deployStamp = readDeployStamp();
+        const version = this._getVersion();
+        const memoryVersion = this._getMemoryVersion();
         return {
             type: 'bridge-connected',
             port: this._getPort(),
-            version: this._getVersion(),
+            version,
+            memoryVersion,
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
             deployStamp,
-            deployLabel: formatDeployStampLabel(deployStamp, this._getVersion()),
+            deployLabel: formatDeployStampLabel(deployStamp, version),
+            deployReloadBanner: deployReloadBannerText(memoryVersion, version, deployStamp),
+            quickReplies: this._quickRepliesFromSettings(),
         };
     }
 
@@ -214,14 +244,19 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     private _pushServerInfo(view: vscode.WebviewView): void {
         const deployStamp = readDeployStamp();
+        const version = this._getVersion();
+        const memoryVersion = this._getMemoryVersion();
         view.webview.postMessage({
             type: 'server-info',
             port: this._getPort(),
-            version: this._getVersion(),
+            version,
+            memoryVersion,
             pid: process.pid,
             versionWarnings: this._versionWarnings(),
             deployStamp,
-            deployLabel: formatDeployStampLabel(deployStamp, this._getVersion()),
+            deployLabel: formatDeployStampLabel(deployStamp, version),
+            deployReloadBanner: deployReloadBannerText(memoryVersion, version, deployStamp),
+            quickReplies: this._quickRepliesFromSettings(),
         });
     }
 
@@ -237,6 +272,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             }
         });
         const skew = versionSkewWarnings(registry, this._getVersion(), process.pid);
+        const mcpLogPath = resolveFeedbackLogPath('mcp-server');
         const report: Record<string, unknown> = {
             timestamp: new Date().toISOString(),
             extension: {
@@ -256,8 +292,11 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             deployStamp: readDeployStamp(),
             logPaths: {
                 extension: resolveFeedbackLogPath('extension'),
-                mcpServer: resolveFeedbackLogPath('mcp-server'),
+                mcpServer: mcpLogPath,
                 webview: resolveFeedbackLogPath('webview'),
+            },
+            logTail: {
+                mcpServer: readLogTailLines(mcpLogPath, 50),
             },
         };
         report.diagnoseBundle = buildDiagnoseBundle(report);
