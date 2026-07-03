@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.54] - 2026-07-03
+
+### Added
+- **`trace_id` end-to-end**: MCP `feedback_request` → hub `session_updated` → panel session `traceId`; log lines include `trace=`.
+- **`src/traceContext.ts`**: `resolveTraceId`, `traceLogSuffix`.
+- **Tests**: `traceContext`, `tracePipeline.integration`, `toolHandlers.integration`, `feedbackViewProvider.messages` (table-driven).
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): `npm test` + Playwright E2E.
+
+### Changed
+- **`toolHandlers`**: injectable `readAgentContext`; passes trace into `requestFeedback`.
+- **`FeedbackManager.pendingSessions`**: omits `traceId` when unset.
+
+## [2.5.1-ji.53] - 2026-07-03
+
+### Added
+- Cross-window registry, agent-context viewer, MCP Output/Export, tab project badge, routing banner, session search, feedback chime, deploy reload prompt.
+
 ## [2.5.1-ji.52] - 2026-07-03
 
 ### Added

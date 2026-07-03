@@ -3847,10 +3847,18 @@ var FeedbackManager = class {
     this.queue = [];
     this.promises = /* @__PURE__ */ new Map();
   }
-  enqueue(mcpClient, projectDir, summary = "") {
+  enqueue(mcpClient, projectDir, summary = "", traceId) {
     const sessionId = newSessionId();
     const promise2 = new Promise((resolve, reject) => {
-      this.queue.push({ sessionId, mcpClient, projectDir, summary, resolve, reject });
+      this.queue.push({
+        sessionId,
+        mcpClient,
+        projectDir,
+        traceId,
+        summary,
+        resolve,
+        reject
+      });
     });
     this.promises.set(sessionId, promise2);
     return { sessionId, promise: promise2 };
@@ -3894,6 +3902,7 @@ var FeedbackManager = class {
       label: entry.projectDir ?? entry.sessionId,
       summary: entry.summary,
       projectDir: entry.projectDir,
+      ...entry.traceId ? { traceId: entry.traceId } : {},
       waiting: true,
       mcp_detached: entry.mcpDetached === true
     }));
@@ -4255,6 +4264,15 @@ function pipelineTraceLine(hop, detail) {
   return `pipeline: ${hop} ${detail}`;
 }
 
+// src/traceContext.ts
+function resolveTraceId(requestTraceId, agentContextTraceId, envTraceId) {
+  const pick2 = requestTraceId || agentContextTraceId || envTraceId;
+  return pick2 && String(pick2).trim() ? String(pick2).trim() : void 0;
+}
+function traceLogSuffix(traceId) {
+  return traceId ? ` trace=${traceId}` : "";
+}
+
 // src/feedbackDelivery.ts
 function evaluateBroadcastDelivery(webviewCount) {
   if (webviewCount <= 0) {
@@ -4266,27 +4284,28 @@ function evaluateBroadcastDelivery(webviewCount) {
   }
   return { delivered: true, webviewCount };
 }
-function sessionUpdatedLogLine(sessionId, delivery, projectDirectory) {
+function sessionUpdatedLogLine(sessionId, delivery, projectDirectory, traceId) {
   const project = projectDirectory ? ` project=${projectDirectory}` : "";
+  const trace = traceLogSuffix(traceId);
   if (delivery.delivered) {
-    return `sessionUpdated: delivered session=${sessionId}${project} webviews=${delivery.webviewCount}`;
+    return `sessionUpdated: delivered session=${sessionId}${project}${trace} webviews=${delivery.webviewCount}`;
   }
-  return `sessionUpdated: UNDELIVERED session=${sessionId}${project} reason=${delivery.warn ?? "unknown"}`;
+  return `sessionUpdated: UNDELIVERED session=${sessionId}${project}${trace} reason=${delivery.warn ?? "unknown"}`;
 }
-function sessionReplayLogLine(sessionId, target, projectDirectory) {
+function sessionReplayLogLine(sessionId, target, projectDirectory, traceId) {
   const project = projectDirectory ? ` project=${projectDirectory}` : "";
-  return `sessionReplay: session=${sessionId}${project} target=${target}`;
+  return `sessionReplay: session=${sessionId}${project}${traceLogSuffix(traceId)} target=${target}`;
 }
-function sessionDisplayedLogLine(sessionId, projectDirectory) {
+function sessionDisplayedLogLine(sessionId, projectDirectory, traceId) {
   const project = projectDirectory ? ` project=${projectDirectory}` : "";
-  return `sessionDisplayed: ack session=${sessionId}${project}`;
+  return `sessionDisplayed: ack session=${sessionId}${project}${traceLogSuffix(traceId)}`;
 }
-function feedbackRequestAcceptedLogLine(sessionId, projectDirectory) {
-  return `feedbackRequest: accepted session=${sessionId} project=${projectDirectory ?? "(none)"}`;
+function feedbackRequestAcceptedLogLine(sessionId, projectDirectory, traceId) {
+  return `feedbackRequest: accepted session=${sessionId} project=${projectDirectory ?? "(none)"}${traceLogSuffix(traceId)}`;
 }
-function feedbackResponseLogLine(sessionId, projectDirectory, feedbackPreview) {
+function feedbackResponseLogLine(sessionId, projectDirectory, feedbackPreview, traceId) {
   const project = projectDirectory ? ` project=${projectDirectory}` : "";
-  return `feedbackResponse: session=${sessionId}${project} feedback=${feedbackPreview}`;
+  return `feedbackResponse: session=${sessionId}${project}${traceLogSuffix(traceId)} feedback=${feedbackPreview}`;
 }
 
 // src/workspaceMatch.ts
@@ -4345,6 +4364,7 @@ var FeedbackFlow = class {
       );
       return;
     }
+    const traceId = resolveTraceId(req.trace_id);
     this.deps.log(
       `feedbackRequest: project=${req.project_directory ?? "(none)"} summary=${req.summary.slice(0, 80)}`
     );
@@ -4362,7 +4382,12 @@ var FeedbackFlow = class {
         content: req.summary,
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       });
-      this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory);
+      this.deps.broadcastSessionUpdated(
+        req.summary,
+        transport.sessionId,
+        req.project_directory,
+        traceId
+      );
       this.deps.onFeedbackRequested?.();
       this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
       return;
@@ -4375,12 +4400,13 @@ var FeedbackFlow = class {
     const { sessionId } = this.deps.feedback.enqueue(
       mcpWs,
       req.project_directory,
-      req.summary
+      req.summary,
+      traceId
     );
     this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? "(none)"}`));
     this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
-    this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory));
-    this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory);
+    this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory, traceId));
+    this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory, traceId);
     this.deps.onFeedbackRequested?.();
     this._attachMcpPromiseHandlers(mcpWs, sessionId);
   }
@@ -19040,7 +19066,8 @@ var RegisterSchema = external_exports.object({
 var FeedbackRequestSchema = external_exports.object({
   type: external_exports.literal("feedback_request"),
   summary: external_exports.string().min(1),
-  project_directory: external_exports.string().optional()
+  project_directory: external_exports.string().optional(),
+  trace_id: external_exports.string().optional()
 });
 var FeedbackResponseSchema = external_exports.object({
   type: external_exports.literal("feedback_response"),
@@ -19061,7 +19088,9 @@ var SessionUpdatedOutSchema = external_exports.object({
   type: external_exports.literal("session_updated"),
   summary: external_exports.string(),
   session_id: external_exports.string().optional(),
-  session_label: external_exports.string().optional()
+  session_label: external_exports.string().optional(),
+  project_directory: external_exports.string().optional(),
+  trace_id: external_exports.string().optional()
 });
 var FeedbackSubmittedOutSchema = external_exports.object({
   type: external_exports.literal("feedback_submitted"),
@@ -19095,6 +19124,7 @@ var StateSyncOutSchema = external_exports.object({
     label: external_exports.string(),
     summary: external_exports.string(),
     projectDir: external_exports.string().optional(),
+    trace_id: external_exports.string().optional(),
     waiting: external_exports.literal(true),
     mcp_detached: external_exports.boolean().optional()
   })),
@@ -19412,8 +19442,8 @@ var WsHub = class {
       getHubWorkspaces: () => this.workspaces,
       appendReminder: (feedback) => feedback,
       addMessage: (msg) => this._addMessage(msg),
-      broadcastSessionUpdated: (summary, sessionId, projectDirectory) => {
-        this._broadcastSessionUpdated(summary, sessionId, projectDirectory);
+      broadcastSessionUpdated: (summary, sessionId, projectDirectory, traceId) => {
+        this._broadcastSessionUpdated(summary, sessionId, projectDirectory, traceId);
       },
       broadcastFeedbackSubmitted: (feedback, sessionId) => {
         this._broadcastToWebviews({
@@ -19730,7 +19760,8 @@ var WsHub = class {
         summary: s.summary,
         waiting: s.waiting,
         mcp_detached: s.mcp_detached,
-        ...s.projectDir ? { project_directory: s.projectDir } : {}
+        ...s.projectDir ? { project_directory: s.projectDir } : {},
+        ...s.traceId ? { trace_id: s.traceId } : {}
       })),
       hub
     });
@@ -19761,26 +19792,28 @@ var WsHub = class {
       ws.send(JSON.stringify(data));
     }
   }
-  _broadcastSessionUpdated(summary, sessionId, projectDirectory) {
+  _broadcastSessionUpdated(summary, sessionId, projectDirectory, traceId) {
     const payload = {
       type: "session_updated",
       summary,
       ...sessionId ? { session_id: sessionId } : {},
-      ...projectDirectory ? { project_directory: projectDirectory } : {}
+      ...projectDirectory ? { project_directory: projectDirectory } : {},
+      ...traceId ? { trace_id: traceId } : {}
     };
     const count = this._broadcastToWebviews(payload);
     const delivery = evaluateBroadcastDelivery(count);
-    wsLog(sessionUpdatedLogLine(sessionId ?? "(none)", delivery, projectDirectory));
+    wsLog(sessionUpdatedLogLine(sessionId ?? "(none)", delivery, projectDirectory, traceId));
   }
   _replayPendingSessions(ws) {
     for (const session of this.feedback.pendingSessions()) {
-      wsLog(sessionReplayLogLine(session.id, "webview", session.projectDir));
+      wsLog(sessionReplayLogLine(session.id, "webview", session.projectDir, session.traceId));
       this._send(ws, {
         type: "session_updated",
         summary: session.summary,
         session_id: session.id,
         session_label: session.label,
-        ...session.projectDir ? { project_directory: session.projectDir } : {}
+        ...session.projectDir ? { project_directory: session.projectDir } : {},
+        ...session.traceId ? { trace_id: session.traceId } : {}
       });
     }
   }

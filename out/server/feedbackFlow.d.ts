@@ -6,7 +6,7 @@ interface FeedbackFlowDeps {
     getHubWorkspaces: () => string[];
     appendReminder: (feedback: string) => string;
     addMessage: (msg: ConversationMessage) => void;
-    broadcastSessionUpdated: (summary: string, sessionId?: string, projectDirectory?: string) => void;
+    broadcastSessionUpdated: (summary: string, sessionId?: string, projectDirectory?: string, traceId?: string) => void;
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
@@ -29,6 +29,7 @@ export declare class FeedbackFlow {
     handleFeedbackRequest(mcpWs: WebSocket, req: {
         summary: string;
         project_directory?: string;
+        trace_id?: string;
     }): void;
     private _attachMcpPromiseHandlers;
     private _canDeliverToMcp;

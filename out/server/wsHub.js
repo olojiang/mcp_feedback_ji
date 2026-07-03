@@ -104,8 +104,8 @@ class WsHub {
             getHubWorkspaces: () => this.workspaces,
             appendReminder: (feedback) => feedback,
             addMessage: (msg) => this._addMessage(msg),
-            broadcastSessionUpdated: (summary, sessionId, projectDirectory) => {
-                this._broadcastSessionUpdated(summary, sessionId, projectDirectory);
+            broadcastSessionUpdated: (summary, sessionId, projectDirectory, traceId) => {
+                this._broadcastSessionUpdated(summary, sessionId, projectDirectory, traceId);
             },
             broadcastFeedbackSubmitted: (feedback, sessionId) => {
                 this._broadcastToWebviews({
@@ -429,6 +429,7 @@ class WsHub {
                 waiting: s.waiting,
                 mcp_detached: s.mcp_detached,
                 ...(s.projectDir ? { project_directory: s.projectDir } : {}),
+                ...(s.traceId ? { trace_id: s.traceId } : {}),
             })),
             hub,
         });
@@ -459,26 +460,28 @@ class WsHub {
             ws.send(JSON.stringify(data));
         }
     }
-    _broadcastSessionUpdated(summary, sessionId, projectDirectory) {
+    _broadcastSessionUpdated(summary, sessionId, projectDirectory, traceId) {
         const payload = {
             type: 'session_updated',
             summary,
             ...(sessionId ? { session_id: sessionId } : {}),
             ...(projectDirectory ? { project_directory: projectDirectory } : {}),
+            ...(traceId ? { trace_id: traceId } : {}),
         };
         const count = this._broadcastToWebviews(payload);
         const delivery = (0, feedbackDelivery_1.evaluateBroadcastDelivery)(count);
-        wsLog((0, feedbackDelivery_1.sessionUpdatedLogLine)(sessionId ?? '(none)', delivery, projectDirectory));
+        wsLog((0, feedbackDelivery_1.sessionUpdatedLogLine)(sessionId ?? '(none)', delivery, projectDirectory, traceId));
     }
     _replayPendingSessions(ws) {
         for (const session of this.feedback.pendingSessions()) {
-            wsLog((0, feedbackDelivery_1.sessionReplayLogLine)(session.id, 'webview', session.projectDir));
+            wsLog((0, feedbackDelivery_1.sessionReplayLogLine)(session.id, 'webview', session.projectDir, session.traceId));
             this._send(ws, {
                 type: 'session_updated',
                 summary: session.summary,
                 session_id: session.id,
                 session_label: session.label,
                 ...(session.projectDir ? { project_directory: session.projectDir } : {}),
+                ...(session.traceId ? { trace_id: session.traceId } : {}),
             });
         }
     }

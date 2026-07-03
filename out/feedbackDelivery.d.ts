@@ -5,11 +5,11 @@ export interface BroadcastDeliveryResult {
 }
 /** Returns whether any webview client received the broadcast. */
 export declare function evaluateBroadcastDelivery(webviewCount: number): BroadcastDeliveryResult;
-export declare function sessionUpdatedLogLine(sessionId: string, delivery: BroadcastDeliveryResult, projectDirectory?: string): string;
-export declare function sessionReplayLogLine(sessionId: string, target: string, projectDirectory?: string): string;
-export declare function sessionDisplayedLogLine(sessionId: string, projectDirectory?: string): string;
-export declare function feedbackRequestAcceptedLogLine(sessionId: string, projectDirectory?: string): string;
-export declare function feedbackResponseLogLine(sessionId: string, projectDirectory: string | undefined, feedbackPreview: string): string;
+export declare function sessionUpdatedLogLine(sessionId: string, delivery: BroadcastDeliveryResult, projectDirectory?: string, traceId?: string): string;
+export declare function sessionReplayLogLine(sessionId: string, target: string, projectDirectory?: string, traceId?: string): string;
+export declare function sessionDisplayedLogLine(sessionId: string, projectDirectory?: string, traceId?: string): string;
+export declare function feedbackRequestAcceptedLogLine(sessionId: string, projectDirectory?: string, traceId?: string): string;
+export declare function feedbackResponseLogLine(sessionId: string, projectDirectory: string | undefined, feedbackPreview: string, traceId?: string): string;
 export interface UiSyncMismatchInput {
     serverPendingCount: number;
     localWaitingCount: number;

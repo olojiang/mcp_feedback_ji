@@ -5,6 +5,7 @@ const ws_1 = require("ws");
 const pipelineContracts_1 = require("../pipelineContracts");
 const feedbackDelivery_1 = require("../feedbackDelivery");
 const workspaceMatch_1 = require("../workspaceMatch");
+const traceContext_1 = require("../traceContext");
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -25,6 +26,7 @@ class FeedbackFlow {
                 + `not ${req.project_directory}`));
             return;
         }
+        const traceId = (0, traceContext_1.resolveTraceId)(req.trace_id);
         this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
         if (transport.updated && transport.sessionId) {
@@ -34,7 +36,7 @@ class FeedbackFlow {
                 content: req.summary,
                 timestamp: new Date().toISOString(),
             });
-            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory);
+            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory, traceId);
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
             return;
@@ -44,11 +46,11 @@ class FeedbackFlow {
             content: req.summary,
             timestamp: new Date().toISOString(),
         });
-        const { sessionId } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary);
+        const { sessionId } = this.deps.feedback.enqueue(mcpWs, req.project_directory, req.summary, traceId);
         this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
-        this.deps.log((0, feedbackDelivery_1.feedbackRequestAcceptedLogLine)(sessionId, req.project_directory));
-        this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory);
+        this.deps.log((0, feedbackDelivery_1.feedbackRequestAcceptedLogLine)(sessionId, req.project_directory, traceId));
+        this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory, traceId);
         this.deps.onFeedbackRequested?.();
         this._attachMcpPromiseHandlers(mcpWs, sessionId);
     }

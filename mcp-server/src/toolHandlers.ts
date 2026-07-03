@@ -2,7 +2,7 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { findExtensionServer, type ServerData } from './serverDiscovery.js';
+import { findExtensionServer, readAgentContext, type ServerData } from './serverDiscovery.js';
 import { connectToExtension, requestFeedback } from './extensionClient.js';
 import { browserFallback } from './browserFallback.js';
 import { runPostFeedbackHooks } from './postFeedbackHooks.js';
@@ -53,12 +53,22 @@ function feedbackSuffix(userFeedback = '') {
 
 type ToolContent = Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
 
+function resolveTraceId(
+    requestTraceId?: string,
+    agentContextTraceId?: string,
+    envTraceId?: string,
+): string | undefined {
+    const pick = requestTraceId || agentContextTraceId || envTraceId;
+    return pick && String(pick).trim() ? String(pick).trim() : undefined;
+}
+
 interface ToolHandlerDeps {
     findExtensionServer: (projectDirectory?: string, log?: (msg: string) => void) => Promise<ServerData | null>;
     connectToExtension: typeof connectToExtension;
     requestFeedback: typeof requestFeedback;
     browserFallback: typeof browserFallback;
     log: (msg: string) => void;
+    readAgentContext?: () => { traceId?: string } | null;
     rediscoveryAttempts?: number;
     retryDelayMs?: number;
 }
@@ -170,6 +180,8 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
 
         const summary = parsed.summary.replace(/\s*\[preflight:done\]\s*/g, '').trim();
         const { project_directory } = parsed;
+        const agentCtx = deps.readAgentContext?.() ?? null;
+        const traceId = resolveTraceId(undefined, agentCtx?.traceId, process.env.CURSOR_TRACE_ID);
 
         try {
             const log = (msg: string) => deps.log(msg);
@@ -182,7 +194,7 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                 try {
                     const ws = await deps.connectToExtension(extensionServer.port);
                     try {
-                        const result = await deps.requestFeedback(ws, summary, project_directory);
+                        const result = await deps.requestFeedback(ws, summary, project_directory, traceId);
                         deps.log(
                             `[MCP Feedback] Feedback via extension port=${extensionServer.port} `
                             + `pid=${extensionServer.pid}`
@@ -264,5 +276,6 @@ export const handleToolCall = createToolCallHandler({
     connectToExtension,
     requestFeedback,
     browserFallback,
+    readAgentContext,
     log: mcpLog,
 });

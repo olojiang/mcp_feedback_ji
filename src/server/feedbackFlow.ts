@@ -7,13 +7,19 @@ import {
     feedbackResponseLogLine,
 } from '../feedbackDelivery';
 import { hubAcceptsProject, projectMismatchLogLine } from '../workspaceMatch';
+import { resolveTraceId } from '../traceContext';
 
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
     getHubWorkspaces: () => string[];
     appendReminder: (feedback: string) => string;
     addMessage: (msg: ConversationMessage) => void;
-    broadcastSessionUpdated: (summary: string, sessionId?: string, projectDirectory?: string) => void;
+    broadcastSessionUpdated: (
+        summary: string,
+        sessionId?: string,
+        projectDirectory?: string,
+        traceId?: string,
+    ) => void;
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
@@ -44,7 +50,10 @@ export class FeedbackFlow {
         this.deps.onFeedbackError = cb;
     }
 
-    handleFeedbackRequest(mcpWs: WebSocket, req: { summary: string; project_directory?: string }): void {
+    handleFeedbackRequest(
+        mcpWs: WebSocket,
+        req: { summary: string; project_directory?: string; trace_id?: string },
+    ): void {
         if (req.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), req.project_directory)) {
             this.deps.log(projectMismatchLogLine(req.project_directory, this.deps.getHubWorkspaces()));
             this.deps.sendError(
@@ -56,6 +65,8 @@ export class FeedbackFlow {
             );
             return;
         }
+
+        const traceId = resolveTraceId(req.trace_id);
 
         this.deps.log(
             `feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`,
@@ -75,7 +86,12 @@ export class FeedbackFlow {
                 content: req.summary,
                 timestamp: new Date().toISOString(),
             });
-            this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory);
+            this.deps.broadcastSessionUpdated(
+                req.summary,
+                transport.sessionId,
+                req.project_directory,
+                traceId,
+            );
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
             return;
@@ -91,11 +107,12 @@ export class FeedbackFlow {
             mcpWs,
             req.project_directory,
             req.summary,
+            traceId,
         );
         this.deps.log(pipelineTraceLine(PipelineHop.HUB_ENQUEUE, `session=${sessionId} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: enqueued session=${sessionId}`);
-        this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory));
-        this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory);
+        this.deps.log(feedbackRequestAcceptedLogLine(sessionId, req.project_directory, traceId));
+        this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory, traceId);
         this.deps.onFeedbackRequested?.();
         this._attachMcpPromiseHandlers(mcpWs, sessionId);
     }

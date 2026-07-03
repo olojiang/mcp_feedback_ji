@@ -28,6 +28,7 @@ export function requestFeedback(
     ws: WebSocket,
     summary: string,
     projectDirectory?: string,
+    traceId?: string,
 ): Promise<{ feedback: string; images?: string[] }> {
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -61,6 +62,7 @@ export function requestFeedback(
             type: 'feedback_request',
             summary,
             project_directory: projectDirectory,
+            ...(traceId ? { trace_id: traceId } : {}),
         }));
     });
 }

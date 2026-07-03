@@ -78,7 +78,7 @@ function implicitProjectDirectory(agentContext?: AgentContextSnapshot | null): s
     });
 }
 
-function readAgentContext(): AgentContextSnapshot | null {
+export function readAgentContext(): AgentContextSnapshot | null {
     try {
         if (!fs.existsSync(AGENT_CONTEXT_FILE)) return null;
         return JSON.parse(fs.readFileSync(AGENT_CONTEXT_FILE, 'utf-8')) as AgentContextSnapshot;

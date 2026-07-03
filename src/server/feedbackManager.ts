@@ -23,6 +23,7 @@ export interface PendingSessionSnapshot {
     label: string;
     summary: string;
     projectDir?: string;
+    traceId?: string;
     waiting: true;
     mcp_detached?: boolean;
 }
@@ -31,6 +32,7 @@ interface PendingFeedback {
     sessionId: string;
     mcpClient: WebSocket;
     projectDir?: string;
+    traceId?: string;
     summary: string;
     mcpDetached?: boolean;
     handlersAttached?: boolean;
@@ -54,10 +56,13 @@ export class FeedbackManager {
         mcpClient: WebSocket,
         projectDir?: string,
         summary = '',
+        traceId?: string,
     ): { sessionId: string; promise: Promise<ResolvedFeedback> } {
         const sessionId = newSessionId();
         const promise = new Promise<ResolvedFeedback>((resolve, reject) => {
-            this.queue.push({ sessionId, mcpClient, projectDir, summary, resolve, reject });
+            this.queue.push({
+                sessionId, mcpClient, projectDir, traceId, summary, resolve, reject,
+            });
         });
         this.promises.set(sessionId, promise);
         return { sessionId, promise };
@@ -111,6 +116,7 @@ export class FeedbackManager {
             label: entry.projectDir ?? entry.sessionId,
             summary: entry.summary,
             projectDir: entry.projectDir,
+            ...(entry.traceId ? { traceId: entry.traceId } : {}),
             waiting: true,
             mcp_detached: entry.mcpDetached === true,
         }));

@@ -14,6 +14,7 @@ export declare const FeedbackRequestSchema: z.ZodObject<{
     type: z.ZodLiteral<"feedback_request">;
     summary: z.ZodString;
     project_directory: z.ZodOptional<z.ZodString>;
+    trace_id: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const FeedbackResponseSchema: z.ZodObject<{
     type: z.ZodLiteral<"feedback_response">;
@@ -35,6 +36,8 @@ export declare const SessionUpdatedOutSchema: z.ZodObject<{
     summary: z.ZodString;
     session_id: z.ZodOptional<z.ZodString>;
     session_label: z.ZodOptional<z.ZodString>;
+    project_directory: z.ZodOptional<z.ZodString>;
+    trace_id: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const FeedbackSubmittedOutSchema: z.ZodObject<{
     type: z.ZodLiteral<"feedback_submitted">;
@@ -72,6 +75,7 @@ export declare const StateSyncOutSchema: z.ZodObject<{
         label: z.ZodString;
         summary: z.ZodString;
         projectDir: z.ZodOptional<z.ZodString>;
+        trace_id: z.ZodOptional<z.ZodString>;
         waiting: z.ZodLiteral<true>;
         mcp_detached: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>>;

@@ -19,13 +19,14 @@ export interface PendingSessionSnapshot {
     label: string;
     summary: string;
     projectDir?: string;
+    traceId?: string;
     waiting: true;
     mcp_detached?: boolean;
 }
 export declare class FeedbackManager {
     private queue;
     private readonly promises;
-    enqueue(mcpClient: WebSocket, projectDir?: string, summary?: string): {
+    enqueue(mcpClient: WebSocket, projectDir?: string, summary?: string, traceId?: string): {
         sessionId: string;
         promise: Promise<ResolvedFeedback>;
     };

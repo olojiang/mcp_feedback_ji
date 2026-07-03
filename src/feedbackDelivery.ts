@@ -1,3 +1,5 @@
+import { traceLogSuffix } from './traceContext';
+
 export interface BroadcastDeliveryResult {
     delivered: boolean;
     webviewCount: number;
@@ -20,42 +22,51 @@ export function sessionUpdatedLogLine(
     sessionId: string,
     delivery: BroadcastDeliveryResult,
     projectDirectory?: string,
+    traceId?: string,
 ): string {
     const project = projectDirectory ? ` project=${projectDirectory}` : '';
+    const trace = traceLogSuffix(traceId);
     if (delivery.delivered) {
-        return `sessionUpdated: delivered session=${sessionId}${project} webviews=${delivery.webviewCount}`;
+        return `sessionUpdated: delivered session=${sessionId}${project}${trace} webviews=${delivery.webviewCount}`;
     }
-    return `sessionUpdated: UNDELIVERED session=${sessionId}${project} reason=${delivery.warn ?? 'unknown'}`;
+    return `sessionUpdated: UNDELIVERED session=${sessionId}${project}${trace} reason=${delivery.warn ?? 'unknown'}`;
 }
 
 export function sessionReplayLogLine(
     sessionId: string,
     target: string,
     projectDirectory?: string,
+    traceId?: string,
 ): string {
     const project = projectDirectory ? ` project=${projectDirectory}` : '';
-    return `sessionReplay: session=${sessionId}${project} target=${target}`;
+    return `sessionReplay: session=${sessionId}${project}${traceLogSuffix(traceId)} target=${target}`;
 }
 
-export function sessionDisplayedLogLine(sessionId: string, projectDirectory?: string): string {
+export function sessionDisplayedLogLine(
+    sessionId: string,
+    projectDirectory?: string,
+    traceId?: string,
+): string {
     const project = projectDirectory ? ` project=${projectDirectory}` : '';
-    return `sessionDisplayed: ack session=${sessionId}${project}`;
+    return `sessionDisplayed: ack session=${sessionId}${project}${traceLogSuffix(traceId)}`;
 }
 
 export function feedbackRequestAcceptedLogLine(
     sessionId: string,
     projectDirectory?: string,
+    traceId?: string,
 ): string {
-    return `feedbackRequest: accepted session=${sessionId} project=${projectDirectory ?? '(none)'}`;
+    return `feedbackRequest: accepted session=${sessionId} project=${projectDirectory ?? '(none)'}${traceLogSuffix(traceId)}`;
 }
 
 export function feedbackResponseLogLine(
     sessionId: string,
     projectDirectory: string | undefined,
     feedbackPreview: string,
+    traceId?: string,
 ): string {
     const project = projectDirectory ? ` project=${projectDirectory}` : '';
-    return `feedbackResponse: session=${sessionId}${project} feedback=${feedbackPreview}`;
+    return `feedbackResponse: session=${sessionId}${project}${traceLogSuffix(traceId)} feedback=${feedbackPreview}`;
 }
 
 export interface UiSyncMismatchInput {

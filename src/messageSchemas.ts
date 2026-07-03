@@ -16,6 +16,7 @@ export const FeedbackRequestSchema = z.object({
     type: z.literal('feedback_request'),
     summary: z.string().min(1),
     project_directory: z.string().optional(),
+    trace_id: z.string().optional(),
 });
 
 // ─── 2. Incoming to Extension (from Webview) ────────────────────────────────
@@ -45,6 +46,8 @@ export const SessionUpdatedOutSchema = z.object({
     summary: z.string(),
     session_id: z.string().optional(),
     session_label: z.string().optional(),
+    project_directory: z.string().optional(),
+    trace_id: z.string().optional(),
 });
 
 export const FeedbackSubmittedOutSchema = z.object({
@@ -82,6 +85,7 @@ export const StateSyncOutSchema = z.object({
         label: z.string(),
         summary: z.string(),
         projectDir: z.string().optional(),
+        trace_id: z.string().optional(),
         waiting: z.literal(true),
         mcp_detached: z.boolean().optional(),
     })),

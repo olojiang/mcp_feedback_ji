@@ -16,6 +16,7 @@ exports.FeedbackRequestSchema = zod_1.z.object({
     type: zod_1.z.literal('feedback_request'),
     summary: zod_1.z.string().min(1),
     project_directory: zod_1.z.string().optional(),
+    trace_id: zod_1.z.string().optional(),
 });
 // ─── 2. Incoming to Extension (from Webview) ────────────────────────────────
 exports.FeedbackResponseSchema = zod_1.z.object({
@@ -39,6 +40,8 @@ exports.SessionUpdatedOutSchema = zod_1.z.object({
     summary: zod_1.z.string(),
     session_id: zod_1.z.string().optional(),
     session_label: zod_1.z.string().optional(),
+    project_directory: zod_1.z.string().optional(),
+    trace_id: zod_1.z.string().optional(),
 });
 exports.FeedbackSubmittedOutSchema = zod_1.z.object({
     type: zod_1.z.literal('feedback_submitted'),
@@ -72,6 +75,7 @@ exports.StateSyncOutSchema = zod_1.z.object({
         label: zod_1.z.string(),
         summary: zod_1.z.string(),
         projectDir: zod_1.z.string().optional(),
+        trace_id: zod_1.z.string().optional(),
         waiting: zod_1.z.literal(true),
         mcp_detached: zod_1.z.boolean().optional(),
     })),

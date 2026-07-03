@@ -21,10 +21,12 @@ class FeedbackManager {
         this.queue = [];
         this.promises = new Map();
     }
-    enqueue(mcpClient, projectDir, summary = '') {
+    enqueue(mcpClient, projectDir, summary = '', traceId) {
         const sessionId = newSessionId();
         const promise = new Promise((resolve, reject) => {
-            this.queue.push({ sessionId, mcpClient, projectDir, summary, resolve, reject });
+            this.queue.push({
+                sessionId, mcpClient, projectDir, traceId, summary, resolve, reject,
+            });
         });
         this.promises.set(sessionId, promise);
         return { sessionId, promise };
@@ -72,6 +74,7 @@ class FeedbackManager {
             label: entry.projectDir ?? entry.sessionId,
             summary: entry.summary,
             projectDir: entry.projectDir,
+            ...(entry.traceId ? { traceId: entry.traceId } : {}),
             waiting: true,
             mcp_detached: entry.mcpDetached === true,
         }));

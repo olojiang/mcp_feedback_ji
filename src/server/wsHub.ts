@@ -90,8 +90,8 @@ export class WsHub {
             getHubWorkspaces: () => this.workspaces,
             appendReminder: (feedback) => feedback,
             addMessage: (msg) => this._addMessage(msg),
-            broadcastSessionUpdated: (summary, sessionId, projectDirectory) => {
-                this._broadcastSessionUpdated(summary, sessionId, projectDirectory);
+            broadcastSessionUpdated: (summary, sessionId, projectDirectory, traceId) => {
+                this._broadcastSessionUpdated(summary, sessionId, projectDirectory, traceId);
             },
             broadcastFeedbackSubmitted: (feedback, sessionId) => {
                 this._broadcastToWebviews({
@@ -372,7 +372,10 @@ export class WsHub {
 
     // ── Feedback Flow ───────────────────────────────────────
 
-    private _handleFeedbackRequest(mcpWs: WebSocket, req: { summary: string; project_directory?: string }): void {
+    private _handleFeedbackRequest(
+        mcpWs: WebSocket,
+        req: { summary: string; project_directory?: string; trace_id?: string },
+    ): void {
         this.feedbackFlow.handleFeedbackRequest(mcpWs, req);
     }
 
@@ -458,6 +461,7 @@ export class WsHub {
                 waiting: s.waiting,
                 mcp_detached: s.mcp_detached,
                 ...(s.projectDir ? { project_directory: s.projectDir } : {}),
+                ...(s.traceId ? { trace_id: s.traceId } : {}),
             })),
             hub,
         });
@@ -493,27 +497,34 @@ export class WsHub {
         }
     }
 
-    private _broadcastSessionUpdated(summary: string, sessionId?: string, projectDirectory?: string): void {
+    private _broadcastSessionUpdated(
+        summary: string,
+        sessionId?: string,
+        projectDirectory?: string,
+        traceId?: string,
+    ): void {
         const payload: Record<string, unknown> = {
             type: 'session_updated',
             summary,
             ...(sessionId ? { session_id: sessionId } : {}),
             ...(projectDirectory ? { project_directory: projectDirectory } : {}),
+            ...(traceId ? { trace_id: traceId } : {}),
         };
         const count = this._broadcastToWebviews(payload);
         const delivery = evaluateBroadcastDelivery(count);
-        wsLog(sessionUpdatedLogLine(sessionId ?? '(none)', delivery, projectDirectory));
+        wsLog(sessionUpdatedLogLine(sessionId ?? '(none)', delivery, projectDirectory, traceId));
     }
 
     private _replayPendingSessions(ws: WebSocket): void {
         for (const session of this.feedback.pendingSessions()) {
-            wsLog(sessionReplayLogLine(session.id, 'webview', session.projectDir));
+            wsLog(sessionReplayLogLine(session.id, 'webview', session.projectDir, session.traceId));
             this._send(ws, {
                 type: 'session_updated',
                 summary: session.summary,
                 session_id: session.id,
                 session_label: session.label,
                 ...(session.projectDir ? { project_directory: session.projectDir } : {}),
+                ...(session.traceId ? { trace_id: session.traceId } : {}),
             });
         }
     }
