@@ -3719,7 +3719,7 @@ module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
 var fs10 = __toESM(require("fs"));
 var path12 = __toESM(require("path"));
-var os5 = __toESM(require("os"));
+var os4 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
 // src/server/wsHub.ts
@@ -20232,43 +20232,129 @@ var WsHub = class {
 var vscode = __toESM(require("vscode"));
 var fs8 = __toESM(require("fs"));
 var path9 = __toESM(require("path"));
-var os4 = __toESM(require("os"));
+var os3 = __toESM(require("os"));
+
+// src/dailyRotatingLog.ts
+var fs5 = __toESM(require("node:fs"));
+var path7 = __toESM(require("node:path"));
+var DAILY_LOG_RETENTION_DAYS = 7;
+function localDateKey(date5 = /* @__PURE__ */ new Date()) {
+  const y = date5.getFullYear();
+  const m = String(date5.getMonth() + 1).padStart(2, "0");
+  const d = String(date5.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+function dailyLogFileName(baseName, dateKey) {
+  return `${baseName}-${dateKey}.log`;
+}
+function dailyLogFilePath(logDir, baseName, dateKey) {
+  return path7.join(logDir, dailyLogFileName(baseName, dateKey ?? localDateKey()));
+}
+function legacyLogAliasPath(logDir, baseName) {
+  return path7.join(logDir, `${baseName}.log`);
+}
+function parseDailyLogDateKey(fileName, baseName) {
+  const prefix = `${baseName}-`;
+  const suffix = ".log";
+  if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) return null;
+  const key = fileName.slice(prefix.length, -suffix.length);
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
+}
+function pruneOldDailyLogs(logDir, baseName, retentionDays = DAILY_LOG_RETENTION_DAYS, now = /* @__PURE__ */ new Date()) {
+  const removed = [];
+  let entries = [];
+  try {
+    entries = fs5.readdirSync(logDir);
+  } catch {
+    return removed;
+  }
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - retentionDays + 1);
+  cutoff.setHours(0, 0, 0, 0);
+  for (const name of entries) {
+    const key = parseDailyLogDateKey(name, baseName);
+    if (!key) continue;
+    const fileDate = /* @__PURE__ */ new Date(`${key}T00:00:00`);
+    if (fileDate >= cutoff) continue;
+    try {
+      fs5.unlinkSync(path7.join(logDir, name));
+      removed.push(name);
+    } catch {
+    }
+  }
+  return removed;
+}
+function migrateLegacyLogFile(logDir, baseName, todayPath) {
+  const alias = legacyLogAliasPath(logDir, baseName);
+  try {
+    const stat = fs5.lstatSync(alias);
+    if (stat.isSymbolicLink()) return;
+  } catch {
+    return;
+  }
+  if (fs5.existsSync(todayPath)) return;
+  try {
+    fs5.renameSync(alias, todayPath);
+  } catch {
+  }
+}
+function updateLegacySymlink(logDir, baseName, todayPath) {
+  const alias = legacyLogAliasPath(logDir, baseName);
+  const relativeTarget = path7.basename(todayPath);
+  try {
+    const stat = fs5.lstatSync(alias);
+    if (stat.isSymbolicLink()) {
+      const current = fs5.readlinkSync(alias);
+      if (current === relativeTarget || current === todayPath) return;
+      fs5.unlinkSync(alias);
+    } else {
+      return;
+    }
+  } catch {
+  }
+  try {
+    fs5.symlinkSync(relativeTarget, alias);
+  } catch {
+  }
+}
+function appendDailyRotatingLog(logDir, baseName, line, now = /* @__PURE__ */ new Date()) {
+  fs5.mkdirSync(logDir, { recursive: true });
+  const todayKey = localDateKey(now);
+  const todayPath = dailyLogFilePath(logDir, baseName, todayKey);
+  migrateLegacyLogFile(logDir, baseName, todayPath);
+  fs5.appendFileSync(todayPath, line + "\n");
+  updateLegacySymlink(logDir, baseName, todayPath);
+  pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, /* @__PURE__ */ new Date());
+  return todayPath;
+}
+function truncateDailyLog(logDir, baseName, now = /* @__PURE__ */ new Date()) {
+  fs5.mkdirSync(logDir, { recursive: true });
+  const todayPath = dailyLogFilePath(logDir, baseName, localDateKey(now));
+  migrateLegacyLogFile(logDir, baseName, todayPath);
+  fs5.writeFileSync(todayPath, "", "utf8");
+  updateLegacySymlink(logDir, baseName, todayPath);
+  return todayPath;
+}
 
 // src/webviewLog.ts
-var fs5 = __toESM(require("fs"));
-var os3 = __toESM(require("os"));
-var path7 = __toESM(require("path"));
-var DEFAULT_LOG_DIR = path7.join(os3.homedir(), ".config", "mcp-feedback-enhanced", "logs");
-var DEFAULT_LOG_FILE = "webview.log";
-var MAX_BYTES = 2 * 1024 * 1024;
+var LOG_BASE_NAME = "webview";
 var logDirOverride = null;
 function resolveLogDir() {
-  return logDirOverride ?? DEFAULT_LOG_DIR;
+  return logDirOverride ?? getLogsDir();
 }
 function appendWebviewLog(msg, projectPath) {
   try {
-    const logDir = resolveLogDir();
-    fs5.mkdirSync(logDir, { recursive: true });
-    const logFile = path7.join(logDir, DEFAULT_LOG_FILE);
-    try {
-      const stat = fs5.statSync(logFile);
-      if (stat.size > MAX_BYTES) {
-        try {
-          fs5.unlinkSync(logFile + ".old");
-        } catch {
-        }
-        fs5.renameSync(logFile, logFile + ".old");
-      }
-    } catch {
-    }
     const prefix = projectPath ? `[${projectPath}] ` : "";
-    fs5.appendFileSync(logFile, `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}
-`);
+    const line = `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}`;
+    appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME, line);
   } catch {
   }
 }
 function webviewLogPath() {
-  return path7.join(resolveLogDir(), DEFAULT_LOG_FILE);
+  return dailyLogFilePath(resolveLogDir(), LOG_BASE_NAME, localDateKey());
+}
+function truncateWebviewLog() {
+  return truncateDailyLog(resolveLogDir(), LOG_BASE_NAME);
 }
 
 // src/logPaths.ts
@@ -20465,7 +20551,9 @@ function createWebviewMessageRouter(handlers) {
 function buildDefaultWebviewHandlers(vscodeApi) {
   return {
     "get-server-info": (_msg, view, ctx) => ctx.pushServerInfo(view),
-    "webview-ready": (_msg, view, ctx) => {
+    "webview-ready": (msg, view, ctx) => {
+      ctx.appendWebviewLog?.(`webview-ready phase=${String(msg.phase || "default")}`);
+      ctx.stopBridgeBroadcast?.();
       if (!ctx.hasBridge()) ctx.connectBridge(view);
       else view.webview.postMessage(ctx.bridgePayload());
     },
@@ -20513,6 +20601,10 @@ function buildDefaultWebviewHandlers(vscodeApi) {
     "open-log": (msg, _view, ctx) => {
       void ctx.openLog(String(msg.target || ""));
     },
+    "truncate-log": (msg, _view, ctx) => {
+      if (!ctx.truncateLog) return;
+      void ctx.truncateLog(String(msg.target || ""));
+    },
     "export-sessions": (msg, _view, ctx) => {
       if (msg.data && typeof msg.data === "object") {
         void ctx.exportSessions(msg.data);
@@ -20542,6 +20634,7 @@ var FeedbackViewProvider = class {
     this._view = null;
     this._bridge = null;
     this._lastSyncedPort = 0;
+    this._webviewReadyAcked = false;
     this._getHtml = getHtml;
     this._getPort = getPort;
     this._getVersion = getVersion;
@@ -20557,6 +20650,16 @@ var FeedbackViewProvider = class {
   }
   resolveWebviewView(webviewView, _context, _token) {
     this._view = webviewView;
+    this._webviewReadyAcked = false;
+    this._bridge?.dispose();
+    this._bridge = null;
+    this._stopBridgeBroadcast();
+    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+    const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
+    appendWebviewLog(
+      `resolveWebviewView visible=${webviewView.visible} v=${this._getVersion()}`,
+      typeof projectPath === "string" ? projectPath : void 0
+    );
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -20585,6 +20688,10 @@ var FeedbackViewProvider = class {
   }
   recreate() {
     if (this._view) {
+      const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+      const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
+      appendWebviewLog("webview html reload reason=recreate", typeof projectPath === "string" ? projectPath : void 0);
+      this._webviewReadyAcked = false;
       this._view.webview.html = this._injectWebviewResources(this._view);
       this._lastSyncedPort = this._getPort();
     }
@@ -20603,7 +20710,11 @@ var FeedbackViewProvider = class {
   syncServer(port) {
     if (!this._view) return;
     if (shouldReloadWebview(this._lastSyncedPort, port)) {
+      const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+      const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
+      appendWebviewLog(`webview html reload reason=port-change ${this._lastSyncedPort}->${port}`, typeof projectPath === "string" ? projectPath : void 0);
       this._lastSyncedPort = port;
+      this._webviewReadyAcked = false;
       this._bridge?.dispose();
       this._bridge = null;
       this._view.webview.html = this._injectWebviewResources(this._view);
@@ -20658,6 +20769,9 @@ var FeedbackViewProvider = class {
     html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
     html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
     html = sanitizeUnreplacedWebviewPlaceholders(html);
+    html += `
+<!-- mcp-panel-boot v=${this._getVersion()} -->
+`;
     return html;
   }
   _attachBridge(view) {
@@ -20713,14 +20827,39 @@ var FeedbackViewProvider = class {
   _bridgePayload() {
     return this._hostPayload("bridge-connected");
   }
-  /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
+  _stopBridgeBroadcast() {
+    if (this._bridgeBroadcastTimer) {
+      clearInterval(this._bridgeBroadcastTimer);
+      this._bridgeBroadcastTimer = void 0;
+    }
+  }
+  /** Attach bridge; repost bridge-connected until webview acknowledges (avoids early-connect race). */
   _connectBridge(view) {
+    if (this._bridgeBroadcastTimer) {
+      clearInterval(this._bridgeBroadcastTimer);
+      this._bridgeBroadcastTimer = void 0;
+    }
     if (this._bridge) {
-      view.webview.postMessage(this._bridgePayload());
+      this._broadcastBridgeConnected(view);
       return;
     }
     this._attachBridge(view);
-    view.webview.postMessage(this._bridgePayload());
+    this._broadcastBridgeConnected(view);
+  }
+  _broadcastBridgeConnected(view) {
+    const post = () => {
+      view.webview.postMessage(this._bridgePayload());
+    };
+    post();
+    let attempts = 0;
+    this._bridgeBroadcastTimer = setInterval(() => {
+      post();
+      attempts += 1;
+      if (attempts >= 30 && this._bridgeBroadcastTimer) {
+        clearInterval(this._bridgeBroadcastTimer);
+        this._bridgeBroadcastTimer = void 0;
+      }
+    }, 500);
   }
   _pushServerInfo(view) {
     view.webview.postMessage(this._hostPayload("server-info"));
@@ -20782,6 +20921,21 @@ var FeedbackViewProvider = class {
   _setupMessageHandler(view) {
     const handlers = {
       ...buildDefaultWebviewHandlers(vscode),
+      "webview-ready": (msg, v, ctx) => {
+        if (this._webviewReadyAcked) {
+          const workspaces2 = this._getHub()?.getDebugInfo()?.workspaces;
+          const projectPath2 = Array.isArray(workspaces2) ? workspaces2[0] : void 0;
+          appendWebviewLog(`webview-ready ignored duplicate phase=${String(msg.phase || "")}`, typeof projectPath2 === "string" ? projectPath2 : void 0);
+          return;
+        }
+        this._webviewReadyAcked = true;
+        ctx.stopBridgeBroadcast?.();
+        if (!ctx.hasBridge()) ctx.connectBridge(v);
+        else v.webview.postMessage(ctx.bridgePayload());
+        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+        const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
+        appendWebviewLog(`webview-ready phase=${String(msg.phase || "default")}`, typeof projectPath === "string" ? projectPath : void 0);
+      },
       "request-debug": (msg, v, ctx) => {
         const traceId = typeof msg.trace_id === "string" ? msg.trace_id : void 0;
         ctx.handleDebug(v, traceId);
@@ -20805,6 +20959,7 @@ var FeedbackViewProvider = class {
       route(message, view, {
         pushServerInfo: (v) => this._pushServerInfo(v),
         connectBridge: (v) => this._connectBridge(v),
+        stopBridgeBroadcast: () => this._stopBridgeBroadcast(),
         bridgePayload: () => this._bridgePayload(),
         hasBridge: () => this._bridge !== null,
         deliverHubMessage: (data) => {
@@ -20816,6 +20971,12 @@ var FeedbackViewProvider = class {
         handlePrune: (v) => this._handlePruneTestRegistry(v),
         handleAtSearch: (q, v) => this._handleAtSearch(q, v),
         openLog: (t) => this._openLogFile(t),
+        truncateLog: (t) => this._truncateLogFile(t),
+        appendWebviewLog: (msg) => {
+          const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+          const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
+          appendWebviewLog(msg, typeof projectPath === "string" ? projectPath : void 0);
+        },
         exportSessions: (d) => this._exportSessions(d),
         forceReset: this._forceResetCallback,
         recreate: () => this.recreate(),
@@ -20899,6 +21060,19 @@ var FeedbackViewProvider = class {
       this._fileWatcher = void 0;
     }
   }
+  async _truncateLogFile(target) {
+    if (target !== "webview") {
+      vscode.window.showWarningMessage(`MCP Feedback: truncate only supported for webview (got "${target}")`);
+      return;
+    }
+    try {
+      const logPath = truncateWebviewLog();
+      appendWebviewLog("log truncated by user");
+      vscode.window.showInformationMessage(`MCP Feedback: cleared ${path9.basename(logPath)}`);
+    } catch (e) {
+      vscode.window.showErrorMessage(`MCP Feedback: truncate failed \u2014 ${e}`);
+    }
+  }
   async _openLogFile(target) {
     const allowed = /* @__PURE__ */ new Set(["extension", "mcp-server", "webview"]);
     if (!allowed.has(target)) {
@@ -20937,7 +21111,7 @@ var FeedbackViewProvider = class {
   async _exportSessions(data) {
     const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
     const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(path9.join(os4.homedir(), "Downloads", defaultName)),
+      defaultUri: vscode.Uri.file(path9.join(os3.homedir(), "Downloads", defaultName)),
       filters: { JSON: ["json"] }
     });
     if (!uri) return;
@@ -21128,11 +21302,6 @@ function createVscodeClipboard() {
   };
 }
 
-// src/webviewOptions.ts
-function resolveRetainContextWhenHidden(setting) {
-  return setting === true;
-}
-
 // src/postDeployReload.ts
 function buildPostDeployReloadSteps(version2) {
   return [
@@ -21153,17 +21322,6 @@ function clearScheduledTimers(timers) {
 }
 
 // src/extension.ts
-function retainContextWhenHidden() {
-  try {
-    const getConfiguration = vscode3.workspace?.getConfiguration;
-    if (typeof getConfiguration !== "function") return false;
-    return resolveRetainContextWhenHidden(
-      getConfiguration.call(vscode3.workspace, "mcpFeedback").get("retainContextWhenHidden")
-    );
-  } catch {
-    return false;
-  }
-}
 var wsServer;
 var bottomProvider;
 var disposables = [];
@@ -21205,7 +21363,6 @@ function _loadWebviewHtml(extensionPath, serverPort, version2) {
     PROJECT_PATH: getWorkspaces()[0] || "",
     VERSION: version2
   });
-  html = sanitizeUnreplacedWebviewPlaceholders(html);
   return html;
 }
 async function activate(context) {
@@ -21260,7 +21417,8 @@ async function activate(context) {
     vscode3.window.registerWebviewViewProvider(
       "mcp-feedback-enhanced.feedbackPanelBottom",
       bottomProvider,
-      { webviewOptions: { retainContextWhenHidden: retainContextWhenHidden() } }
+      // Must stay false: retained webview keeps a stale acquireVsCodeApi after Reload Window.
+      { webviewOptions: { retainContextWhenHidden: false } }
     )
   );
   disposables.push(
@@ -21301,6 +21459,14 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
           void vscode3.commands.executeCommand("workbench.action.reloadWindow");
         }
       });
+    }),
+    vscode3.commands.registerCommand("mcp-feedback-enhanced.truncateWebviewLog", () => {
+      try {
+        const logPath = truncateWebviewLog();
+        vscode3.window.showInformationMessage(`MCP Feedback: cleared ${path12.basename(logPath)}`);
+      } catch (e) {
+        vscode3.window.showErrorMessage(`MCP Feedback: truncate failed \u2014 ${e}`);
+      }
     })
   );
   disposables.push(
@@ -21369,7 +21535,7 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path12.join(os5.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path12.join(os4.homedir(), ".cursor", "mcp.json");
     let config2 = {};
     if (fs10.existsSync(mcpConfigPath)) {
       config2 = JSON.parse(fs10.readFileSync(mcpConfigPath, "utf-8"));
@@ -21392,7 +21558,7 @@ function ensureMcpConfig(extensionPath) {
 function deployCursorHooks(extensionPath) {
   try {
     const hooksSourceDir = path12.join(extensionPath, "scripts", "hooks");
-    const targetDir = path12.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    const targetDir = path12.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
     fs10.mkdirSync(targetDir, { recursive: true });
     for (const file2 of HOOK_FILES) {
       const src = path12.join(hooksSourceDir, file2);
@@ -21407,7 +21573,7 @@ function deployCursorHooks(extensionPath) {
       }
     }
     const preToolUseHook = path12.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path12.join(os5.homedir(), ".cursor", "hooks.json");
+    const hooksConfigPath = path12.join(os4.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
     if (fs10.existsSync(hooksConfigPath)) {
       hooksConfig = JSON.parse(fs10.readFileSync(hooksConfigPath, "utf-8"));
@@ -21423,7 +21589,7 @@ function deployCursorHooks(extensionPath) {
 }
 function deployCursorRules() {
   try {
-    const rulesDir = path12.join(os5.homedir(), ".cursor", "rules");
+    const rulesDir = path12.join(os4.homedir(), ".cursor", "rules");
     const ruleFile = path12.join(rulesDir, "mcp-feedback-enhanced.mdc");
     fs10.mkdirSync(rulesDir, { recursive: true });
     const existing = fs10.existsSync(ruleFile) ? fs10.readFileSync(ruleFile, "utf-8") : null;
@@ -21443,7 +21609,7 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path12.join(os5.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    const pendingDir = path12.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "pending");
     if (!fs10.existsSync(pendingDir)) return;
     const files = fs10.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     const plan = planPendingMigration(files);

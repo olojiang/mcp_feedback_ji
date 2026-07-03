@@ -25,7 +25,7 @@ describe('panel UX feature wiring (static integration)', () => {
 
   it('input textarea stretches with bottom pane (splitter resize)', () => {
     assert.match(html, /\.input-row\{[^}]*align-items:stretch/)
-    assert.match(html, /\.input-row textarea\{[^}]*height:100%/)
+    assert.match(html, /\.input-row textarea\{[^}]*resize:vertical/)
     assert.match(panelApp, /function applyInputPaneHeight/)
     assert.match(panelApp, /setupPaneSplitter/)
   })

@@ -2,7 +2,7 @@
 	"name": "mcp-feedback-enhanced",
 	"displayName": "MCP Feedback Enhanced",
 	"description": "Interactive feedback collection for AI assistants with multi-session tabs (Hunter fork)",
-	"version": "2.5.1-ji.72",
+	"version": "2.5.1-ji.85",
 	"publisher": "mcp-feedback",
 	"license": "MIT",
 	"repository": {
@@ -77,6 +77,10 @@
 			{
 				"command": "mcp-feedback-enhanced.postDeployReload",
 				"title": "MCP Feedback Enhanced: Post-Deploy Reload Checklist"
+			},
+			{
+				"command": "mcp-feedback-enhanced.truncateWebviewLog",
+				"title": "MCP Feedback Enhanced: Clear Today's Panel Log"
 			}
 		],
 		"configuration": {

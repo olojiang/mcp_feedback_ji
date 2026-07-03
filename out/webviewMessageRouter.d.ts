@@ -3,6 +3,7 @@ export type WebviewMessageHandler = (message: Record<string, unknown>, view: vsc
 export interface WebviewRouterContext {
     pushServerInfo: (view: vscode.WebviewView) => void;
     connectBridge: (view: vscode.WebviewView) => void;
+    stopBridgeBroadcast?: () => void;
     bridgePayload: () => Record<string, unknown>;
     hasBridge: () => boolean;
     deliverHubMessage: (data: unknown) => void;
@@ -12,6 +13,7 @@ export interface WebviewRouterContext {
     openLog: (target: string) => void | Promise<void>;
     openMcpOutput?: () => void | Promise<void>;
     appendWebviewLog?: (msg: string) => void;
+    truncateLog?: (target: string) => void | Promise<void>;
     exportSessions: (data: Record<string, unknown>) => void | Promise<void>;
     forceReset?: () => Promise<number>;
     recreate: () => void;

@@ -9,6 +9,8 @@ const require = createRequire(import.meta.url)
 const {
   appendWebviewLog,
   webviewLogPath,
+  webviewLogAliasPath,
+  truncateWebviewLog,
   setWebviewLogDirForTests,
 } = require('../out/webviewLog.js')
 
@@ -25,19 +27,27 @@ describe('webviewLog', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('appends lines to webview.log under configured directory', () => {
+  it('appends to daily webview-YYYY-MM-DD.log', () => {
     appendWebviewLog('onBridgeConnected port=48201')
     appendWebviewLog('requestStateSync')
     const file = webviewLogPath()
-    assert.equal(file, path.join(tmpDir, 'webview.log'))
+    assert.match(file, /webview-\d{4}-\d{2}-\d{2}\.log$/)
     const text = fs.readFileSync(file, 'utf8')
     assert.match(text, /onBridgeConnected port=48201/)
     assert.match(text, /requestStateSync/)
+    assert.ok(fs.lstatSync(webviewLogAliasPath()).isSymbolicLink())
   })
 
   it('includes optional project path prefix', () => {
+    truncateWebviewLog()
     appendWebviewLog('hub-connect', '/Users/hunter/Workspace/demo')
     const text = fs.readFileSync(webviewLogPath(), 'utf8')
     assert.match(text, /\[\/Users\/hunter\/Workspace\/demo\] hub-connect/)
+  })
+
+  it('truncateWebviewLog clears today file', () => {
+    appendWebviewLog('to-be-cleared')
+    truncateWebviewLog()
+    assert.equal(fs.readFileSync(webviewLogPath(), 'utf8'), '')
   })
 })

@@ -64,6 +64,7 @@ class FeedbackViewProvider {
         this._view = null;
         this._bridge = null;
         this._lastSyncedPort = 0;
+        this._webviewReadyAcked = false;
         this._getHtml = getHtml;
         this._getPort = getPort;
         this._getVersion = getVersion;
@@ -79,6 +80,13 @@ class FeedbackViewProvider {
     }
     resolveWebviewView(webviewView, _context, _token) {
         this._view = webviewView;
+        this._webviewReadyAcked = false;
+        this._bridge?.dispose();
+        this._bridge = null;
+        this._stopBridgeBroadcast();
+        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+        const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+        (0, webviewLog_1.appendWebviewLog)(`resolveWebviewView visible=${webviewView.visible} v=${this._getVersion()}`, typeof projectPath === 'string' ? projectPath : undefined);
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [
@@ -107,6 +115,10 @@ class FeedbackViewProvider {
     }
     recreate() {
         if (this._view) {
+            const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+            const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+            (0, webviewLog_1.appendWebviewLog)('webview html reload reason=recreate', typeof projectPath === 'string' ? projectPath : undefined);
+            this._webviewReadyAcked = false;
             this._view.webview.html = this._injectWebviewResources(this._view);
             this._lastSyncedPort = this._getPort();
         }
@@ -126,7 +138,11 @@ class FeedbackViewProvider {
         if (!this._view)
             return;
         if ((0, webviewSyncPolicy_1.shouldReloadWebview)(this._lastSyncedPort, port)) {
+            const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+            const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+            (0, webviewLog_1.appendWebviewLog)(`webview html reload reason=port-change ${this._lastSyncedPort}->${port}`, typeof projectPath === 'string' ? projectPath : undefined);
             this._lastSyncedPort = port;
+            this._webviewReadyAcked = false;
             this._bridge?.dispose();
             this._bridge = null;
             this._view.webview.html = this._injectWebviewResources(this._view);
@@ -172,6 +188,7 @@ class FeedbackViewProvider {
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
         html = (0, extensionHelpers_1.sanitizeUnreplacedWebviewPlaceholders)(html);
+        html += `\n<!-- mcp-panel-boot v=${this._getVersion()} -->\n`;
         return html;
     }
     _attachBridge(view) {
@@ -228,14 +245,39 @@ class FeedbackViewProvider {
     _bridgePayload() {
         return this._hostPayload('bridge-connected');
     }
-    /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
+    _stopBridgeBroadcast() {
+        if (this._bridgeBroadcastTimer) {
+            clearInterval(this._bridgeBroadcastTimer);
+            this._bridgeBroadcastTimer = undefined;
+        }
+    }
+    /** Attach bridge; repost bridge-connected until webview acknowledges (avoids early-connect race). */
     _connectBridge(view) {
+        if (this._bridgeBroadcastTimer) {
+            clearInterval(this._bridgeBroadcastTimer);
+            this._bridgeBroadcastTimer = undefined;
+        }
         if (this._bridge) {
-            view.webview.postMessage(this._bridgePayload());
+            this._broadcastBridgeConnected(view);
             return;
         }
         this._attachBridge(view);
-        view.webview.postMessage(this._bridgePayload());
+        this._broadcastBridgeConnected(view);
+    }
+    _broadcastBridgeConnected(view) {
+        const post = () => {
+            view.webview.postMessage(this._bridgePayload());
+        };
+        post();
+        let attempts = 0;
+        this._bridgeBroadcastTimer = setInterval(() => {
+            post();
+            attempts += 1;
+            if (attempts >= 30 && this._bridgeBroadcastTimer) {
+                clearInterval(this._bridgeBroadcastTimer);
+                this._bridgeBroadcastTimer = undefined;
+            }
+        }, 500);
     }
     _pushServerInfo(view) {
         view.webview.postMessage(this._hostPayload('server-info'));
@@ -299,6 +341,23 @@ class FeedbackViewProvider {
     _setupMessageHandler(view) {
         const handlers = {
             ...(0, webviewMessageRouter_1.buildDefaultWebviewHandlers)(vscode),
+            'webview-ready': (msg, v, ctx) => {
+                if (this._webviewReadyAcked) {
+                    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                    const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                    (0, webviewLog_1.appendWebviewLog)(`webview-ready ignored duplicate phase=${String(msg.phase || '')}`, typeof projectPath === 'string' ? projectPath : undefined);
+                    return;
+                }
+                this._webviewReadyAcked = true;
+                ctx.stopBridgeBroadcast?.();
+                if (!ctx.hasBridge())
+                    ctx.connectBridge(v);
+                else
+                    v.webview.postMessage(ctx.bridgePayload());
+                const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                (0, webviewLog_1.appendWebviewLog)(`webview-ready phase=${String(msg.phase || 'default')}`, typeof projectPath === 'string' ? projectPath : undefined);
+            },
             'request-debug': (msg, v, ctx) => {
                 const traceId = typeof msg.trace_id === 'string' ? msg.trace_id : undefined;
                 ctx.handleDebug(v, traceId);
@@ -322,6 +381,7 @@ class FeedbackViewProvider {
             route(message, view, {
                 pushServerInfo: (v) => this._pushServerInfo(v),
                 connectBridge: (v) => this._connectBridge(v),
+                stopBridgeBroadcast: () => this._stopBridgeBroadcast(),
                 bridgePayload: () => this._bridgePayload(),
                 hasBridge: () => this._bridge !== null,
                 deliverHubMessage: (data) => {
@@ -333,6 +393,12 @@ class FeedbackViewProvider {
                 handlePrune: (v) => this._handlePruneTestRegistry(v),
                 handleAtSearch: (q, v) => this._handleAtSearch(q, v),
                 openLog: (t) => this._openLogFile(t),
+                truncateLog: (t) => this._truncateLogFile(t),
+                appendWebviewLog: (msg) => {
+                    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                    const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                    (0, webviewLog_1.appendWebviewLog)(msg, typeof projectPath === 'string' ? projectPath : undefined);
+                },
                 exportSessions: (d) => this._exportSessions(d),
                 forceReset: this._forceResetCallback,
                 recreate: () => this.recreate(),
@@ -414,6 +480,20 @@ class FeedbackViewProvider {
         if (this._fileWatcher) {
             this._fileWatcher.close();
             this._fileWatcher = undefined;
+        }
+    }
+    async _truncateLogFile(target) {
+        if (target !== 'webview') {
+            vscode.window.showWarningMessage(`MCP Feedback: truncate only supported for webview (got "${target}")`);
+            return;
+        }
+        try {
+            const logPath = (0, webviewLog_1.truncateWebviewLog)();
+            (0, webviewLog_1.appendWebviewLog)('log truncated by user');
+            vscode.window.showInformationMessage(`MCP Feedback: cleared ${path.basename(logPath)}`);
+        }
+        catch (e) {
+            vscode.window.showErrorMessage(`MCP Feedback: truncate failed — ${e}`);
         }
     }
     async _openLogFile(target) {

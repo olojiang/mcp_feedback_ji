@@ -496,11 +496,19 @@
       var sess = id ? this.sessions[id] : null
       if (!sess || !sess.waiting) return []
 
+      var pendingParts = sess.pendingQueue.slice()
+      var pendingImgs = sess.pendingImages.slice()
+      sess.pendingQueue = []
+      sess.pendingImages = []
+
+      var mergedText = [pendingParts.join('\n\n'), text || ''].filter(function (p) { return p && p.trim() }).join('\n\n')
+      var mergedImages = pendingImgs.concat(images && images.length > 0 ? images : [])
+
       sess.messages.push({
         role: 'user',
-        content: text || '',
+        content: mergedText || '',
         timestamp: new Date().toISOString(),
-        images: images && images.length > 0 ? images : undefined,
+        images: mergedImages.length > 0 ? mergedImages : undefined,
       })
       sess.waiting = false
 
@@ -508,11 +516,11 @@
         wsSend({
           type: 'feedback_response',
           session_id: id,
-          feedback: text || '',
-          images: images || [],
+          feedback: mergedText || '',
+          images: mergedImages,
           ...(sess.projectDirectory ? { project_directory: sess.projectDirectory } : {}),
         }),
-        render('tabs', 'messages', 'input'),
+        render('tabs', 'messages', 'pending', 'input'),
       ]
 
       if (!opts || !opts.preserveInput) {

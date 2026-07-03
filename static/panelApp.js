@@ -2,13 +2,26 @@
     'use strict';
 
     var PS = window.PanelStateModule || (typeof PanelState !== 'undefined' ? { PanelState: PanelState } : null);
-    var EP = window.ErudaPanelModule || null;
-    if (!PS) { console.error('PanelState not loaded'); return; }
-    if (!EP) { console.error('ErudaPanelModule not loaded'); return; }
+    var EP = window.ErudaPanelModule || {
+        loadHeight: function (_storage, viewportHeight) {
+            return Math.round((viewportHeight || 600) * 0.33);
+        },
+    };
+    if (!PS) {
+        console.error('PanelState not loaded');
+        if (window.__mcpVscode) {
+            window.__mcpVscode.postMessage({
+                type: 'log',
+                msg: 'panelApp abort: PanelState missing scripts=' + JSON.stringify(window.__mcpScriptLoad || {}),
+            });
+        }
+        return;
+    }
 
     var state = new PS.PanelState();
     state.panelWorkspace = PROJECT_PATH;
-    var vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
+    var vscode = window.__mcpVscode || (typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null);
+    window.__mcpVscode = vscode;
     var wsUrl = SERVER_URL;
     var useBridge = !!vscode;
     var bridgeGate = new PS.BridgeSessionGate();
@@ -315,6 +328,23 @@
         }
     }
 
+    function getInputTextareaMaxPx() {
+        var row = inputEl && inputEl.closest('.input-row');
+        if (row && row.clientHeight > 48) return row.clientHeight;
+        return Math.max(48, (state.inputPaneHeight || 220) - 72);
+    }
+
+    function syncInputTextareaToPane() {
+        if (!inputEl) return;
+        requestAnimationFrame(function () {
+            var maxPx = getInputTextareaMaxPx();
+            PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: maxPx });
+            if ((inputEl.value || '').trim().length === 0 || inputEl.scrollHeight < maxPx - 4) {
+                inputEl.style.height = maxPx + 'px';
+            }
+        });
+    }
+
     function applyInputPaneHeight(heightPx) {
         if (!bottomPane) return;
         var h = PS.PanelState.clampInputPaneHeight(heightPx, window.innerHeight || 600);
@@ -324,6 +354,7 @@
         try {
             localStorage.setItem('mcp-feedback-input-pane-height', String(h));
         } catch (_e) { /* ignore */ }
+        syncInputTextareaToPane();
     }
 
     function setupPaneSplitter() {
@@ -349,6 +380,7 @@
         window.addEventListener('mouseup', function () {
             if (!dragging) return;
             dragging = false;
+            syncInputTextareaToPane();
             saveState();
         });
     }
@@ -715,7 +747,7 @@
                 if (msg.pending_delivered) {
                     var badge = document.createElement('span');
                     badge.className = 'hint-badge';
-                    badge.textContent = 'queued';
+                    badge.textContent = 'draft';
                     h.appendChild(badge);
                 }
                 if (msg.timestamp) {
@@ -750,6 +782,7 @@
         var imgs = active && active.waiting ? (active.pendingImages || []) : (state.globalPendingImages || []);
         if (q.length === 0 && imgs.length === 0) {
             pendingSection.classList.remove('visible');
+            syncInputTextareaToPane();
             return;
         }
         pendingSection.classList.add('visible');
@@ -782,6 +815,7 @@
             item.appendChild(delBtn);
             pendingList.appendChild(item);
         }
+        syncInputTextareaToPane();
     }
 
     function renderStagedImages() {
@@ -833,7 +867,7 @@
     inputEl.addEventListener('input', function () {
         var active = state.getActiveSession();
         if (active) active.inputDraft = inputEl.value;
-        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: Math.max(120, (state.inputPaneHeight || 220) - 40) });
+        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: getInputTextareaMaxPx() });
         updateSendButton();
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 500);
@@ -1176,6 +1210,13 @@
     bindLogOpenBtn('debugLogExtBtn', 'extension');
     bindLogOpenBtn('debugLogMcpBtn', 'mcp-server');
     bindLogOpenBtn('debugLogPanelBtn', 'webview');
+    var debugTruncatePanelLogBtn = document.getElementById('debugTruncatePanelLogBtn');
+    if (debugTruncatePanelLogBtn) {
+        debugTruncatePanelLogBtn.addEventListener('click', function () {
+            debugLog('truncate-log webview');
+            if (vscode) vscode.postMessage({ type: 'truncate-log', target: 'webview' });
+        });
+    }
     var debugMcpOutputBtn = document.getElementById('debugMcpOutputBtn');
     if (debugMcpOutputBtn) {
         debugMcpOutputBtn.addEventListener('click', function () {
@@ -1623,6 +1664,18 @@
         }
     });
 
+    var pendingHost = window.__mcpPendingHostMessages;
+    if (pendingHost && pendingHost.length) {
+        debugLog('drain pending host messages n=' + pendingHost.length);
+        for (var pi = 0; pi < pendingHost.length; pi++) {
+            var pending = pendingHost[pi];
+            if (pending.type === 'bridge-connected') onBridgeConnected(pending);
+            else if (pending.type === 'server-info') applyServerInfo(pending);
+            else if (pending.type === 'please-reconnect') forceReconnect();
+        }
+        window.__mcpPendingHostMessages = [];
+    }
+
     // ── Heartbeat ───────────────────────────────────────
 
     setInterval(function () {
@@ -1651,10 +1704,7 @@
     renderStagedImages();
     updateSendButton();
     syncSettings();
-    if (vscode) {
-        vscode.postMessage({ type: 'webview-ready' });
-        debugLog('webview-ready posted');
-    } else {
+    if (!vscode) {
         bootstrapConnection();
     }
 })();

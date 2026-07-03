@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.85] - 2026-07-03
+
+> **Release highlight (ji.57 → ji.85)**：修复 Panel Disconnected / 空面板（ji.79 sanitize 回归）、Reload 后 stale webview、bridge 重复初始化；新增按天轮转 panel 日志、Pending/Draft UX、输入区 splitter 伸缩；312+ 单测与 deploy 工作流。
+
+### Fix
+- **Input area flex**: dragging pane splitter resizes textarea to fill bottom pane.
+- **Textarea resize**: restored `resize: vertical` on input; syncs on pending show/hide.
+
+## [2.5.1-ji.84] - 2026-07-03
+
+### Fix
+- **Pending UX**: Send now merges + clears session `pendingQueue`; PENDING bar hides after submit.
+- Chat badge `queued` renamed to `draft` (saved locally, not yet sent to agent).
+
+## [2.5.1-ji.81] - 2026-07-03
+
+### Feature
+- **Panel log daily rotation**: `webview-YYYY-MM-DD.log`, keep 7 days; `webview.log` symlink to today.
+- **Truncate today's panel log**: command `MCP Feedback Enhanced: Clear Today's Panel Log` or DBG → **Clear panel log**.
+
+## [2.5.1-ji.80] - 2026-07-03
+
+### Fix
+- **Single panel init**: one `webview-ready` per page load (dedupe early/late + extension ack).
+- **inline bridge** only when panelApp fails (`ps=false`), not on every bridge-connected.
+- Log webview html reload reason (port-change / recreate).
+
+## [2.5.1-ji.79] - 2026-07-03
+
+### Fix
+- **Root cause (ji.71 regression)**: `_loadWebviewHtml` sanitized script tags before URI injection, stripping all panel JS — only inline bridge fallback ran (Connected but empty panel).
+- Moved sanitize to run only after `_injectWebviewResources` replaces script URIs.
+
+## [2.5.1-ji.77] - 2026-07-03
+
+### Fix
+- **Inline bridge fallback**: update Connected UI + register webview even when `panelApp` fails to load.
+- **bootReport**: log script load status to webview.log after page load.
+- **webview-ready** phase logged on extension side.
+
+## [2.5.1-ji.75] - 2026-07-03
+
+### Fix
+- **Stale webview after Reload**: force `retainContextWhenHidden: false`; bust panel html on each resolve.
+- **Early boot**: acquire VS Code API + `webview-ready` before `panelApp`; queue bridge messages until panelApp drains them.
+- **Diagnostics**: log `resolveWebviewView` to webview.log; bridge broadcast extended to 15s.
+
+## [2.5.1-ji.74] - 2026-07-03
+
+### Fix
+- Same as ji.73 (deploy auto-bump) + ErudaPanel stub.
+
+## [2.5.1-ji.73] - 2026-07-03
+
+### Fix
+- **Panel Disconnected**: `panelApp` no longer aborts when `ErudaPanelModule` fails to load; uses height stub instead.
+- **Bridge handshake race**: repost `bridge-connected` for 5s until `webview-ready` ack.
+
 ## [2.5.1-ji.72] - 2026-07-03
 
 ### Fix

@@ -259,7 +259,7 @@ body{
 .input-area{padding:8px 12px 10px;border-top:1px solid var(--border);background:var(--surface);flex:1;display:flex;flex-direction:column;min-height:0}
 .input-row{display:flex;gap:8px;align-items:stretch;flex:1;min-height:0}
 .input-row textarea{
-  flex:1;min-height:48px;height:100%;max-height:none;resize:none;align-self:stretch;
+  flex:1;min-height:48px;max-height:100%;width:100%;resize:vertical;align-self:stretch;
   background:var(--input-bg);color:var(--fg);
   border:1px solid var(--border);border-radius:10px;
   padding:10px 12px;font-family:inherit;font-size:13px;line-height:1.4;
@@ -587,7 +587,8 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
     <div class="debug-panel-actions">
       <button type="button" id="debugLogExtBtn" class="mcp-toolbar-btn" title="Open extension.log (Extension / Hub)">Ext log</button>
       <button type="button" id="debugLogMcpBtn" class="mcp-toolbar-btn" title="Open mcp-server.log (MCP routing)">MCP log</button>
-      <button type="button" id="debugLogPanelBtn" class="mcp-toolbar-btn" title="Open webview.log (Panel UI)">Panel log</button>
+      <button type="button" id="debugLogPanelBtn" class="mcp-toolbar-btn" title="Open today's webview log (webview-YYYY-MM-DD.log)">Panel log</button>
+      <button type="button" id="debugTruncatePanelLogBtn" class="mcp-toolbar-btn" title="Clear today's panel log (truncate)">Clear panel log</button>
       <button type="button" id="debugMcpOutputBtn" class="mcp-toolbar-btn" title="Open Cursor MCP Output">MCP Output</button>
       <button type="button" id="debugPruneTestBtn" class="mcp-toolbar-btn" title="Remove dead test hub registry entries">Prune test hubs</button>
       <button type="button" id="debugExportMdBtn" class="mcp-toolbar-btn" title="Export sessions as Markdown">Export MD</button>
@@ -695,6 +696,29 @@ function __mcpScriptOk(name) { window.__mcpScriptLoad[name] = true; }
 function __mcpScriptFail(name) {
     window.__mcpScriptLoad.errors.push(name);
     console.error('[mcp-panel] failed to load script: ' + name);
+    if (window.__mcpVscode) {
+        window.__mcpVscode.postMessage({ type: 'log', msg: 'scriptFail ' + name });
+    }
+}
+function __mcpApplyInlineBridge(msg) {
+    if (!msg || !msg.port || window.__mcpInlineBridgeApplied) return;
+    window.__mcpInlineBridgeApplied = true;
+    var lbl = document.getElementById('wsStatusLabel');
+    var st = document.getElementById('wsStatus');
+    var portEl = document.getElementById('wsPort');
+    var label = 'Connected :' + msg.port + (msg.pid ? ' pid=' + msg.pid : '');
+    if (lbl) lbl.textContent = label;
+    if (st) st.setAttribute('data-state', 'connected');
+    if (portEl) portEl.textContent = ':' + msg.port;
+    if (window.__mcpVscode) {
+        window.__mcpVscode.postMessage({ type: 'log', msg: 'inlineBridge port=' + msg.port + ' v=' + (msg.version || '') });
+        window.__mcpVscode.postMessage({ type: 'hub-message', data: { type: 'register', clientType: 'webview' } });
+    }
+}
+function __mcpSendWebviewReady(phase) {
+    if (!window.__mcpVscode || window.__mcpWebviewReadySent) return;
+    window.__mcpWebviewReadySent = true;
+    window.__mcpVscode.postMessage({ type: 'webview-ready', phase: phase || 'early' });
 }
 </script>
 <script src="{{ERUDA_URI}}" onload="__mcpScriptOk('eruda')" onerror="__mcpScriptFail('eruda')"></script>
@@ -708,6 +732,19 @@ function __mcpScriptFail(name) {
 <script>
 const SERVER_URL = '{{SERVER_URL}}';
 const PROJECT_PATH = '{{PROJECT_PATH}}';
+
+window.__mcpPendingHostMessages = [];
+window.__mcpVscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
+if (window.__mcpVscode) {
+    window.addEventListener('message', function (e) {
+        var m = e.data;
+        if (!m || !m.type) return;
+        if (m.type === 'bridge-connected' || m.type === 'server-info' || m.type === 'please-reconnect') {
+            window.__mcpPendingHostMessages.push(m);
+        }
+    });
+    __mcpSendWebviewReady('early');
+}
 
 window.__mcpPanelError = null;
 window.onerror = function (msg, src, line, col, err) {
@@ -733,5 +770,23 @@ window.onerror = function (msg, src, line, col, err) {
 
 </script>
 <script src="{{PANELAPP_URI}}" onload="__mcpScriptOk('panelApp')" onerror="__mcpScriptFail('panelApp')"></script>
+<script>
+window.addEventListener('load', function () {
+    if (!window.__mcpVscode) return;
+    var s = window.__mcpScriptLoad || {};
+    var ps = window.PanelStateModule && window.PanelStateModule.PanelState;
+    window.__mcpVscode.postMessage({
+        type: 'log',
+        msg: 'bootReport ps=' + !!ps + ' bootstrapped=' + !!window.__mcpBootstrapped
+            + ' scripts=' + JSON.stringify(s),
+    });
+    if (!window.__mcpBootstrapped && !ps && window.__mcpPendingHostMessages) {
+        for (var i = 0; i < window.__mcpPendingHostMessages.length; i++) {
+            var m = window.__mcpPendingHostMessages[i];
+            if (m && m.type === 'bridge-connected') __mcpApplyInlineBridge(m);
+        }
+    }
+});
+</script>
 </body>
 </html>

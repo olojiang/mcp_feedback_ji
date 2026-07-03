@@ -17,6 +17,7 @@ import { exec, execSync } from 'child_process';
 import { FeedbackWSServer } from './wsServer';
 import { FeedbackViewProvider } from './feedbackViewProvider';
 import { readExtensionVersion, readMemoryExtensionVersion } from './extensionVersion';
+import { truncateWebviewLog } from './webviewLog';
 import { extensionSyncDelaysMs, EXTENSION_PANEL_FOCUS_DELAYS_MS } from './activateSyncPolicy';
 import { shouldPromptReloadAfterVersionChange } from './deployStamp';
 import { resolveNodeBin } from './deploy/nodeBin';
@@ -30,7 +31,7 @@ import {
 import { RULES_CONTENT, planRulesDeploy } from './deploy/rules';
 import { planPendingMigration } from './deploy/pendingMigration';
 import { createVscodeClipboard } from './vscodeClipboard';
-import { workspacesFromFolders, substituteWebviewPlaceholders, sanitizeUnreplacedWebviewPlaceholders } from './extensionHelpers';
+import { workspacesFromFolders, substituteWebviewPlaceholders } from './extensionHelpers';
 import { resolveRetainContextWhenHidden } from './webviewOptions';
 import { buildPostDeployReloadSteps } from './postDeployReload';
 import {
@@ -96,7 +97,7 @@ function _loadWebviewHtml(extensionPath: string, serverPort: number, version: st
         PROJECT_PATH: getWorkspaces()[0] || '',
         VERSION: version,
     });
-    html = sanitizeUnreplacedWebviewPlaceholders(html);
+    // Do NOT sanitize here — script {{URI}} placeholders are replaced later in _injectWebviewResources.
     return html;
 }
 
@@ -155,7 +156,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerWebviewViewProvider(
             'mcp-feedback-enhanced.feedbackPanelBottom',
             bottomProvider,
-            { webviewOptions: { retainContextWhenHidden: retainContextWhenHidden() } }
+            // Must stay false: retained webview keeps a stale acquireVsCodeApi after Reload Window.
+            { webviewOptions: { retainContextWhenHidden: false } }
         ),
     );
 
@@ -193,6 +195,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     void vscode.commands.executeCommand('workbench.action.reloadWindow');
                 }
             });
+        }),
+        vscode.commands.registerCommand('mcp-feedback-enhanced.truncateWebviewLog', () => {
+            try {
+                const logPath = truncateWebviewLog();
+                vscode.window.showInformationMessage(`MCP Feedback: cleared ${path.basename(logPath)}`);
+            } catch (e) {
+                vscode.window.showErrorMessage(`MCP Feedback: truncate failed — ${e}`);
+            }
         }),
     );
 

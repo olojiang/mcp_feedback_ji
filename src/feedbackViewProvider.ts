@@ -15,7 +15,7 @@ import * as os from 'os';
 
 import type { FeedbackWSServer } from './wsServer';
 import type { WebviewBridge } from './server/webviewBridge';
-import { appendWebviewLog, webviewLogPath } from './webviewLog';
+import { appendWebviewLog, truncateWebviewLog, webviewLogPath } from './webviewLog';
 import { resolveFeedbackLogPath } from './logPaths';
 import { listAllServers, readAgentContext, pruneTestRegistryEntries } from './fileStore';
 import {
@@ -49,6 +49,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _lastSyncedPort = 0;
     private _forceResetCallback?: () => Promise<number>;
     private _fileWatcher?: fs.FSWatcher;
+    private _webviewReadyAcked = false;
 
     constructor(
         getHtml: HtmlGetter,
@@ -80,6 +81,17 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken
     ): void {
         this._view = webviewView;
+        this._webviewReadyAcked = false;
+        this._bridge?.dispose();
+        this._bridge = null;
+        this._stopBridgeBroadcast();
+
+        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+        const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+        appendWebviewLog(
+            `resolveWebviewView visible=${webviewView.visible} v=${this._getVersion()}`,
+            typeof projectPath === 'string' ? projectPath : undefined,
+        );
 
         webviewView.webview.options = {
             enableScripts: true,
@@ -114,6 +126,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     recreate(): void {
         if (this._view) {
+            const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+            const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+            appendWebviewLog('webview html reload reason=recreate', typeof projectPath === 'string' ? projectPath : undefined);
+            this._webviewReadyAcked = false;
             this._view.webview.html = this._injectWebviewResources(this._view);
             this._lastSyncedPort = this._getPort();
         }
@@ -135,7 +151,11 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     syncServer(port: number): void {
         if (!this._view) return;
         if (shouldReloadWebview(this._lastSyncedPort, port)) {
+            const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+            const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+            appendWebviewLog(`webview html reload reason=port-change ${this._lastSyncedPort}->${port}`, typeof projectPath === 'string' ? projectPath : undefined);
             this._lastSyncedPort = port;
+            this._webviewReadyAcked = false;
             this._bridge?.dispose();
             this._bridge = null;
             this._view.webview.html = this._injectWebviewResources(this._view);
@@ -200,6 +220,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
         html = sanitizeUnreplacedWebviewPlaceholders(html);
+        html += `\n<!-- mcp-panel-boot v=${this._getVersion()} -->\n`;
         return html;
     }
 
@@ -263,14 +284,43 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         return this._hostPayload('bridge-connected');
     }
 
-    /** Attach bridge only after webview requests hub-connect (avoids lost bridge-connected). */
+    private _stopBridgeBroadcast(): void {
+        if (this._bridgeBroadcastTimer) {
+            clearInterval(this._bridgeBroadcastTimer);
+            this._bridgeBroadcastTimer = undefined;
+        }
+    }
+
+    private _bridgeBroadcastTimer: ReturnType<typeof setInterval> | undefined;
+
+    /** Attach bridge; repost bridge-connected until webview acknowledges (avoids early-connect race). */
     private _connectBridge(view: vscode.WebviewView): void {
+        if (this._bridgeBroadcastTimer) {
+            clearInterval(this._bridgeBroadcastTimer);
+            this._bridgeBroadcastTimer = undefined;
+        }
         if (this._bridge) {
-            view.webview.postMessage(this._bridgePayload());
+            this._broadcastBridgeConnected(view);
             return;
         }
         this._attachBridge(view);
-        view.webview.postMessage(this._bridgePayload());
+        this._broadcastBridgeConnected(view);
+    }
+
+    private _broadcastBridgeConnected(view: vscode.WebviewView): void {
+        const post = (): void => {
+            view.webview.postMessage(this._bridgePayload());
+        };
+        post();
+        let attempts = 0;
+        this._bridgeBroadcastTimer = setInterval(() => {
+            post();
+            attempts += 1;
+            if (attempts >= 30 && this._bridgeBroadcastTimer) {
+                clearInterval(this._bridgeBroadcastTimer);
+                this._bridgeBroadcastTimer = undefined;
+            }
+        }, 500);
     }
 
     private _pushServerInfo(view: vscode.WebviewView): void {
@@ -338,6 +388,21 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _setupMessageHandler(view: vscode.WebviewView): void {
         const handlers = {
             ...buildDefaultWebviewHandlers(vscode),
+            'webview-ready': (msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
+                if (this._webviewReadyAcked) {
+                    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                    const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                    appendWebviewLog(`webview-ready ignored duplicate phase=${String(msg.phase || '')}`, typeof projectPath === 'string' ? projectPath : undefined);
+                    return;
+                }
+                this._webviewReadyAcked = true;
+                ctx.stopBridgeBroadcast?.();
+                if (!ctx.hasBridge()) ctx.connectBridge(v);
+                else v.webview.postMessage(ctx.bridgePayload());
+                const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                appendWebviewLog(`webview-ready phase=${String(msg.phase || 'default')}`, typeof projectPath === 'string' ? projectPath : undefined);
+            },
             'request-debug': (msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
                 const traceId = typeof msg.trace_id === 'string' ? msg.trace_id : undefined;
                 ctx.handleDebug(v, traceId);
@@ -361,6 +426,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             route(message, view, {
                 pushServerInfo: (v) => this._pushServerInfo(v),
                 connectBridge: (v) => this._connectBridge(v),
+                stopBridgeBroadcast: () => this._stopBridgeBroadcast(),
                 bridgePayload: () => this._bridgePayload(),
                 hasBridge: () => this._bridge !== null,
                 deliverHubMessage: (data) => {
@@ -372,6 +438,12 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                 handlePrune: (v) => this._handlePruneTestRegistry(v),
                 handleAtSearch: (q, v) => this._handleAtSearch(q, v),
                 openLog: (t) => this._openLogFile(t),
+                truncateLog: (t) => this._truncateLogFile(t),
+                appendWebviewLog: (msg) => {
+                    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                    const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                    appendWebviewLog(msg, typeof projectPath === 'string' ? projectPath : undefined);
+                },
                 exportSessions: (d) => this._exportSessions(d),
                 forceReset: this._forceResetCallback,
                 recreate: () => this.recreate(),
@@ -459,6 +531,20 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         if (this._fileWatcher) {
             this._fileWatcher.close();
             this._fileWatcher = undefined;
+        }
+    }
+
+    private async _truncateLogFile(target: string): Promise<void> {
+        if (target !== 'webview') {
+            vscode.window.showWarningMessage(`MCP Feedback: truncate only supported for webview (got "${target}")`);
+            return;
+        }
+        try {
+            const logPath = truncateWebviewLog();
+            appendWebviewLog('log truncated by user');
+            vscode.window.showInformationMessage(`MCP Feedback: cleared ${path.basename(logPath)}`);
+        } catch (e) {
+            vscode.window.showErrorMessage(`MCP Feedback: truncate failed — ${e}`);
         }
     }
 

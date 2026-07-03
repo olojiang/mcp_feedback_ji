@@ -1,10 +1,13 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { getLogsDir } from './configPaths.js';
+import {
+    appendDailyRotatingLog,
+    dailyLogFilePath,
+    legacyLogAliasPath,
+    localDateKey,
+    truncateDailyLog,
+} from './dailyRotatingLog.js';
 
-const DEFAULT_LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
-const DEFAULT_LOG_FILE = 'webview.log';
-const MAX_BYTES = 2 * 1024 * 1024;
+const LOG_BASE_NAME = 'webview';
 
 let logDirOverride: string | null = null;
 
@@ -14,26 +17,28 @@ export function setWebviewLogDirForTests(dir: string | null): void {
 }
 
 function resolveLogDir(): string {
-    return logDirOverride ?? DEFAULT_LOG_DIR;
+    return logDirOverride ?? getLogsDir();
 }
 
 export function appendWebviewLog(msg: string, projectPath?: string): void {
     try {
-        const logDir = resolveLogDir();
-        fs.mkdirSync(logDir, { recursive: true });
-        const logFile = path.join(logDir, DEFAULT_LOG_FILE);
-        try {
-            const stat = fs.statSync(logFile);
-            if (stat.size > MAX_BYTES) {
-                try { fs.unlinkSync(logFile + '.old'); } catch { /* ignore */ }
-                fs.renameSync(logFile, logFile + '.old');
-            }
-        } catch { /* ignore */ }
         const prefix = projectPath ? `[${projectPath}] ` : '';
-        fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${prefix}${msg}\n`);
+        const line = `[${new Date().toISOString()}] ${prefix}${msg}`;
+        appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME, line);
     } catch { /* ignore */ }
 }
 
+/** Path to today's webview log (dated file). */
 export function webviewLogPath(): string {
-    return path.join(resolveLogDir(), DEFAULT_LOG_FILE);
+    return dailyLogFilePath(resolveLogDir(), LOG_BASE_NAME, localDateKey());
+}
+
+/** Stable alias `webview.log` -> today's dated file. */
+export function webviewLogAliasPath(): string {
+    return legacyLogAliasPath(resolveLogDir(), LOG_BASE_NAME);
+}
+
+/** Clear today's webview log for clean repro/debug sessions. */
+export function truncateWebviewLog(): string {
+    return truncateDailyLog(resolveLogDir(), LOG_BASE_NAME);
 }

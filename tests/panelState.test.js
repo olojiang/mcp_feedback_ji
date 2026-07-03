@@ -29,6 +29,24 @@ describe('PanelState multi-session', () => {
     assert.equal(state.sessions['fb-1-aaa'].waiting, true)
   })
 
+  it('submitFeedback merges and clears session pendingQueue', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-q',
+      session_label: 'q',
+      summary: 'Question',
+    })
+    state.addToPending('queued draft', [])
+    assert.equal(state.sessions['fb-q'].pendingQueue.length, 1)
+
+    const cmds = state.submitFeedback('final line', [])
+    assert.equal(state.sessions['fb-q'].pendingQueue.length, 0)
+    const ws = cmds.find((c) => c.type === 'ws_send')
+    assert.equal(ws.message.feedback, 'queued draft\n\nfinal line')
+    assert.ok(cmds.some((c) => c.type === 'render' && c.targets.includes('pending')))
+  })
+
   it('submits feedback to selected session, not FIFO order', () => {
     const state = new PanelState()
     state.handleMessage({

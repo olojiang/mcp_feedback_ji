@@ -13,7 +13,7 @@ describe('logPaths', () => {
   it('resolves standard log file paths', () => {
     assert.match(resolveFeedbackLogPath('extension'), /extension\.log$/)
     assert.match(resolveFeedbackLogPath('mcp-server'), /mcp-server\.log$/)
-    assert.match(resolveFeedbackLogPath('webview'), /webview\.log$/)
+    assert.match(resolveFeedbackLogPath('webview'), /webview-\d{4}-\d{2}-\d{2}\.log$/)
   })
 
   it('formatAgentLinkStatus distinguishes idle vs offline', () => {

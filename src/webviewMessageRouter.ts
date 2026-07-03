@@ -9,6 +9,7 @@ export type WebviewMessageHandler = (
 export interface WebviewRouterContext {
     pushServerInfo: (view: vscode.WebviewView) => void;
     connectBridge: (view: vscode.WebviewView) => void;
+    stopBridgeBroadcast?: () => void;
     bridgePayload: () => Record<string, unknown>;
     hasBridge: () => boolean;
     deliverHubMessage: (data: unknown) => void;
@@ -18,6 +19,7 @@ export interface WebviewRouterContext {
     openLog: (target: string) => void | Promise<void>;
     openMcpOutput?: () => void | Promise<void>;
     appendWebviewLog?: (msg: string) => void;
+    truncateLog?: (target: string) => void | Promise<void>;
     exportSessions: (data: Record<string, unknown>) => void | Promise<void>;
     forceReset?: () => Promise<number>;
     recreate: () => void;
@@ -41,7 +43,9 @@ export function buildDefaultWebviewHandlers(
 ): Record<string, WebviewMessageHandler> {
     return {
         'get-server-info': (_msg, view, ctx) => ctx.pushServerInfo(view),
-        'webview-ready': (_msg, view, ctx) => {
+        'webview-ready': (msg, view, ctx) => {
+            ctx.appendWebviewLog?.(`webview-ready phase=${String(msg.phase || 'default')}`);
+            ctx.stopBridgeBroadcast?.();
             if (!ctx.hasBridge()) ctx.connectBridge(view);
             else view.webview.postMessage(ctx.bridgePayload());
         },
@@ -88,6 +92,10 @@ export function buildDefaultWebviewHandlers(
         },
         'open-log': (msg, _view, ctx) => {
             void ctx.openLog(String(msg.target || ''));
+        },
+        'truncate-log': (msg, _view, ctx) => {
+            if (!ctx.truncateLog) return;
+            void ctx.truncateLog(String(msg.target || ''));
         },
         'export-sessions': (msg, _view, ctx) => {
             if (msg.data && typeof msg.data === 'object') {

@@ -14,7 +14,9 @@ function createWebviewMessageRouter(handlers) {
 function buildDefaultWebviewHandlers(vscodeApi) {
     return {
         'get-server-info': (_msg, view, ctx) => ctx.pushServerInfo(view),
-        'webview-ready': (_msg, view, ctx) => {
+        'webview-ready': (msg, view, ctx) => {
+            ctx.appendWebviewLog?.(`webview-ready phase=${String(msg.phase || 'default')}`);
+            ctx.stopBridgeBroadcast?.();
             if (!ctx.hasBridge())
                 ctx.connectBridge(view);
             else
@@ -59,6 +61,11 @@ function buildDefaultWebviewHandlers(vscodeApi) {
         },
         'open-log': (msg, _view, ctx) => {
             void ctx.openLog(String(msg.target || ''));
+        },
+        'truncate-log': (msg, _view, ctx) => {
+            if (!ctx.truncateLog)
+                return;
+            void ctx.truncateLog(String(msg.target || ''));
         },
         'export-sessions': (msg, _view, ctx) => {
             if (msg.data && typeof msg.data === 'object') {
