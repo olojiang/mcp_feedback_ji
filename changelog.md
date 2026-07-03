@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.64] - 2026-07-03
+
+### Added
+- **Nightly CI** (`.github/workflows/nightly.yml`): MCP stays connected 95s real-time (`test:nightly`).
+- **`feedbackWait.ts`**: injectable heartbeat log in `requestFeedback`; unit test with mock timers.
+- **E2E**: DBG Prune / Export MD buttons (`panel-dbg-buttons.spec.cjs`).
+
+### Changed
+- `run-tests.js` excludes `*.nightly.*` from default `npm test`.
+
 ## [2.5.1-ji.63] - 2026-07-03
 
 ### Added

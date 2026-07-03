@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>panel dbg buttons fixture</title></head>
+<body>
+<button type="button" id="debugPruneTestBtn">Prune test hubs</button>
+<button type="button" id="debugExportMdBtn">Export MD</button>
+<script src="../../out/webview/panelState.js"></script>
+<script>
+  const posted = []
+  const vscode = { postMessage: (msg) => posted.push(msg) }
+  const PS = window.PanelStateModule
+  const state = new PS.PanelState()
+  state.handleMessage({
+    type: 'session_updated',
+    session_id: 'fb-dbg',
+    summary: 'DBG export test',
+    trace_id: 'dbg-e2e',
+  })
+
+  document.getElementById('debugPruneTestBtn').addEventListener('click', function () {
+    vscode.postMessage({ type: 'prune-test-registry' })
+  })
+  document.getElementById('debugExportMdBtn').addEventListener('click', function () {
+    var md = PS.PanelState.sessionsToMarkdown(state)
+    vscode.postMessage({ type: 'copy-debug-json', json: md })
+  })
+
+  window.__getPostedMessages = function () { return posted.slice() }
+</script>
+</body>
+</html>

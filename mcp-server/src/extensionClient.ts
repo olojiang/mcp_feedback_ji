@@ -1,6 +1,15 @@
 import { WebSocket } from 'ws';
 import { formatExtensionCloseError } from './extensionErrors.js';
 import { mcpLog } from './logger.js';
+import { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine } from './feedbackWait.js';
+
+export { formatExtensionCloseError } from './extensionErrors.js';
+export { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine } from './feedbackWait.js';
+
+export interface RequestFeedbackDeps {
+    log?: (msg: string) => void;
+    heartbeatMs?: number;
+}
 
 export function connectToExtension(port: number): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
@@ -26,14 +35,16 @@ export function connectToExtension(port: number): Promise<WebSocket> {
     });
 }
 
-export { formatExtensionCloseError } from './extensionErrors.js';
-
 export function requestFeedback(
     ws: WebSocket,
     summary: string,
     projectDirectory?: string,
     traceId?: string,
+    deps?: RequestFeedbackDeps,
 ): Promise<{ feedback: string; images?: string[] }> {
+    const log = deps?.log ?? mcpLog;
+    const heartbeatMs = deps?.heartbeatMs ?? FEEDBACK_WAIT_HEARTBEAT_MS;
+
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
             cleanup();
@@ -41,11 +52,8 @@ export function requestFeedback(
         }, 86_400_000);
 
         const waitHeartbeat = setInterval(() => {
-            mcpLog(
-                `event=feedback_wait_heartbeat trace=${traceId || '-'} `
-                + `project=${projectDirectory || '-'}`,
-            );
-        }, 60_000);
+            log(feedbackWaitHeartbeatLine(traceId, projectDirectory));
+        }, heartbeatMs);
 
         const cleanup = () => {
             clearTimeout(timeout);

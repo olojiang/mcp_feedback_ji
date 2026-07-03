@@ -17,14 +17,17 @@ const env = {
 const extraArgs = process.argv.slice(2);
 const nodeArgs = ['--test', '--test-concurrency=1', ...extraArgs];
 if (!extraArgs.length) {
-    nodeArgs.push('tests/*.test.js');
+    const unitTests = fs.readdirSync(path.join(import.meta.dirname, '..', 'tests'))
+        .filter((f) => f.endsWith('.test.js') && !f.includes('.nightly.'))
+        .map((f) => path.join('tests', f));
+    nodeArgs.push(...unitTests);
 }
 
 const result = spawnSync('node', nodeArgs, {
     cwd: path.join(import.meta.dirname, '..'),
     env,
     stdio: 'inherit',
-    shell: extraArgs.length === 0,
+    shell: false,
 });
 
 try {
