@@ -1,14 +1,16 @@
 import { WebSocket } from 'ws';
 import { formatExtensionCloseError } from './extensionErrors.js';
 import { mcpLog } from './logger.js';
-import { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine } from './feedbackWait.js';
+import { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
 
 export { formatExtensionCloseError } from './extensionErrors.js';
-export { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine } from './feedbackWait.js';
+export { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
 
 export interface RequestFeedbackDeps {
     log?: (msg: string) => void;
     heartbeatMs?: number;
+    onWaitTick?: () => void | Promise<void>;
+    stdioKeepaliveMs?: number;
 }
 
 export function connectToExtension(port: number): Promise<WebSocket> {
@@ -44,6 +46,7 @@ export function requestFeedback(
 ): Promise<{ feedback: string; images?: string[] }> {
     const log = deps?.log ?? mcpLog;
     const heartbeatMs = deps?.heartbeatMs ?? FEEDBACK_WAIT_HEARTBEAT_MS;
+    const stdioKeepaliveMs = deps?.stdioKeepaliveMs ?? STDIO_KEEPALIVE_MS;
 
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -55,9 +58,19 @@ export function requestFeedback(
             log(feedbackWaitHeartbeatLine(traceId, projectDirectory));
         }, heartbeatMs);
 
+        let stdioKeepalive: ReturnType<typeof setInterval> | undefined;
+        if (deps?.onWaitTick) {
+            const tick = () => {
+                void deps.onWaitTick?.();
+            };
+            tick();
+            stdioKeepalive = setInterval(tick, stdioKeepaliveMs);
+        }
+
         const cleanup = () => {
             clearTimeout(timeout);
             clearInterval(waitHeartbeat);
+            if (stdioKeepalive) clearInterval(stdioKeepalive);
         };
 
         const handler = (raw: Buffer | string) => {

@@ -13,9 +13,13 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { createRequire } from 'node:module';
-import { buildToolDefinitions, handleToolCall } from './toolHandlers.js';
+import { buildToolDefinitions, createToolCallHandler } from './toolHandlers.js';
+import { findExtensionServer, readAgentContext } from './serverDiscovery.js';
+import { connectToExtension, requestFeedback } from './extensionClient.js';
+import { browserFallback } from './browserFallback.js';
 import { registerPostFeedbackHook } from './postFeedbackHooks.js';
 import { mcpLog } from './logger.js';
+import { createStdioKeepaliveTick } from './stdioKeepalive.js';
 
 import { memosHook } from './hooks/memos.js';
 registerPostFeedbackHook(memosHook);
@@ -38,8 +42,20 @@ const serverVersion = readServerVersion();
 
 const server = new Server(
     { name: 'mcp-feedback-enhanced', version: serverVersion },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: {}, logging: {} } }
 );
+
+const stdioKeepaliveTick = createStdioKeepaliveTick(server);
+
+const handleToolCall = createToolCallHandler({
+    findExtensionServer,
+    connectToExtension,
+    requestFeedback,
+    browserFallback,
+    readAgentContext,
+    log: mcpLog,
+    stdioKeepaliveTick,
+});
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: buildToolDefinitions(),

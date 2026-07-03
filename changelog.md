@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.65] - 2026-07-03
+
+### Fixed
+- **MCP ~30s Connection closed**: while `interactive_feedback` waits for user input, send MCP `notifications/message` logging keepalive every 10s so Cursor does not drop idle stdio transport.
+
+### Added
+- **`stdioKeepalive.ts`**, `tests/mcpStdioKeepalive.test.js`.
+
 ## [2.5.1-ji.64] - 2026-07-03
 
 ### Added

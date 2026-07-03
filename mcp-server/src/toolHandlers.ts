@@ -71,6 +71,8 @@ interface ToolHandlerDeps {
     readAgentContext?: () => { traceId?: string } | null;
     rediscoveryAttempts?: number;
     retryDelayMs?: number;
+    /** MCP stdio keepalive while waiting for user feedback (prevents ~30s Cursor idle drop). */
+    stdioKeepaliveTick?: (traceId?: string, projectDirectory?: string) => void | Promise<void>;
 }
 
 const DEFAULT_EXTENSION_ATTEMPTS = 3;
@@ -193,7 +195,11 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
 
                 try {
                     const ws = await deps.connectToExtension(extensionServer.port);
-                    const result = await deps.requestFeedback(ws, summary, project_directory, traceId);
+                    const result = await deps.requestFeedback(ws, summary, project_directory, traceId, {
+                        onWaitTick: deps.stdioKeepaliveTick
+                            ? () => deps.stdioKeepaliveTick!(traceId, project_directory)
+                            : undefined,
+                    });
                     deps.log(
                         `[MCP Feedback] Feedback via extension port=${extensionServer.port} `
                         + `pid=${extensionServer.pid}`
