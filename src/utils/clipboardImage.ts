@@ -19,10 +19,12 @@ function clipLog(msg: string): void {
 const JXA_READ_IMAGE = `ObjC.import("AppKit");
 var pb=$.NSPasteboard.generalPasteboard;
 var types=["public.png","PNG ","public.tiff","NeXT TIFF v4.0 pasteboard type"];
+var result="";
 for(var i=0;i<types.length;i++){
   var d=pb.dataForType(types[i]);
-  if(d){console.log($.NSData.alloc.initWithData(d).base64EncodedStringWithOptions(0).js);break;}
-}`
+  if(d){result=ObjC.unwrap($.NSData.alloc.initWithData(d).base64EncodedStringWithOptions(0));break;}
+}
+result;`
 
 /** Read image from macOS clipboard as base64 PNG/TIFF. Extension-host safe (no electron). */
 export async function readClipboardImageBase64(): Promise<string | null> {
@@ -56,7 +58,7 @@ export async function readClipboardImageBase64(): Promise<string | null> {
       '-l',
       'JavaScript',
       '-e',
-      'ObjC.import("AppKit");JSON.stringify($.NSPasteboard.generalPasteboard.types.js);',
+      'ObjC.import("AppKit");var t=$.NSPasteboard.generalPasteboard.types;var r=[];for(var i=0;i<t.count;i++)r.push(ObjC.unwrap(t.objectAtIndex(i)));JSON.stringify(r);',
     ])
     clipLog(`clipboard-paste no image types=${(stdout || '').trim()}`)
   } catch {

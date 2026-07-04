@@ -335,8 +335,7 @@
     function syncInputTextareaToPane() {
         if (!inputEl) return;
         requestAnimationFrame(function () {
-            var maxPx = getInputTextareaMaxPx();
-            PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: maxPx });
+            inputEl.style.height = getInputTextareaMaxPx() + 'px';
         });
     }
 
@@ -862,8 +861,7 @@
     inputEl.addEventListener('input', function () {
         var active = state.getActiveSession();
         if (active) active.inputDraft = inputEl.value;
-        var maxPx = getInputTextareaMaxPx();
-        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: maxPx });
+        inputEl.style.height = getInputTextareaMaxPx() + 'px';
         updateSendButton();
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 500);
@@ -980,6 +978,12 @@
             window.__mcpWsPastePending = true;
             window.__mcpWsPasteAt = Date.now();
             transportSend({ type: 'clipboard_paste', request_id: rid });
+            setTimeout(function () {
+                if (window.__mcpPendingPasteId === rid) {
+                    window.__mcpPendingPasteId = null;
+                    window.__mcpWsPastePending = false;
+                }
+            }, 3000);
             return;
         }
         if (!vscode) return;
