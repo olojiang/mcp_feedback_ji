@@ -1,10 +1,10 @@
 import { WebSocket } from 'ws';
 import { formatExtensionCloseError } from './extensionErrors.js';
 import { mcpLog } from './logger.js';
-import { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
+import { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine, shouldLogHeartbeat, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
 
 export { formatExtensionCloseError } from './extensionErrors.js';
-export { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
+export { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine, shouldLogHeartbeat, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
 
 export interface RequestFeedbackDeps {
     log?: (msg: string) => void;
@@ -55,8 +55,12 @@ export function requestFeedback(
             resolve({ status: 'timeout', feedback: '' });
         }, 86_400_000);
 
+        let heartbeatTick = 0;
         const waitHeartbeat = setInterval(() => {
-            log(feedbackWaitHeartbeatLine(traceId, projectDirectory));
+            heartbeatTick++;
+            if (shouldLogHeartbeat(heartbeatTick)) {
+                log(feedbackWaitHeartbeatLine(traceId, projectDirectory));
+            }
         }, heartbeatMs);
 
         let stdioKeepalive: ReturnType<typeof setInterval> | undefined;

@@ -3,14 +3,16 @@ import { promisify } from 'node:util'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { appendDailyRotatingLog, localDateKey } from '../dailyRotatingLog.js'
 
 const execFileAsync = promisify(execFile)
 const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs')
 
+export let clipboardLogVerbose = false;
+
 function clipLog(msg: string): void {
   try {
-    fs.mkdirSync(LOG_DIR, { recursive: true })
-    fs.appendFileSync(path.join(LOG_DIR, 'extension.log'), `[${new Date().toISOString()}] ${msg}\n`)
+    appendDailyRotatingLog(LOG_DIR, 'extension', `[${new Date().toISOString()}] ${msg}`)
   } catch {
     // ignore
   }
@@ -60,7 +62,9 @@ export async function readClipboardImageBase64(): Promise<string | null> {
       '-e',
       'ObjC.import("AppKit");var t=$.NSPasteboard.generalPasteboard.types;var r=[];for(var i=0;i<t.count;i++)r.push(ObjC.unwrap(t.objectAtIndex(i)));JSON.stringify(r);',
     ])
-    clipLog(`clipboard-paste no image types=${(stdout || '').trim()}`)
+    if (clipboardLogVerbose) {
+      clipLog(`clipboard-paste no image types=${(stdout || '').trim()}`)
+    }
   } catch {
     // ignore
   }

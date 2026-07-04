@@ -118,6 +118,7 @@ export async function findExtensionServer(
     );
 
     const candidates: ServerData[] = [];
+    const skippedMismatch: string[] = [];
 
     for (const f of listJSONFiles(getServersDir())) {
         const filePath = path.join(getServersDir(), f);
@@ -146,12 +147,16 @@ export async function findExtensionServer(
         }
 
         if (want && !projectPathMatches(entry.projectPath, want)) {
-            log(`discover: skip port=${entry.port} source=${f} reason=project_mismatch have=${entry.projectPath} want=${want}`);
+            skippedMismatch.push(`${entry.port}:${f}`);
             continue;
         }
 
         candidates.push(entry);
         log(`discover: accept port=${entry.port} pid=${entry.pid} source=${f}`);
+    }
+
+    if (!candidates.length && skippedMismatch.length) {
+        log(`discover: skipped ${skippedMismatch.length} project_mismatch: ${skippedMismatch.join(', ')}`);
     }
 
     let picked = pickServerForProject(candidates, projectDirectory);

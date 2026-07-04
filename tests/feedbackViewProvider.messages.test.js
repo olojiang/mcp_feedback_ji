@@ -65,7 +65,7 @@ describe('FeedbackViewProvider message handlers', () => {
     { type: 'hub-connect', expectBridge: true },
     { type: 'get-server-info', expectServerInfo: true },
     { type: 'request-debug', expectDebug: true },
-    { type: 'open-log', target: 'extension', expectOpen: /extension\.log$/ },
+    { type: 'open-log', target: 'extension', expectOpen: /extension(-\d{4}-\d{2}-\d{2})?\.log$/ },
     { type: 'open-mcp-output', expectMcpOutput: true },
     { type: 'export-sessions', expectExport: true },
     { type: 'log', msg: 'panel line', expectWebviewLog: true },

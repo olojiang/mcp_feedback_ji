@@ -3717,8 +3717,8 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
-var fs11 = __toESM(require("fs"));
-var path13 = __toESM(require("path"));
+var fs9 = __toESM(require("fs"));
+var path12 = __toESM(require("path"));
 var os4 = __toESM(require("os"));
 var import_child_process = require("child_process");
 
@@ -4348,6 +4348,171 @@ function formatDisconnectEvent(reason, fields = {}) {
   return parts.join(" ");
 }
 
+// src/dailyRotatingLog.ts
+var fs2 = __toESM(require("node:fs"));
+var path3 = __toESM(require("node:path"));
+var DAILY_LOG_RETENTION_DAYS = 7;
+function localDateKey(date5 = /* @__PURE__ */ new Date()) {
+  const y = date5.getFullYear();
+  const m = String(date5.getMonth() + 1).padStart(2, "0");
+  const d = String(date5.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+function dailyLogFileName(baseName, dateKey) {
+  return `${baseName}-${dateKey}.log`;
+}
+function dailyLogFilePath(logDir, baseName, dateKey) {
+  return path3.join(logDir, dailyLogFileName(baseName, dateKey ?? localDateKey()));
+}
+function legacyLogAliasPath(logDir, baseName) {
+  return path3.join(logDir, `${baseName}.log`);
+}
+function parseDailyLogDateKey(fileName, baseName) {
+  const prefix = `${baseName}-`;
+  const suffix = ".log";
+  if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) return null;
+  const key = fileName.slice(prefix.length, -suffix.length);
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
+}
+function pruneOldDailyLogs(logDir, baseName, retentionDays = DAILY_LOG_RETENTION_DAYS, now = /* @__PURE__ */ new Date()) {
+  const removed = [];
+  let entries = [];
+  try {
+    entries = fs2.readdirSync(logDir);
+  } catch {
+    return removed;
+  }
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - retentionDays + 1);
+  cutoff.setHours(0, 0, 0, 0);
+  for (const name of entries) {
+    const key = parseDailyLogDateKey(name, baseName);
+    if (!key) continue;
+    const fileDate = /* @__PURE__ */ new Date(`${key}T00:00:00`);
+    if (fileDate >= cutoff) continue;
+    try {
+      fs2.unlinkSync(path3.join(logDir, name));
+      removed.push(name);
+    } catch {
+    }
+  }
+  return removed;
+}
+function migrateLegacyLogFile(logDir, baseName, todayPath) {
+  const alias = legacyLogAliasPath(logDir, baseName);
+  try {
+    const stat = fs2.lstatSync(alias);
+    if (stat.isSymbolicLink()) return;
+  } catch {
+    return;
+  }
+  if (fs2.existsSync(todayPath)) return;
+  try {
+    fs2.renameSync(alias, todayPath);
+  } catch {
+  }
+}
+function updateLegacySymlink(logDir, baseName, todayPath) {
+  const alias = legacyLogAliasPath(logDir, baseName);
+  const relativeTarget = path3.basename(todayPath);
+  try {
+    const stat = fs2.lstatSync(alias);
+    if (stat.isSymbolicLink()) {
+      const current = fs2.readlinkSync(alias);
+      if (current === relativeTarget || current === todayPath) return;
+      fs2.unlinkSync(alias);
+    } else {
+      return;
+    }
+  } catch {
+  }
+  try {
+    fs2.symlinkSync(relativeTarget, alias);
+  } catch {
+  }
+}
+function appendDailyRotatingLog(logDir, baseName, line, now = /* @__PURE__ */ new Date()) {
+  fs2.mkdirSync(logDir, { recursive: true });
+  const todayKey = localDateKey(now);
+  const todayPath = dailyLogFilePath(logDir, baseName, todayKey);
+  migrateLegacyLogFile(logDir, baseName, todayPath);
+  fs2.appendFileSync(todayPath, line + "\n");
+  updateLegacySymlink(logDir, baseName, todayPath);
+  pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, /* @__PURE__ */ new Date());
+  return todayPath;
+}
+function truncateDailyLog(logDir, baseName, now = /* @__PURE__ */ new Date()) {
+  fs2.mkdirSync(logDir, { recursive: true });
+  const todayPath = dailyLogFilePath(logDir, baseName, localDateKey(now));
+  migrateLegacyLogFile(logDir, baseName, todayPath);
+  fs2.writeFileSync(todayPath, "", "utf8");
+  updateLegacySymlink(logDir, baseName, todayPath);
+  return todayPath;
+}
+
+// src/structuredFileLog.ts
+var fs3 = __toESM(require("node:fs"));
+var path4 = __toESM(require("node:path"));
+var defaultSink = {
+  append(filePath, line) {
+    fs3.mkdirSync(path4.dirname(filePath), { recursive: true });
+    fs3.appendFileSync(filePath, line + "\n");
+  }
+};
+var BatchedFileLogger = class {
+  constructor(filePath, sink = defaultSink, flushMs = 100) {
+    this.filePath = filePath;
+    this.sink = sink;
+    this.flushMs = flushMs;
+    this.queue = [];
+    this.timer = null;
+  }
+  append(line) {
+    this.queue.push(line);
+    if (this.timer) return;
+    this.timer = setTimeout(() => this.flush(), this.flushMs);
+  }
+  flush() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (!this.queue.length) return;
+    const chunk = this.queue.join("\n");
+    this.queue.length = 0;
+    this.sink.append(this.filePath, chunk);
+  }
+};
+function formatStructuredLine(component, event, fields = {}) {
+  return formatLogEvent(component, event, fields);
+}
+function createBatchedLogger(filePath, sink) {
+  return new BatchedFileLogger(filePath, sink);
+}
+
+// src/extensionFileLog.ts
+var LOG_BASE_NAME = "extension";
+var hubLogger = null;
+function getHubLogger() {
+  if (!hubLogger) {
+    hubLogger = createBatchedLogger("", {
+      append(_filePath, line) {
+        try {
+          appendDailyRotatingLog(getLogsDir(), LOG_BASE_NAME, line);
+        } catch {
+        }
+      }
+    });
+  }
+  return hubLogger;
+}
+function hubLog(msg) {
+  getHubLogger().append(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}`);
+}
+function hubStructuredLog(event, fields = {}, component = "hub") {
+  hubLog(formatStructuredLine(component, event, fields));
+}
+
 // src/server/clientRegistry.ts
 var ClientRegistry = class {
   constructor() {
@@ -4414,7 +4579,7 @@ var ClientRegistry = class {
     for (const [ws, client] of this.clients) {
       if (client.clientType === "mcp-server") {
         if (now - client.lastPong > timeoutMs) {
-          console.log(formatLogEvent("MCP Feedback Hub", "stale_sweep", {
+          hubLog(formatLogEvent("MCP Feedback Hub", "stale_sweep", {
             action: "skip",
             client_type: "mcp-server",
             idle_ms: now - client.lastPong
@@ -4428,7 +4593,7 @@ var ClientRegistry = class {
         } catch {
         }
         this.clients.delete(ws);
-        console.log(formatLogEvent("MCP Feedback Hub", "stale_sweep", {
+        hubLog(formatLogEvent("MCP Feedback Hub", "stale_sweep", {
           action: "close",
           client_type: client.clientType,
           idle_ms: now - client.lastPong,
@@ -4518,10 +4683,10 @@ function feedbackResponseLogLine(sessionId, projectDirectory, feedbackPreview, t
 }
 
 // src/workspaceMatch.ts
-var path3 = __toESM(require("node:path"));
+var path5 = __toESM(require("node:path"));
 function normalizeProjectPath(dir) {
-  const normalized = path3.normalize(dir);
-  const root = path3.parse(normalized).root;
+  const normalized = path5.normalize(dir);
+  const root = path5.parse(normalized).root;
   if (normalized === root) return root;
   const stripped = normalized.replace(/[\\/]+$/, "");
   return stripped || root || normalized;
@@ -4532,8 +4697,8 @@ function projectPathRelation(entryPath, want) {
   const entry = normalizeProjectPath(entryPath);
   const target = normalizeProjectPath(want);
   if (entry === target) return "exact";
-  if (target.startsWith(entry + path3.sep)) return "ancestor";
-  if (entry.startsWith(target + path3.sep)) return "descendant";
+  if (target.startsWith(entry + path5.sep)) return "ancestor";
+  if (entry.startsWith(target + path5.sep)) return "descendant";
   return "none";
 }
 function projectPathMatches(entryPath, want) {
@@ -4570,10 +4735,10 @@ function formatSessionLifecycleLine(fields) {
 }
 
 // src/sessionJournal.ts
-var fs2 = __toESM(require("node:fs"));
-var path4 = __toESM(require("node:path"));
+var fs4 = __toESM(require("node:fs"));
+var path6 = __toESM(require("node:path"));
 function sessionJournalPath(logDir = getLogsDir()) {
-  return path4.join(logDir, "session-journal.jsonl");
+  return path6.join(logDir, "session-journal.jsonl");
 }
 function isContinuationEvent(event) {
   return event === "transport_reuse" || event === "trace_reuse" || event === "trace_steal";
@@ -4598,8 +4763,8 @@ function buildSessionJournalRecord(input) {
 }
 function appendSessionJournalRecord(record2, logDir = getLogsDir()) {
   const dir = logDir;
-  fs2.mkdirSync(dir, { recursive: true });
-  fs2.appendFileSync(sessionJournalPath(dir), `${JSON.stringify(record2)}
+  fs4.mkdirSync(dir, { recursive: true });
+  fs4.appendFileSync(sessionJournalPath(dir), `${JSON.stringify(record2)}
 `, "utf8");
 }
 
@@ -5712,10 +5877,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path14) {
-  if (!path14)
+function getElementAtPath(obj, path13) {
+  if (!path13)
     return obj;
-  return path14.reduce((acc, key) => acc?.[key], obj);
+  return path13.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -6124,11 +6289,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path14, issues) {
+function prefixIssues(path13, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path14);
+    iss.path.unshift(path13);
     return iss;
   });
 }
@@ -6275,16 +6440,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path14 = []) => {
+  const processError = (error52, path13 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path14, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else {
-        const fullpath = [...path14, ...issue2.path];
+        const fullpath = [...path13, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -6311,17 +6476,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path14 = []) => {
+  const processError = (error52, path13 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path14, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path13, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path14, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path13, ...issue2.path]);
       } else {
-        const fullpath = [...path14, ...issue2.path];
+        const fullpath = [...path13, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -6353,8 +6518,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path14 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path14) {
+  const path13 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path13) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -19046,13 +19211,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path14 = ref.slice(1).split("/").filter(Boolean);
-  if (path14.length === 0) {
+  const path13 = ref.slice(1).split("/").filter(Boolean);
+  if (path13.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path14[0] === defsKey) {
-    const key = path14[1];
+  if (path13[0] === defsKey) {
+    const key = path13[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -19744,16 +19909,14 @@ function buildHubSnapshot(input) {
 // src/utils/clipboardImage.ts
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
-var fs3 = __toESM(require("node:fs"));
-var path5 = __toESM(require("node:path"));
+var path7 = __toESM(require("node:path"));
 var os2 = __toESM(require("node:os"));
 var execFileAsync = (0, import_node_util.promisify)(import_node_child_process.execFile);
-var LOG_DIR = path5.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var LOG_DIR = path7.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "logs");
+var clipboardLogVerbose = false;
 function clipLog(msg) {
   try {
-    fs3.mkdirSync(LOG_DIR, { recursive: true });
-    fs3.appendFileSync(path5.join(LOG_DIR, "extension.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
-`);
+    appendDailyRotatingLog(LOG_DIR, "extension", `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}`);
   } catch {
   }
 }
@@ -19795,7 +19958,9 @@ async function readClipboardImageBase64() {
       "-e",
       'ObjC.import("AppKit");var t=$.NSPasteboard.generalPasteboard.types;var r=[];for(var i=0;i<t.count;i++)r.push(ObjC.unwrap(t.objectAtIndex(i)));JSON.stringify(r);'
     ]);
-    clipLog(`clipboard-paste no image types=${(stdout || "").trim()}`);
+    if (clipboardLogVerbose) {
+      clipLog(`clipboard-paste no image types=${(stdout || "").trim()}`);
+    }
   } catch {
   }
   return null;
@@ -19832,87 +19997,6 @@ function createClipboardHandlers(deps) {
       });
     }
   };
-}
-
-// src/extensionFileLog.ts
-var fs5 = __toESM(require("node:fs"));
-var path7 = __toESM(require("node:path"));
-
-// src/structuredFileLog.ts
-var fs4 = __toESM(require("node:fs"));
-var path6 = __toESM(require("node:path"));
-var defaultSink = {
-  append(filePath, line) {
-    fs4.mkdirSync(path6.dirname(filePath), { recursive: true });
-    fs4.appendFileSync(filePath, line + "\n");
-  }
-};
-var BatchedFileLogger = class {
-  constructor(filePath, sink = defaultSink, flushMs = 100) {
-    this.filePath = filePath;
-    this.sink = sink;
-    this.flushMs = flushMs;
-    this.queue = [];
-    this.timer = null;
-  }
-  append(line) {
-    this.queue.push(line);
-    if (this.timer) return;
-    this.timer = setTimeout(() => this.flush(), this.flushMs);
-  }
-  flush() {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (!this.queue.length) return;
-    const chunk = this.queue.join("\n");
-    this.queue.length = 0;
-    this.sink.append(this.filePath, chunk);
-  }
-};
-function formatStructuredLine(component, event, fields = {}) {
-  return formatLogEvent(component, event, fields);
-}
-function createBatchedLogger(filePath, sink) {
-  return new BatchedFileLogger(filePath, sink);
-}
-
-// src/extensionFileLog.ts
-var hubLogger = null;
-function logFilePath() {
-  return path7.join(getLogsDir(), "extension.log");
-}
-function getHubLogger() {
-  if (!hubLogger) {
-    hubLogger = createBatchedLogger(logFilePath(), {
-      append(filePath, line) {
-        try {
-          fs5.mkdirSync(path7.dirname(filePath), { recursive: true });
-          try {
-            const stat = fs5.statSync(filePath);
-            if (stat.size > 2 * 1024 * 1024) {
-              try {
-                fs5.unlinkSync(filePath + ".old");
-              } catch {
-              }
-              fs5.renameSync(filePath, filePath + ".old");
-            }
-          } catch {
-          }
-          fs5.appendFileSync(filePath, line + "\n");
-        } catch {
-        }
-      }
-    });
-  }
-  return hubLogger;
-}
-function hubLog(msg) {
-  getHubLogger().append(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}`);
-}
-function hubStructuredLog(event, fields = {}, component = "hub") {
-  hubLog(formatStructuredLine(component, event, fields));
 }
 
 // src/stateSyncPayload.ts
@@ -20492,114 +20576,12 @@ var WsHub = class {
 
 // src/feedbackViewProvider.ts
 var vscode = __toESM(require("vscode"));
-var fs9 = __toESM(require("fs"));
-var path10 = __toESM(require("path"));
+var fs7 = __toESM(require("fs"));
+var path9 = __toESM(require("path"));
 var os3 = __toESM(require("os"));
 
-// src/dailyRotatingLog.ts
-var fs6 = __toESM(require("node:fs"));
-var path8 = __toESM(require("node:path"));
-var DAILY_LOG_RETENTION_DAYS = 7;
-function localDateKey(date5 = /* @__PURE__ */ new Date()) {
-  const y = date5.getFullYear();
-  const m = String(date5.getMonth() + 1).padStart(2, "0");
-  const d = String(date5.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-function dailyLogFileName(baseName, dateKey) {
-  return `${baseName}-${dateKey}.log`;
-}
-function dailyLogFilePath(logDir, baseName, dateKey) {
-  return path8.join(logDir, dailyLogFileName(baseName, dateKey ?? localDateKey()));
-}
-function legacyLogAliasPath(logDir, baseName) {
-  return path8.join(logDir, `${baseName}.log`);
-}
-function parseDailyLogDateKey(fileName, baseName) {
-  const prefix = `${baseName}-`;
-  const suffix = ".log";
-  if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) return null;
-  const key = fileName.slice(prefix.length, -suffix.length);
-  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
-}
-function pruneOldDailyLogs(logDir, baseName, retentionDays = DAILY_LOG_RETENTION_DAYS, now = /* @__PURE__ */ new Date()) {
-  const removed = [];
-  let entries = [];
-  try {
-    entries = fs6.readdirSync(logDir);
-  } catch {
-    return removed;
-  }
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - retentionDays + 1);
-  cutoff.setHours(0, 0, 0, 0);
-  for (const name of entries) {
-    const key = parseDailyLogDateKey(name, baseName);
-    if (!key) continue;
-    const fileDate = /* @__PURE__ */ new Date(`${key}T00:00:00`);
-    if (fileDate >= cutoff) continue;
-    try {
-      fs6.unlinkSync(path8.join(logDir, name));
-      removed.push(name);
-    } catch {
-    }
-  }
-  return removed;
-}
-function migrateLegacyLogFile(logDir, baseName, todayPath) {
-  const alias = legacyLogAliasPath(logDir, baseName);
-  try {
-    const stat = fs6.lstatSync(alias);
-    if (stat.isSymbolicLink()) return;
-  } catch {
-    return;
-  }
-  if (fs6.existsSync(todayPath)) return;
-  try {
-    fs6.renameSync(alias, todayPath);
-  } catch {
-  }
-}
-function updateLegacySymlink(logDir, baseName, todayPath) {
-  const alias = legacyLogAliasPath(logDir, baseName);
-  const relativeTarget = path8.basename(todayPath);
-  try {
-    const stat = fs6.lstatSync(alias);
-    if (stat.isSymbolicLink()) {
-      const current = fs6.readlinkSync(alias);
-      if (current === relativeTarget || current === todayPath) return;
-      fs6.unlinkSync(alias);
-    } else {
-      return;
-    }
-  } catch {
-  }
-  try {
-    fs6.symlinkSync(relativeTarget, alias);
-  } catch {
-  }
-}
-function appendDailyRotatingLog(logDir, baseName, line, now = /* @__PURE__ */ new Date()) {
-  fs6.mkdirSync(logDir, { recursive: true });
-  const todayKey = localDateKey(now);
-  const todayPath = dailyLogFilePath(logDir, baseName, todayKey);
-  migrateLegacyLogFile(logDir, baseName, todayPath);
-  fs6.appendFileSync(todayPath, line + "\n");
-  updateLegacySymlink(logDir, baseName, todayPath);
-  pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, /* @__PURE__ */ new Date());
-  return todayPath;
-}
-function truncateDailyLog(logDir, baseName, now = /* @__PURE__ */ new Date()) {
-  fs6.mkdirSync(logDir, { recursive: true });
-  const todayPath = dailyLogFilePath(logDir, baseName, localDateKey(now));
-  migrateLegacyLogFile(logDir, baseName, todayPath);
-  fs6.writeFileSync(todayPath, "", "utf8");
-  updateLegacySymlink(logDir, baseName, todayPath);
-  return todayPath;
-}
-
 // src/webviewLog.ts
-var LOG_BASE_NAME = "webview";
+var LOG_BASE_NAME2 = "webview";
 var logDirOverride = null;
 function resolveLogDir() {
   return logDirOverride ?? getLogsDir();
@@ -20608,26 +20590,26 @@ function appendWebviewLog(msg, projectPath) {
   try {
     const prefix = projectPath ? `[${projectPath}] ` : "";
     const line = `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}`;
-    appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME, line);
+    appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME2, line);
   } catch {
   }
 }
 function webviewLogPath() {
-  return dailyLogFilePath(resolveLogDir(), LOG_BASE_NAME, localDateKey());
+  return dailyLogFilePath(resolveLogDir(), LOG_BASE_NAME2, localDateKey());
 }
 function truncateWebviewLog() {
-  return truncateDailyLog(resolveLogDir(), LOG_BASE_NAME);
+  return truncateDailyLog(resolveLogDir(), LOG_BASE_NAME2);
 }
 
 // src/logPaths.ts
-var path9 = __toESM(require("node:path"));
+var path8 = __toESM(require("node:path"));
 function resolveFeedbackLogPath(target) {
   const logDir = getLogsDir();
   switch (target) {
     case "extension":
-      return path9.join(logDir, "extension.log");
+      return dailyLogFilePath(logDir, "extension", localDateKey());
     case "mcp-server":
-      return path9.join(logDir, "mcp-server.log");
+      return path8.join(logDir, "mcp-server.log");
     case "webview":
       return webviewLogPath();
     default:
@@ -20678,12 +20660,12 @@ function buildDiagnoseBundle(payload) {
 }
 
 // src/logTail.ts
-var fs7 = __toESM(require("node:fs"));
+var fs5 = __toESM(require("node:fs"));
 function readLogTailLines(filePath, maxLines = 50) {
   if (!filePath || maxLines <= 0) return [];
   try {
-    if (!fs7.existsSync(filePath)) return [];
-    const raw = fs7.readFileSync(filePath, "utf8");
+    if (!fs5.existsSync(filePath)) return [];
+    const raw = fs5.readFileSync(filePath, "utf8");
     const lines = raw.split(/\r?\n/).filter((line) => line.length > 0);
     return lines.slice(-maxLines);
   } catch {
@@ -20744,11 +20726,11 @@ function formatDeployStampLabel(stamp, runningVersion) {
 }
 
 // src/deployStampReader.ts
-var fs8 = __toESM(require("fs"));
+var fs6 = __toESM(require("fs"));
 function readDeployStamp() {
   try {
-    if (!fs8.existsSync(getDeployStampPath())) return null;
-    const raw = JSON.parse(fs8.readFileSync(getDeployStampPath(), "utf-8"));
+    if (!fs6.existsSync(getDeployStampPath())) return null;
+    const raw = JSON.parse(fs6.readFileSync(getDeployStampPath(), "utf-8"));
     if (!raw || typeof raw.version !== "string" || typeof raw.at !== "number") return null;
     return raw;
   } catch {
@@ -20820,6 +20802,7 @@ function buildDefaultWebviewHandlers(vscodeApi) {
       else view.webview.postMessage(ctx.bridgePayload());
     },
     "hub-connect": (_msg, view, ctx) => ctx.connectBridge(view),
+    "bridge-ack": (_msg, _view, ctx) => ctx.stopBridgeBroadcast?.(),
     "request-debug": (_msg, view, ctx) => ctx.handleDebug(view),
     "prune-test-registry": (_msg, view, ctx) => ctx.handlePrune(view),
     "open-webview-devtools": () => {
@@ -21261,7 +21244,7 @@ var FeedbackViewProvider = class {
         const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
           kind: "file",
-          label: path10.basename(file2.fsPath),
+          label: path9.basename(file2.fsPath),
           detail: rel,
           insertText: rel
         });
@@ -21304,11 +21287,11 @@ var FeedbackViewProvider = class {
       return;
     }
     try {
-      const htmlDir = path10.join(__dirname, "webview");
-      if (!fs9.existsSync(htmlDir)) {
+      const htmlDir = path9.join(__dirname, "webview");
+      if (!fs7.existsSync(htmlDir)) {
         return;
       }
-      this._fileWatcher = fs9.watch(htmlDir, () => {
+      this._fileWatcher = fs7.watch(htmlDir, () => {
         if (view.visible) {
           view.webview.html = this._injectWebviewResources(view);
         }
@@ -21330,7 +21313,7 @@ var FeedbackViewProvider = class {
     try {
       const logPath = truncateWebviewLog();
       appendWebviewLog("log truncated by user");
-      vscode.window.showInformationMessage(`MCP Feedback: cleared ${path10.basename(logPath)}`);
+      vscode.window.showInformationMessage(`MCP Feedback: cleared ${path9.basename(logPath)}`);
     } catch (e) {
       vscode.window.showErrorMessage(`MCP Feedback: truncate failed \u2014 ${e}`);
     }
@@ -21343,9 +21326,9 @@ var FeedbackViewProvider = class {
     }
     const logPath = resolveFeedbackLogPath(target);
     try {
-      if (!fs9.existsSync(logPath)) {
-        fs9.mkdirSync(path10.dirname(logPath), { recursive: true });
-        fs9.writeFileSync(logPath, "", "utf8");
+      if (!fs7.existsSync(logPath)) {
+        fs7.mkdirSync(path9.dirname(logPath), { recursive: true });
+        fs7.writeFileSync(logPath, "", "utf8");
       }
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(logPath));
       await vscode.window.showTextDocument(doc, { preview: false });
@@ -21373,22 +21356,22 @@ var FeedbackViewProvider = class {
   async _exportSessions(data) {
     const defaultName = `mcp-feedback-sessions-${Date.now()}.json`;
     const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(path10.join(os3.homedir(), "Downloads", defaultName)),
+      defaultUri: vscode.Uri.file(path9.join(os3.homedir(), "Downloads", defaultName)),
       filters: { JSON: ["json"] }
     });
     if (!uri) return;
-    fs9.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
-    vscode.window.showInformationMessage(`MCP Feedback: exported sessions to ${path10.basename(uri.fsPath)}`);
+    fs7.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf8");
+    vscode.window.showInformationMessage(`MCP Feedback: exported sessions to ${path9.basename(uri.fsPath)}`);
   }
 };
 
 // src/extensionVersion.ts
-var fs10 = __toESM(require("fs"));
-var path11 = __toESM(require("path"));
+var fs8 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
 function readExtensionVersion(extensionPath) {
   try {
     const pkg = JSON.parse(
-      fs10.readFileSync(path11.join(extensionPath, "package.json"), "utf-8")
+      fs8.readFileSync(path10.join(extensionPath, "package.json"), "utf-8")
     );
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
@@ -21433,9 +21416,9 @@ function resolveNodeBin(exec2 = import_node_child_process2.execSync) {
 }
 
 // src/deploy/mcpConfig.ts
-var path12 = __toESM(require("node:path"));
+var path11 = __toESM(require("node:path"));
 function planMcpConfigUpdate(extensionPath, version2, nodeBin, existing) {
-  const localServerPath = path12.join(extensionPath, "mcp-server", "dist", "index.js");
+  const localServerPath = path11.join(extensionPath, "mcp-server", "dist", "index.js");
   const entry = {
     command: nodeBin,
     args: [localServerPath],
@@ -21608,13 +21591,13 @@ function getWorkspaces() {
 }
 function _loadWebviewHtml(extensionPath, serverPort, version2) {
   const candidates = [
-    path13.join(extensionPath, "out", "webview", "panel.html"),
-    path13.join(extensionPath, "static", "panel.html")
+    path12.join(extensionPath, "out", "webview", "panel.html"),
+    path12.join(extensionPath, "static", "panel.html")
   ];
   let html = "";
   for (const p of candidates) {
-    if (fs11.existsSync(p)) {
-      html = fs11.readFileSync(p, "utf-8");
+    if (fs9.existsSync(p)) {
+      html = fs9.readFileSync(p, "utf-8");
       break;
     }
   }
@@ -21731,7 +21714,7 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
     vscode3.commands.registerCommand("mcp-feedback-enhanced.truncateWebviewLog", () => {
       try {
         const logPath = truncateWebviewLog();
-        vscode3.window.showInformationMessage(`MCP Feedback: cleared ${path13.basename(logPath)}`);
+        vscode3.window.showInformationMessage(`MCP Feedback: cleared ${path12.basename(logPath)}`);
       } catch (e) {
         vscode3.window.showErrorMessage(`MCP Feedback: truncate failed \u2014 ${e}`);
       }
@@ -21795,7 +21778,7 @@ function _openEditorPanel(context, port) {
     {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode3.Uri.file(path13.join(context.extensionPath, "out"))]
+      localResourceRoots: [vscode3.Uri.file(path12.join(context.extensionPath, "out"))]
     }
   );
   panel.webview.html = _loadWebviewHtml(context.extensionPath, port, version2);
@@ -21803,10 +21786,10 @@ function _openEditorPanel(context, port) {
 function ensureMcpConfig(extensionPath) {
   try {
     const version2 = readExtensionVersion(extensionPath);
-    const mcpConfigPath = path13.join(os4.homedir(), ".cursor", "mcp.json");
+    const mcpConfigPath = path12.join(os4.homedir(), ".cursor", "mcp.json");
     let config2 = {};
-    if (fs11.existsSync(mcpConfigPath)) {
-      config2 = JSON.parse(fs11.readFileSync(mcpConfigPath, "utf-8"));
+    if (fs9.existsSync(mcpConfigPath)) {
+      config2 = JSON.parse(fs9.readFileSync(mcpConfigPath, "utf-8"));
     }
     const mcpServers = config2.mcpServers || {};
     const plan = planMcpConfigUpdate(
@@ -21817,57 +21800,57 @@ function ensureMcpConfig(extensionPath) {
     );
     if (!plan.changed) return;
     config2 = applyMcpConfigPlan(config2, plan);
-    fs11.mkdirSync(path13.dirname(mcpConfigPath), { recursive: true });
-    fs11.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
+    fs9.mkdirSync(path12.dirname(mcpConfigPath), { recursive: true });
+    fs9.writeFileSync(mcpConfigPath, JSON.stringify(config2, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to update MCP config:", e);
   }
 }
 function deployCursorHooks(extensionPath) {
   try {
-    const hooksSourceDir = path13.join(extensionPath, "scripts", "hooks");
-    const targetDir = path13.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
-    fs11.mkdirSync(targetDir, { recursive: true });
+    const hooksSourceDir = path12.join(extensionPath, "scripts", "hooks");
+    const targetDir = path12.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "hooks");
+    fs9.mkdirSync(targetDir, { recursive: true });
     for (const file2 of HOOK_FILES) {
-      const src = path13.join(hooksSourceDir, file2);
-      if (fs11.existsSync(src)) {
-        fs11.copyFileSync(src, path13.join(targetDir, file2));
+      const src = path12.join(hooksSourceDir, file2);
+      if (fs9.existsSync(src)) {
+        fs9.copyFileSync(src, path12.join(targetDir, file2));
       }
     }
     for (const old of RETIRED_HOOK_FILES) {
       try {
-        fs11.unlinkSync(path13.join(targetDir, old));
+        fs9.unlinkSync(path12.join(targetDir, old));
       } catch {
       }
     }
-    const preToolUseHook = path13.join(targetDir, "consume-pending.js");
-    const hooksConfigPath = path13.join(os4.homedir(), ".cursor", "hooks.json");
+    const preToolUseHook = path12.join(targetDir, "consume-pending.js");
+    const hooksConfigPath = path12.join(os4.homedir(), ".cursor", "hooks.json");
     let hooksConfig = {};
-    if (fs11.existsSync(hooksConfigPath)) {
-      hooksConfig = JSON.parse(fs11.readFileSync(hooksConfigPath, "utf-8"));
+    if (fs9.existsSync(hooksConfigPath)) {
+      hooksConfig = JSON.parse(fs9.readFileSync(hooksConfigPath, "utf-8"));
     }
     const plan = planHooksConfigUpdate(resolveNodeBin(), preToolUseHook, hooksConfig);
     if (!plan.changed) return;
     hooksConfig = applyHooksConfigPlan(hooksConfig, plan);
-    fs11.mkdirSync(path13.dirname(hooksConfigPath), { recursive: true });
-    fs11.writeFileSync(hooksConfigPath, JSON.stringify(plan.hooksConfig, null, 2));
+    fs9.mkdirSync(path12.dirname(hooksConfigPath), { recursive: true });
+    fs9.writeFileSync(hooksConfigPath, JSON.stringify(plan.hooksConfig, null, 2));
   } catch (e) {
     console.error("[MCP Feedback] Failed to deploy hooks:", e);
   }
 }
 function deployCursorRules() {
   try {
-    const rulesDir = path13.join(os4.homedir(), ".cursor", "rules");
-    const ruleFile = path13.join(rulesDir, "mcp-feedback-enhanced.mdc");
-    fs11.mkdirSync(rulesDir, { recursive: true });
-    const existing = fs11.existsSync(ruleFile) ? fs11.readFileSync(ruleFile, "utf-8") : null;
+    const rulesDir = path12.join(os4.homedir(), ".cursor", "rules");
+    const ruleFile = path12.join(rulesDir, "mcp-feedback-enhanced.mdc");
+    fs9.mkdirSync(rulesDir, { recursive: true });
+    const existing = fs9.existsSync(ruleFile) ? fs9.readFileSync(ruleFile, "utf-8") : null;
     const plan = planRulesDeploy(existing, getWorkspaces());
     if (plan.writeGlobal) {
-      fs11.writeFileSync(ruleFile, RULES_CONTENT);
+      fs9.writeFileSync(ruleFile, RULES_CONTENT);
     }
     for (const wsRuleFile of plan.removeWorkspaceRules) {
       try {
-        fs11.unlinkSync(wsRuleFile);
+        fs9.unlinkSync(wsRuleFile);
       } catch {
       }
     }
@@ -21877,19 +21860,19 @@ function deployCursorRules() {
 }
 function migratePendingFiles() {
   try {
-    const pendingDir = path13.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "pending");
-    if (!fs11.existsSync(pendingDir)) return;
-    const files = fs11.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
+    const pendingDir = path12.join(os4.homedir(), ".config", "mcp-feedback-enhanced", "pending");
+    if (!fs9.existsSync(pendingDir)) return;
+    const files = fs9.readdirSync(pendingDir).filter((f) => f.endsWith(".json"));
     const plan = planPendingMigration(files);
     for (const f of plan.unlinkFiles) {
       try {
-        fs11.unlinkSync(path13.join(pendingDir, f));
+        fs9.unlinkSync(path12.join(pendingDir, f));
       } catch {
       }
     }
     if (plan.removeDir) {
       try {
-        fs11.rmdirSync(pendingDir);
+        fs9.rmdirSync(pendingDir);
       } catch {
       }
     }

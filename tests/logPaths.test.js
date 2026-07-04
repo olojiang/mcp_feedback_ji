@@ -11,7 +11,7 @@ const { ConnectionHealth } = require('../out/webview/panelState.js')
 
 describe('logPaths', () => {
   it('resolves standard log file paths', () => {
-    assert.match(resolveFeedbackLogPath('extension'), /extension\.log$/)
+    assert.match(resolveFeedbackLogPath('extension'), /extension(-\d{4}-\d{2}-\d{2})?\.log$/)
     assert.match(resolveFeedbackLogPath('mcp-server'), /mcp-server\.log$/)
     assert.match(resolveFeedbackLogPath('webview'), /webview-\d{4}-\d{2}-\d{2}\.log$/)
   })

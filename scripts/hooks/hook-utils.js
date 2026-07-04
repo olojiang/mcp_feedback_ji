@@ -12,19 +12,60 @@ const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
 const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
 const AGENT_CONTEXT_TTL_MS = 5 * 60 * 1000;
 
+function localDateKey() {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+}
+
 function log(msg) {
     try {
         var logDir = path.join(CONFIG_DIR, 'logs');
         fs.mkdirSync(logDir, { recursive: true });
-        var logFile = path.join(logDir, 'hooks.log');
+        var dateKey = localDateKey();
+        var logFile = path.join(logDir, 'hooks-' + dateKey + '.log');
+
+        // migrate legacy hooks.log (non-symlink) to today's file
+        var alias = path.join(logDir, 'hooks.log');
         try {
-            var stat = fs.statSync(logFile);
-            if (stat.size > 2 * 1024 * 1024) {
-                try { fs.unlinkSync(logFile + '.old'); } catch (e) {}
-                fs.renameSync(logFile, logFile + '.old');
+            var st = fs.lstatSync(alias);
+            if (!st.isSymbolicLink() && !fs.existsSync(logFile)) {
+                fs.renameSync(alias, logFile);
             }
         } catch (e) {}
+
         fs.appendFileSync(logFile, '[' + new Date().toISOString() + '] ' + msg + '\n');
+
+        // update symlink
+        try {
+            var target = 'hooks-' + dateKey + '.log';
+            try {
+                var cur = fs.readlinkSync(alias);
+                if (cur !== target) { fs.unlinkSync(alias); fs.symlinkSync(target, alias); }
+            } catch (e) {
+                try { fs.symlinkSync(target, alias); } catch (e2) {}
+            }
+        } catch (e) {}
+
+        // prune files older than 7 days
+        try {
+            var files = fs.readdirSync(logDir);
+            var cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - 6);
+            cutoff.setHours(0, 0, 0, 0);
+            for (var i = 0; i < files.length; i++) {
+                var f = files[i];
+                if (f.indexOf('hooks-') !== 0 || f.indexOf('.log') !== f.length - 4) continue;
+                var key = f.slice(6, -4);
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+                var fd = new Date(key + 'T00:00:00');
+                if (fd < cutoff) {
+                    try { fs.unlinkSync(path.join(logDir, f)); } catch (e) {}
+                }
+            }
+        } catch (e) {}
     } catch (e) {}
 }
 

@@ -1520,18 +1520,24 @@
 
     function onBridgeConnected(msg) {
         var snap = bridgeGate.snapshot();
-        debugLog('onBridgeConnected port=' + (msg && msg.port) + ' v=' + (msg && msg.version)
-            + ' init=' + snap.initialized);
+        if (!snap.initialized) {
+            debugLog('onBridgeConnected port=' + (msg && msg.port) + ' v=' + (msg && msg.version)
+                + ' init=' + snap.initialized);
+        }
         var action = bridgeGate.onBridgeConnected();
         window.__mcpBootstrapped = true;
         reconnectAttempts = 0;
         if (action.labels) updateConnectionLabels(msg);
-        if (!action.register && !action.stateSync) return;
+        if (!action.register && !action.stateSync) {
+            vscode.postMessage({ type: 'bridge-ack' });
+            return;
+        }
         if (action.register) {
             transportSend({ type: 'register', clientType: 'webview' });
         }
         flushOutboundQueue();
         if (action.stateSync) requestStateSync();
+        vscode.postMessage({ type: 'bridge-ack' });
         if (msg && msg.versionWarnings && msg.versionWarnings.length) {
             lastExtensionDebugReport = lastExtensionDebugReport || {};
             lastExtensionDebugReport.versionSkew = msg.versionWarnings;

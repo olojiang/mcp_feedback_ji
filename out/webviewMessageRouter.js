@@ -23,6 +23,7 @@ function buildDefaultWebviewHandlers(vscodeApi) {
                 view.webview.postMessage(ctx.bridgePayload());
         },
         'hub-connect': (_msg, view, ctx) => ctx.connectBridge(view),
+        'bridge-ack': (_msg, _view, ctx) => ctx.stopBridgeBroadcast?.(),
         'request-debug': (_msg, view, ctx) => ctx.handleDebug(view),
         'prune-test-registry': (_msg, view, ctx) => ctx.handlePrune(view),
         'open-webview-devtools': () => {

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ClientRegistry = void 0;
 const structuredLog_js_1 = require("../structuredLog.js");
 const disconnectReason_js_1 = require("../disconnectReason.js");
+const extensionFileLog_js_1 = require("../extensionFileLog.js");
 class ClientRegistry {
     constructor() {
         this.clients = new Map();
@@ -76,7 +77,7 @@ class ClientRegistry {
         for (const [ws, client] of this.clients) {
             if (client.clientType === 'mcp-server') {
                 if (now - client.lastPong > timeoutMs) {
-                    console.log((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
+                    (0, extensionFileLog_js_1.hubLog)((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
                         action: 'skip',
                         client_type: 'mcp-server',
                         idle_ms: now - client.lastPong,
@@ -90,7 +91,7 @@ class ClientRegistry {
                 }
                 catch { /* ignore */ }
                 this.clients.delete(ws);
-                console.log((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
+                (0, extensionFileLog_js_1.hubLog)((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
                     action: 'close',
                     client_type: client.clientType,
                     idle_ms: now - client.lastPong,

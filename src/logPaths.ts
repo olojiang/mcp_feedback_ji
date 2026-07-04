@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { getLogsDir } from './configPaths';
 import { webviewLogPath } from './webviewLog';
+import { dailyLogFilePath, localDateKey } from './dailyRotatingLog';
 
 export type FeedbackLogTarget = 'extension' | 'mcp-server' | 'webview';
 
@@ -12,7 +13,7 @@ export function resolveFeedbackLogPath(target: FeedbackLogTarget): string {
     const logDir = getLogsDir();
     switch (target) {
         case 'extension':
-            return path.join(logDir, 'extension.log');
+            return dailyLogFilePath(logDir, 'extension', localDateKey());
         case 'mcp-server':
             return path.join(logDir, 'mcp-server.log');
         case 'webview':

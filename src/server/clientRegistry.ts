@@ -1,6 +1,7 @@
 import { WebSocket } from 'ws';
 import { formatLogEvent } from '../structuredLog.js';
 import { formatDisconnectEvent } from '../disconnectReason.js';
+import { hubLog } from '../extensionFileLog.js';
 
 export type ClientType = 'webview' | 'mcp-server' | 'unknown';
 
@@ -82,7 +83,7 @@ export class ClientRegistry {
         for (const [ws, client] of this.clients) {
             if (client.clientType === 'mcp-server') {
                 if (now - client.lastPong > timeoutMs) {
-                    console.log(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
+                    hubLog(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
                         action: 'skip',
                         client_type: 'mcp-server',
                         idle_ms: now - client.lastPong,
@@ -93,7 +94,7 @@ export class ClientRegistry {
             if (now - client.lastPong > timeoutMs) {
                 try { ws.close(); } catch { /* ignore */ }
                 this.clients.delete(ws);
-                console.log(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
+                hubLog(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
                     action: 'close',
                     client_type: client.clientType,
                     idle_ms: now - client.lastPong,

@@ -2,7 +2,7 @@
 	"name": "mcp-feedback-enhanced",
 	"displayName": "MCP Feedback Enhanced",
 	"description": "Interactive feedback collection for AI assistants with multi-session tabs (Hunter fork)",
-	"version": "2.5.1-ji.92",
+	"version": "2.5.1-ji.94",
 	"publisher": "mcp-feedback",
 	"license": "MIT",
 	"repository": {

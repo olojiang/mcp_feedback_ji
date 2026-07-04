@@ -39,6 +39,7 @@ exports.formatAgentLinkStatus = formatAgentLinkStatus;
 const path = __importStar(require("node:path"));
 const configPaths_1 = require("./configPaths");
 const webviewLog_1 = require("./webviewLog");
+const dailyRotatingLog_1 = require("./dailyRotatingLog");
 function feedbackLogDir() {
     return (0, configPaths_1.getLogsDir)();
 }
@@ -46,7 +47,7 @@ function resolveFeedbackLogPath(target) {
     const logDir = (0, configPaths_1.getLogsDir)();
     switch (target) {
         case 'extension':
-            return path.join(logDir, 'extension.log');
+            return (0, dailyRotatingLog_1.dailyLogFilePath)(logDir, 'extension', (0, dailyRotatingLog_1.localDateKey)());
         case 'mcp-server':
             return path.join(logDir, 'mcp-server.log');
         case 'webview':

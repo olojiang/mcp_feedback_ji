@@ -33,18 +33,19 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.clipboardLogVerbose = void 0;
 exports.readClipboardImageBase64 = readClipboardImageBase64;
 const node_child_process_1 = require("node:child_process");
 const node_util_1 = require("node:util");
-const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const os = __importStar(require("node:os"));
+const dailyRotatingLog_js_1 = require("../dailyRotatingLog.js");
 const execFileAsync = (0, node_util_1.promisify)(node_child_process_1.execFile);
 const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs');
+exports.clipboardLogVerbose = false;
 function clipLog(msg) {
     try {
-        fs.mkdirSync(LOG_DIR, { recursive: true });
-        fs.appendFileSync(path.join(LOG_DIR, 'extension.log'), `[${new Date().toISOString()}] ${msg}\n`);
+        (0, dailyRotatingLog_js_1.appendDailyRotatingLog)(LOG_DIR, 'extension', `[${new Date().toISOString()}] ${msg}`);
     }
     catch {
         // ignore
@@ -90,7 +91,9 @@ async function readClipboardImageBase64() {
             '-e',
             'ObjC.import("AppKit");var t=$.NSPasteboard.generalPasteboard.types;var r=[];for(var i=0;i<t.count;i++)r.push(ObjC.unwrap(t.objectAtIndex(i)));JSON.stringify(r);',
         ]);
-        clipLog(`clipboard-paste no image types=${(stdout || '').trim()}`);
+        if (exports.clipboardLogVerbose) {
+            clipLog(`clipboard-paste no image types=${(stdout || '').trim()}`);
+        }
     }
     catch {
         // ignore

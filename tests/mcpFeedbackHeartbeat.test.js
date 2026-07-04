@@ -7,7 +7,7 @@ describe('requestFeedback wait heartbeat', () => {
     mock.timers.reset()
   })
 
-  it('logs feedback_wait_heartbeat every 60s while waiting', async () => {
+  it('logs feedback_wait_heartbeat with logarithmic throttle', async () => {
     mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
 
     const {
@@ -29,18 +29,27 @@ describe('requestFeedback wait heartbeat', () => {
       { log: (msg) => logs.push(msg), heartbeatMs: FEEDBACK_WAIT_HEARTBEAT_MS },
     )
 
-    mock.timers.tick(FEEDBACK_WAIT_HEARTBEAT_MS)
-    assert.equal(logs.length, 1)
-    assert.match(logs[0], /event=feedback_wait_heartbeat/)
-    assert.match(logs[0], /trace=trace-hb-1/)
+    const heartbeats = () => logs.filter(l => /event=feedback_wait_heartbeat/.test(l))
 
+    // tick 1: should log heartbeat
     mock.timers.tick(FEEDBACK_WAIT_HEARTBEAT_MS)
-    assert.equal(logs.length, 2)
+    assert.equal(heartbeats().length, 1)
+    assert.match(heartbeats()[0], /trace=trace-hb-1/)
+
+    // tick 2: should log heartbeat
+    mock.timers.tick(FEEDBACK_WAIT_HEARTBEAT_MS)
+    assert.equal(heartbeats().length, 2)
+
+    // tick 3: should NOT log heartbeat (logarithmic throttle skips tick 3)
+    mock.timers.tick(FEEDBACK_WAIT_HEARTBEAT_MS)
+    assert.equal(heartbeats().length, 2)
 
     ws.emit('message', Buffer.from(JSON.stringify({ type: 'feedback_result', feedback: 'done' })))
     await pending
+    // after resolve, no new heartbeats should appear
+    const countAfterResolve = heartbeats().length
     mock.timers.tick(FEEDBACK_WAIT_HEARTBEAT_MS)
-    assert.equal(logs.length, 2)
+    assert.equal(heartbeats().length, countAfterResolve)
   })
 })
 
