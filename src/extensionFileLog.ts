@@ -1,5 +1,5 @@
 import { getLogsDir } from './configPaths.js';
-import { appendDailyRotatingLog } from './dailyRotatingLog.js';
+import { appendDailyRotatingLog, localTimestamp } from './dailyRotatingLog.js';
 import { createBatchedLogger, formatStructuredLine, type LogComponent, type StructuredLogFields } from './structuredFileLog.js';
 
 const LOG_BASE_NAME = 'extension';
@@ -31,7 +31,7 @@ function getHubLogger() {
 }
 
 export function hubLog(msg: string): void {
-    getHubLogger().append(`[${new Date().toISOString()}] ${msg}`);
+    getHubLogger().append(`[${localTimestamp()}] ${msg}`);
 }
 
 export function hubStructuredLog(

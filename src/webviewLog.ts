@@ -4,6 +4,7 @@ import {
     dailyLogFilePath,
     legacyLogAliasPath,
     localDateKey,
+    localTimestamp,
     truncateDailyLog,
 } from './dailyRotatingLog.js';
 
@@ -23,7 +24,7 @@ function resolveLogDir(): string {
 export function appendWebviewLog(msg: string, projectPath?: string): void {
     try {
         const prefix = projectPath ? `[${projectPath}] ` : '';
-        const line = `[${new Date().toISOString()}] ${prefix}${msg}`;
+        const line = `[${localTimestamp()}] ${prefix}${msg}`;
         appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME, line);
     } catch { /* ignore */ }
 }

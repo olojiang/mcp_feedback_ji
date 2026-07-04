@@ -20,6 +20,17 @@ function localDateKey() {
     return y + '-' + m + '-' + day;
 }
 
+function localTimestamp() {
+    var d = new Date();
+    var pad2 = function (n) { return String(n).padStart(2, '0'); };
+    var off = -d.getTimezoneOffset();
+    var sign = off >= 0 ? '+' : '-';
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+        + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds())
+        + '.' + String(d.getMilliseconds()).padStart(3, '0')
+        + sign + pad2(Math.floor(Math.abs(off) / 60)) + ':' + pad2(Math.abs(off) % 60);
+}
+
 function log(msg) {
     try {
         var logDir = path.join(CONFIG_DIR, 'logs');
@@ -36,7 +47,7 @@ function log(msg) {
             }
         } catch (e) {}
 
-        fs.appendFileSync(logFile, '[' + new Date().toISOString() + '] ' + msg + '\n');
+        fs.appendFileSync(logFile, '[' + localTimestamp() + '] ' + msg + '\n');
 
         // update symlink
         try {

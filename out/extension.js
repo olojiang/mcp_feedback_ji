@@ -4358,6 +4358,21 @@ function localDateKey(date5 = /* @__PURE__ */ new Date()) {
   const d = String(date5.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+function localTimestamp(date5 = /* @__PURE__ */ new Date()) {
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const y = date5.getFullYear();
+  const mo = pad2(date5.getMonth() + 1);
+  const d = pad2(date5.getDate());
+  const h = pad2(date5.getHours());
+  const mi = pad2(date5.getMinutes());
+  const s = pad2(date5.getSeconds());
+  const ms = String(date5.getMilliseconds()).padStart(3, "0");
+  const off = -date5.getTimezoneOffset();
+  const sign = off >= 0 ? "+" : "-";
+  const offH = pad2(Math.floor(Math.abs(off) / 60));
+  const offM = pad2(Math.abs(off) % 60);
+  return `${y}-${mo}-${d}T${h}:${mi}:${s}.${ms}${sign}${offH}:${offM}`;
+}
 function dailyLogFileName(baseName, dateKey) {
   return `${baseName}-${dateKey}.log`;
 }
@@ -4511,7 +4526,7 @@ function getHubLogger() {
   return hubLogger;
 }
 function hubLog(msg) {
-  getHubLogger().append(`[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}`);
+  getHubLogger().append(`[${localTimestamp()}] ${msg}`);
 }
 function hubStructuredLog(event, fields = {}, component = "hub") {
   hubLog(formatStructuredLine(component, event, fields));
@@ -19920,7 +19935,7 @@ var LOG_DIR = path7.join(os2.homedir(), ".config", "mcp-feedback-enhanced", "log
 var clipboardLogVerbose = false;
 function clipLog(msg) {
   try {
-    appendDailyRotatingLog(LOG_DIR, "extension", `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}`);
+    appendDailyRotatingLog(LOG_DIR, "extension", `[${localTimestamp()}] ${msg}`);
   } catch {
   }
 }
@@ -20601,7 +20616,7 @@ function resolveLogDir2() {
 function appendWebviewLog(msg, projectPath) {
   try {
     const prefix = projectPath ? `[${projectPath}] ` : "";
-    const line = `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}`;
+    const line = `[${localTimestamp()}] ${prefix}${msg}`;
     appendDailyRotatingLog(resolveLogDir2(), LOG_BASE_NAME2, line);
   } catch {
   }

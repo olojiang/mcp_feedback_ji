@@ -19,7 +19,7 @@ function resolveLogDir() {
 function appendWebviewLog(msg, projectPath) {
     try {
         const prefix = projectPath ? `[${projectPath}] ` : '';
-        const line = `[${new Date().toISOString()}] ${prefix}${msg}`;
+        const line = `[${(0, dailyRotatingLog_js_1.localTimestamp)()}] ${prefix}${msg}`;
         (0, dailyRotatingLog_js_1.appendDailyRotatingLog)(resolveLogDir(), LOG_BASE_NAME, line);
     }
     catch { /* ignore */ }

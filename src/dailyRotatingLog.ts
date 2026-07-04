@@ -11,6 +11,23 @@ export function localDateKey(date: Date = new Date()): string {
     return `${y}-${m}-${d}`;
 }
 
+/** Local timezone timestamp: YYYY-MM-DDTHH:mm:ss.SSS+HH:MM */
+export function localTimestamp(date: Date = new Date()): string {
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const y = date.getFullYear();
+    const mo = pad2(date.getMonth() + 1);
+    const d = pad2(date.getDate());
+    const h = pad2(date.getHours());
+    const mi = pad2(date.getMinutes());
+    const s = pad2(date.getSeconds());
+    const ms = String(date.getMilliseconds()).padStart(3, '0');
+    const off = -date.getTimezoneOffset();
+    const sign = off >= 0 ? '+' : '-';
+    const offH = pad2(Math.floor(Math.abs(off) / 60));
+    const offM = pad2(Math.abs(off) % 60);
+    return `${y}-${mo}-${d}T${h}:${mi}:${s}.${ms}${sign}${offH}:${offM}`;
+}
+
 export function dailyLogFileName(baseName: string, dateKey: string): string {
     return `${baseName}-${dateKey}.log`;
 }

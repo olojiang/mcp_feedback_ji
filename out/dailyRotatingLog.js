@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DAILY_LOG_RETENTION_DAYS = void 0;
 exports.localDateKey = localDateKey;
+exports.localTimestamp = localTimestamp;
 exports.dailyLogFileName = dailyLogFileName;
 exports.dailyLogFilePath = dailyLogFilePath;
 exports.legacyLogAliasPath = legacyLogAliasPath;
@@ -51,6 +52,22 @@ function localDateKey(date = new Date()) {
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+}
+/** Local timezone timestamp: YYYY-MM-DDTHH:mm:ss.SSS+HH:MM */
+function localTimestamp(date = new Date()) {
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const y = date.getFullYear();
+    const mo = pad2(date.getMonth() + 1);
+    const d = pad2(date.getDate());
+    const h = pad2(date.getHours());
+    const mi = pad2(date.getMinutes());
+    const s = pad2(date.getSeconds());
+    const ms = String(date.getMilliseconds()).padStart(3, '0');
+    const off = -date.getTimezoneOffset();
+    const sign = off >= 0 ? '+' : '-';
+    const offH = pad2(Math.floor(Math.abs(off) / 60));
+    const offM = pad2(Math.abs(off) % 60);
+    return `${y}-${mo}-${d}T${h}:${mi}:${s}.${ms}${sign}${offH}:${offM}`;
 }
 function dailyLogFileName(baseName, dateKey) {
     return `${baseName}-${dateKey}.log`;

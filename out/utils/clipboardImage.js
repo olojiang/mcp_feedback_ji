@@ -45,7 +45,7 @@ const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'log
 exports.clipboardLogVerbose = false;
 function clipLog(msg) {
     try {
-        (0, dailyRotatingLog_js_1.appendDailyRotatingLog)(LOG_DIR, 'extension', `[${new Date().toISOString()}] ${msg}`);
+        (0, dailyRotatingLog_js_1.appendDailyRotatingLog)(LOG_DIR, 'extension', `[${(0, dailyRotatingLog_js_1.localTimestamp)()}] ${msg}`);
     }
     catch {
         // ignore

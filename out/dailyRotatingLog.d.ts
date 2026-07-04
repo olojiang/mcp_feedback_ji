@@ -1,6 +1,8 @@
 export declare const DAILY_LOG_RETENTION_DAYS = 7;
 /** Local calendar date key YYYY-MM-DD (matches user-facing "today"). */
 export declare function localDateKey(date?: Date): string;
+/** Local timezone timestamp: YYYY-MM-DDTHH:mm:ss.SSS+HH:MM */
+export declare function localTimestamp(date?: Date): string;
 export declare function dailyLogFileName(baseName: string, dateKey: string): string;
 export declare function dailyLogFilePath(logDir: string, baseName: string, dateKey?: string): string;
 export declare function legacyLogAliasPath(logDir: string, baseName: string): string;

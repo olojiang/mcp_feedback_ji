@@ -32,7 +32,7 @@ function getHubLogger() {
     return hubLogger;
 }
 function hubLog(msg) {
-    getHubLogger().append(`[${new Date().toISOString()}] ${msg}`);
+    getHubLogger().append(`[${(0, dailyRotatingLog_js_1.localTimestamp)()}] ${msg}`);
 }
 function hubStructuredLog(event, fields = {}, component = 'hub') {
     hubLog((0, structuredFileLog_js_1.formatStructuredLine)(component, event, fields));

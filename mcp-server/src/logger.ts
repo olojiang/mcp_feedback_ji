@@ -12,6 +12,22 @@ function localDateKey(date: Date = new Date()): string {
     return `${y}-${m}-${d}`;
 }
 
+function localTimestamp(date: Date = new Date()): string {
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const y = date.getFullYear();
+    const mo = pad2(date.getMonth() + 1);
+    const d = pad2(date.getDate());
+    const h = pad2(date.getHours());
+    const mi = pad2(date.getMinutes());
+    const s = pad2(date.getSeconds());
+    const ms = String(date.getMilliseconds()).padStart(3, '0');
+    const off = -date.getTimezoneOffset();
+    const sign = off >= 0 ? '+' : '-';
+    const offH = pad2(Math.floor(Math.abs(off) / 60));
+    const offM = pad2(Math.abs(off) % 60);
+    return `${y}-${mo}-${d}T${h}:${mi}:${s}.${ms}${sign}${offH}:${offM}`;
+}
+
 function dailyLogFilePath(logDir: string, dateKey?: string): string {
     return path.join(logDir, `${LOG_BASE_NAME}-${dateKey ?? localDateKey()}.log`);
 }
@@ -68,7 +84,7 @@ export function mcpLog(msg: string): void {
     try {
         fs.mkdirSync(logDir, { recursive: true });
         migrateLegacy(logDir, todayPath);
-        fs.appendFileSync(todayPath, `[${new Date().toISOString()}] ${msg}\n`);
+        fs.appendFileSync(todayPath, `[${localTimestamp()}] ${msg}\n`);
         updateSymlink(logDir, todayPath);
         pruneOldLogs(logDir);
     } catch { /* never break MCP stdio for diagnostics */ }
