@@ -253,6 +253,7 @@ export class WsHub {
     }
 
     private _cleanup(): void {
+        wsLog('_cleanup: stopping hub pid=' + process.pid);
         if (this.heartbeatTimer) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;

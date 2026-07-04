@@ -7,7 +7,10 @@ function createWebviewMessageRouter(handlers) {
         const type = String(message.type || '');
         const handler = handlers[type];
         if (handler) {
-            void handler(message, view, ctx);
+            const result = handler(message, view, ctx);
+            if (result && typeof result.catch === 'function') {
+                result.catch(() => { });
+            }
         }
     };
 }

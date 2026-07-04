@@ -3780,7 +3780,9 @@ function safeReadJSON(filePath) {
 }
 function safeWriteJSON(filePath, data) {
   ensureDir(path2.dirname(filePath));
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  const tmp = filePath + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, filePath);
 }
 function safeDelete(filePath) {
   try {
@@ -4300,6 +4302,7 @@ var ProjectTimeline = class {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
+      this.saveNow();
     }
   }
   loadFromDisk() {
@@ -20256,6 +20259,7 @@ var WsHub = class {
     this._cleanup();
   }
   _cleanup() {
+    wsLog("_cleanup: stopping hub pid=" + process.pid);
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
@@ -20815,7 +20819,11 @@ function createWebviewMessageRouter(handlers) {
     const type = String(message.type || "");
     const handler = handlers[type];
     if (handler) {
-      void handler(message, view, ctx);
+      const result = handler(message, view, ctx);
+      if (result && typeof result.catch === "function") {
+        result.catch(() => {
+        });
+      }
     }
   };
 }
@@ -20907,6 +20915,7 @@ var FeedbackViewProvider = class {
     this._bridge = null;
     this._lastSyncedPort = 0;
     this._webviewReadyAcked = false;
+    this._atSearchSeq = 0;
     this._getHtml = getHtml;
     this._getPort = getPort;
     this._getVersion = getVersion;
@@ -21121,17 +21130,21 @@ var FeedbackViewProvider = class {
   }
   _broadcastBridgeConnected(view) {
     const post = () => {
+      if (!this._view) {
+        this._stopBridgeBroadcast();
+        return;
+      }
       view.webview.postMessage(this._bridgePayload());
     };
     post();
     let attempts = 0;
     this._bridgeBroadcastTimer = setInterval(() => {
-      post();
       attempts += 1;
-      if (attempts >= 6 && this._bridgeBroadcastTimer) {
-        clearInterval(this._bridgeBroadcastTimer);
-        this._bridgeBroadcastTimer = void 0;
+      if (!this._view || attempts >= 6) {
+        this._stopBridgeBroadcast();
+        return;
       }
+      post();
     }, 500);
   }
   _pushServerInfo(view) {
@@ -21262,11 +21275,13 @@ var FeedbackViewProvider = class {
       view.webview.postMessage({ type: "at-results", items: [] });
       return;
     }
+    const seq = ++this._atSearchSeq;
     const items = [];
     try {
       const filePattern = `**/*${query}*`;
       const excludePattern = "{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}";
       const files = await vscode.workspace.findFiles(filePattern, excludePattern, 15);
+      if (seq !== this._atSearchSeq) return;
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
       for (const file2 of files) {
         const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
@@ -21279,11 +21294,13 @@ var FeedbackViewProvider = class {
       }
     } catch {
     }
+    if (seq !== this._atSearchSeq) return;
     try {
       const symbols = await vscode.commands.executeCommand(
         "vscode.executeWorkspaceSymbolProvider",
         query
       );
+      if (seq !== this._atSearchSeq) return;
       if (symbols) {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
         for (const sym of symbols.slice(0, 10)) {
@@ -21299,6 +21316,7 @@ var FeedbackViewProvider = class {
       }
     } catch {
     }
+    if (seq !== this._atSearchSeq) return;
     const seen = /* @__PURE__ */ new Set();
     const unique = items.filter((it) => {
       if (seen.has(it.insertText)) return false;
@@ -21599,6 +21617,7 @@ function clearScheduledTimers(timers) {
 var wsServer;
 var bottomProvider;
 var disposables = [];
+var activationTimers = [];
 var REMINDER_DELAYS = DEFAULT_REMINDER_DELAYS_MS;
 var reminderTimers = [];
 function playSystemSound() {
@@ -21771,10 +21790,10 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
     bottomProvider.syncServer(port);
   };
   for (const delay of EXTENSION_PANEL_FOCUS_DELAYS_MS) {
-    setTimeout(activatePanel, delay);
+    activationTimers.push(setTimeout(activatePanel, delay));
   }
   for (const delay of extensionSyncDelaysMs()) {
-    setTimeout(syncWebview, delay);
+    activationTimers.push(setTimeout(syncWebview, delay));
   }
   const prevActivated = context.globalState.get("mcpFeedback.lastActivatedVersion");
   if (shouldPromptReloadAfterVersionChange(prevActivated, pkgVersion) || memoryVersion !== pkgVersion) {
@@ -21791,11 +21810,16 @@ Pending requests: ${wsServer.hasPendingRequests() ? "Yes" : "No"}`
 }
 function deactivate() {
   cancelFeedbackReminders();
+  for (const t of activationTimers) {
+    clearTimeout(t);
+  }
+  activationTimers.length = 0;
   for (const d of disposables) {
     d.dispose();
   }
   disposables.length = 0;
-  wsServer?.stop();
+  void wsServer?.stop().catch(() => {
+  });
 }
 function _openEditorPanel(context, port) {
   const version2 = readExtensionVersion(context.extensionPath);

@@ -1595,15 +1595,17 @@
         }
     }
 
+    var _reconnectTimerId = null;
     function scheduleReconnect() {
+        if (_reconnectTimerId) { clearTimeout(_reconnectTimerId); _reconnectTimerId = null; }
         if (useBridge) {
-            setTimeout(function () { connect(); }, 1000);
+            _reconnectTimerId = setTimeout(function () { _reconnectTimerId = null; connect(); }, 1000);
             return;
         }
         var delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
         reconnectAttempts++;
         setWsStatus('connecting', 'Retry #' + reconnectAttempts + ' (' + (delay / 1000).toFixed(0) + 's)');
-        setTimeout(connect, delay);
+        _reconnectTimerId = setTimeout(function () { _reconnectTimerId = null; connect(); }, delay);
     }
 
     function applyServerInfo(msg) {
@@ -1693,6 +1695,7 @@
 
     window.addEventListener('pagehide', function () {
         clearInterval(_heartbeatId);
+        if (_reconnectTimerId) { clearTimeout(_reconnectTimerId); _reconnectTimerId = null; }
     });
 
     // ── Init ────────────────────────────────────────────

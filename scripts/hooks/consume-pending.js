@@ -134,4 +134,4 @@ function checkEnforcement(state) {
     output({});
 }
 
-main();
+main().catch(function (err) { log('FATAL: ' + err.message); output({}); });

@@ -13,6 +13,7 @@ const {
   legacyLogAliasPath,
   localDateKey,
   pruneOldDailyLogs,
+  localTimestamp,
   DAILY_LOG_RETENTION_DAYS,
 } = require('../out/dailyRotatingLog.js')
 
@@ -68,5 +69,29 @@ describe('dailyRotatingLog', () => {
     const removed = pruneOldDailyLogs(tmpDir, 'webview', 7, new Date('2026-07-03'))
     assert.deepEqual(removed, ['webview-2020-01-01.log'])
     assert.equal(fs.existsSync(old), false)
+  })
+
+  it('localTimestamp returns ISO 8601 with timezone offset', () => {
+    const ts = localTimestamp(new Date('2026-07-04T08:30:15.123Z'))
+    assert.match(ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/)
+  })
+
+  it('localTimestamp matches local clock values', () => {
+    const d = new Date()
+    const ts = localTimestamp(d)
+    const off = -d.getTimezoneOffset()
+    const sign = off >= 0 ? '+' : '-'
+    const offH = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0')
+    const offM = String(Math.abs(off) % 60).padStart(2, '0')
+    assert.ok(ts.endsWith(sign + offH + ':' + offM), 'offset matches system TZ')
+    assert.ok(ts.includes(String(d.getFullYear())), 'year matches')
+  })
+
+  it('localTimestamp defaults to now', () => {
+    const before = Date.now()
+    const ts = localTimestamp()
+    const after = Date.now()
+    const parsed = new Date(ts).getTime()
+    assert.ok(parsed >= before - 1000 && parsed <= after + 1000)
   })
 })

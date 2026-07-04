@@ -33,7 +33,9 @@ function safeReadJSON<T>(filePath: string): T | null {
 
 function safeWriteJSON(filePath: string, data: unknown): void {
     ensureDir(path.dirname(filePath));
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    const tmp = filePath + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, filePath);
 }
 
 function safeDelete(filePath: string): boolean {

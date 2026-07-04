@@ -225,6 +225,7 @@ class WsHub {
         this._cleanup();
     }
     _cleanup() {
+        wsLog('_cleanup: stopping hub pid=' + process.pid);
         if (this.heartbeatTimer) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;

@@ -15,13 +15,18 @@ export interface RequestFeedbackDeps {
 
 export function connectToExtension(port: number): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
+        let settled = false;
         const ws = new WebSocket(`ws://127.0.0.1:${port}`);
         const timeout = setTimeout(() => {
+            if (settled) return;
+            settled = true;
             ws.close();
             reject(new Error('Connection timeout'));
         }, 5000);
 
         ws.once('open', () => {
+            if (settled) { ws.close(); return; }
+            settled = true;
             clearTimeout(timeout);
             ws.send(JSON.stringify({
                 type: 'register',
@@ -31,6 +36,8 @@ export function connectToExtension(port: number): Promise<WebSocket> {
         });
 
         ws.once('error', (err) => {
+            if (settled) return;
+            settled = true;
             clearTimeout(timeout);
             reject(err);
         });

@@ -32,6 +32,8 @@ async function send(){
 
 export async function browserFallback(summary: string): Promise<string> {
     return new Promise((resolve, reject) => {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
         const server = http.createServer((req, res) => {
             if (req.method === 'GET' && req.url === '/') {
                 res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -44,6 +46,7 @@ export async function browserFallback(summary: string): Promise<string> {
                         const data = JSON.parse(body);
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify({ ok: true }));
+                        if (timeoutId) { clearTimeout(timeoutId); timeoutId = undefined; }
                         server.close();
                         resolve(data.feedback || '');
                     } catch {
@@ -71,7 +74,8 @@ export async function browserFallback(summary: string): Promise<string> {
             exec(`${cmd} "${url}"`);
         });
 
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
+            timeoutId = undefined;
             server.close();
             reject(new Error('Browser fallback timeout (10 min)'));
         }, 600_000);

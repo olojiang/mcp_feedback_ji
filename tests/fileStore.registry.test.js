@@ -1,9 +1,12 @@
-import { describe, it } from 'node:test'
+import { describe, it, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { isTestRegistryEntry, findTestRegistryEntries } = require('../out/fileStore.js')
+const { isTestRegistryEntry, findTestRegistryEntries, writeProject, readProject, projectHash } = require('../out/fileStore.js')
 
 describe('fileStore registry helpers', () => {
   it('flags test hub versions and /tmp workspaces', () => {
@@ -21,5 +24,32 @@ describe('fileStore registry helpers', () => {
     assert.equal(testOnly.length, 1)
     assert.equal(testOnly[0].hash, 'a')
     assert.ok(Array.isArray(findTestRegistryEntries()))
+  })
+})
+
+describe('fileStore atomic write', () => {
+  let tmpDir, origEnv
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-fs-atomic-'))
+    origEnv = process.env.MCP_FEEDBACK_CONFIG_DIR
+    process.env.MCP_FEEDBACK_CONFIG_DIR = tmpDir
+  })
+
+  afterEach(() => {
+    if (origEnv === undefined) delete process.env.MCP_FEEDBACK_CONFIG_DIR
+    else process.env.MCP_FEEDBACK_CONFIG_DIR = origEnv
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('writeProject creates valid JSON without .tmp residue', () => {
+    const hash = projectHash('/tmp/atomic-test')
+    writeProject(hash, { projectPath: '/tmp/atomic-test', messages: [], lastActive: Date.now() })
+    const data = readProject(hash)
+    assert.ok(data)
+    assert.equal(data.projectPath, '/tmp/atomic-test')
+    const projDir = path.join(tmpDir, 'projects')
+    const files = fs.readdirSync(projDir)
+    assert.equal(files.filter(f => f.endsWith('.tmp')).length, 0, 'no .tmp residue')
   })
 })

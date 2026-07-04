@@ -36,6 +36,7 @@ export class ProjectTimeline {
         if (this.saveTimer) {
             clearTimeout(this.saveTimer);
             this.saveTimer = null;
+            this.saveNow();
         }
     }
 

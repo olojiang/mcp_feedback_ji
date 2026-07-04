@@ -55,6 +55,7 @@ function retainContextWhenHidden(): boolean {
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
 const disposables: vscode.Disposable[] = [];
+const activationTimers: ReturnType<typeof setTimeout>[] = [];
 
 const REMINDER_DELAYS = DEFAULT_REMINDER_DELAYS_MS;
 let reminderTimers: ReturnType<typeof setTimeout>[] = [];
@@ -240,10 +241,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         bottomProvider.syncServer(port);
     };
     for (const delay of EXTENSION_PANEL_FOCUS_DELAYS_MS) {
-        setTimeout(activatePanel, delay);
+        activationTimers.push(setTimeout(activatePanel, delay));
     }
     for (const delay of extensionSyncDelaysMs()) {
-        setTimeout(syncWebview, delay);
+        activationTimers.push(setTimeout(syncWebview, delay));
     }
 
     const prevActivated = context.globalState.get<string>('mcpFeedback.lastActivatedVersion');
@@ -262,9 +263,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
     cancelFeedbackReminders();
+    for (const t of activationTimers) { clearTimeout(t); }
+    activationTimers.length = 0;
     for (const d of disposables) { d.dispose(); }
     disposables.length = 0;
-    wsServer?.stop();
+    void wsServer?.stop().catch(() => {});
 }
 
 function _openEditorPanel(context: vscode.ExtensionContext, port: number): void {

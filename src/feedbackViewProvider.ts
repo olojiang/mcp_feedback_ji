@@ -50,6 +50,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _forceResetCallback?: () => Promise<number>;
     private _fileWatcher?: fs.FSWatcher;
     private _webviewReadyAcked = false;
+    private _atSearchSeq = 0;
 
     constructor(
         getHtml: HtmlGetter,
@@ -310,17 +311,18 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
 
     private _broadcastBridgeConnected(view: vscode.WebviewView): void {
         const post = (): void => {
+            if (!this._view) { this._stopBridgeBroadcast(); return; }
             view.webview.postMessage(this._bridgePayload());
         };
         post();
         let attempts = 0;
         this._bridgeBroadcastTimer = setInterval(() => {
-            post();
             attempts += 1;
-            if (attempts >= 6 && this._bridgeBroadcastTimer) {
-                clearInterval(this._bridgeBroadcastTimer);
-                this._bridgeBroadcastTimer = undefined;
+            if (!this._view || attempts >= 6) {
+                this._stopBridgeBroadcast();
+                return;
             }
+            post();
         }, 500);
     }
 
@@ -459,12 +461,14 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        const seq = ++this._atSearchSeq;
         const items: Array<{ kind: string; label: string; detail: string; insertText: string }> = [];
 
         try {
             const filePattern = `**/*${query}*`;
             const excludePattern = '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}';
             const files = await vscode.workspace.findFiles(filePattern, excludePattern, 15);
+            if (seq !== this._atSearchSeq) return;
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
 
             for (const file of files) {
@@ -478,10 +482,13 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             }
         } catch {}
 
+        if (seq !== this._atSearchSeq) return;
+
         try {
             const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
                 'vscode.executeWorkspaceSymbolProvider', query
             );
+            if (seq !== this._atSearchSeq) return;
             if (symbols) {
                 const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
                 for (const sym of symbols.slice(0, 10)) {
@@ -498,6 +505,8 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                 }
             }
         } catch {}
+
+        if (seq !== this._atSearchSeq) return;
 
         const seen = new Set<string>();
         const unique = items.filter(it => {
