@@ -51,6 +51,7 @@ export function requestFeedback(
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
             cleanup();
+            log('[requestFeedback] 24h timeout reached — resolving with status=timeout');
             resolve({ status: 'timeout', feedback: '' });
         }, 86_400_000);
 
@@ -82,11 +83,12 @@ export function requestFeedback(
                     // Resolving early would complete the tool call, causing Cursor
                     // to start a new agent turn (wasting a request).
                     if (msg.status === 'already_pending') {
-                        log('feedback_result: already_pending — staying subscribed');
+                        log('[requestFeedback] already_pending — staying subscribed');
                         return;
                     }
                     cleanup();
                     ws.off('message', handler);
+                    log('[requestFeedback] resolved status=' + (msg.status || 'submitted') + ' feedbackLen=' + (msg.feedback || '').length);
                     resolve({ status: msg.status, feedback: msg.feedback || '', images: msg.images });
                 } else if (msg.type === 'feedback_error') {
                     cleanup();
@@ -102,6 +104,7 @@ export function requestFeedback(
         ws.once('close', () => {
             cleanup();
             ws.off('message', handler);
+            log('[requestFeedback] WS closed during feedback wait — rejecting');
             reject(new Error(formatExtensionCloseError('feedback wait')));
         });
 

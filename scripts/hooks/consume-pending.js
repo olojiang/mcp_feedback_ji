@@ -4,8 +4,6 @@ const { log, output, readStdin, httpGet, findServer, readFeedbackState, writeFee
 
 const ALLOWLIST_TOOLS = ['interactive_feedback', 'get_system_info', 'mcp-feedback-enhanced'];
 const PASSTHROUGH_TOOLS = ['task', 'switchmode', 'read', 'grep', 'glob', 'semanticsearch', 'readlints', 'todowrite', 'askquestion', 'websearch', 'webfetch', 'fetchmcpresource'];
-var STOP_LOOP_LIMIT = 3;
-
 async function consumePending(port) {
     try {
         var result = await httpGet(port, '/pending?consume=1');
@@ -72,34 +70,36 @@ async function main() {
 
     _wsKey = workspaceKey(workspaceRoots);
     writeAgentContext(workspaceRoots, { traceId: traceId });
-    log(hook + ': tool=' + toolName);
+    var convId = (input.conversation_id || '').slice(0, 8);
+    var genId = (input.generation_id || '').slice(0, 8);
+    log(hook + ': tool=' + toolName + ' conv=' + convId + ' gen=' + genId + ' loop=' + loopCount);
 
     if (hook === 'stop') {
-        if (loopCount >= STOP_LOOP_LIMIT) { output({}); return; }
-        var stopServer = findServer(workspaceRoots);
-        var stopPort = stopServer ? stopServer.port : null;
-        if (stopPort) {
-            var stopPending = await consumePending(stopPort);
-            if (stopPending) { output({ followup_message: fmtAgent(stopPending) }); return; }
-        }
-        output({ followup_message: 'Call interactive_feedback before ending your turn, unless user sent Finished.' });
+        log('stop: noop — disabled to prevent followup_message loop (status=' + (input.status || '') + ')');
+        output({});
         return;
     }
 
     if (isAllowlisted(toolName)) {
-        log('  preToolUse: allowlisted tool=' + toolName);
+        log('  allowlisted tool=' + toolName);
         updateCounter(toolName);
         output({});
         return;
     }
 
     var state = updateCounter(toolName);
+    log('  state: sinceF=' + (state.toolsSinceFeedback || 0) + ' lastTool=' + (state.lastTool || ''));
     var server = findServer(workspaceRoots);
     var port = server ? server.port : null;
-    if (!port) { log('  preToolUse: no server found'); checkEnforcement(state); return; }
+    if (!port) {
+        log('  no server found, checking enforcement');
+        checkEnforcement(state);
+        return;
+    }
 
     var pending = await consumePending(port);
     if (pending) {
+        log('  delivering pending via deny');
         output({ permission: 'deny', user_message: fmtUser(pending), agent_message: fmtAgent(pending) });
         return;
     }

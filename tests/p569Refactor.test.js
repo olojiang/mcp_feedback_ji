@@ -75,8 +75,7 @@ describe('P5-2 deploy hooks and rules', () => {
     assert.equal(plan.changed, true)
     const next = applyHooksConfigPlan(input, plan)
     assert.match(next.hooks.preToolUse[0].command, /consume-pending\.js/)
-    assert.ok(next.hooks.stop, 'stop hook should be registered')
-    assert.match(next.hooks.stop[0].command, /consume-pending\.js/)
+    assert.equal(next.hooks.stop, undefined, 'stop hook should be retired (causes followup_message loop)')
   })
 
   it('planRulesDeploy skips write when content unchanged', () => {

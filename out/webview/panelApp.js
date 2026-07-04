@@ -329,8 +329,6 @@
     }
 
     function getInputTextareaMaxPx() {
-        var row = inputEl && inputEl.closest('.input-row');
-        if (row && row.clientHeight > 48) return row.clientHeight;
         return Math.max(48, (state.inputPaneHeight || 220) - 72);
     }
 
@@ -339,9 +337,6 @@
         requestAnimationFrame(function () {
             var maxPx = getInputTextareaMaxPx();
             PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: maxPx });
-            if ((inputEl.value || '').trim().length === 0 || inputEl.scrollHeight < maxPx - 4) {
-                inputEl.style.height = maxPx + 'px';
-            }
         });
     }
 
@@ -867,7 +862,8 @@
     inputEl.addEventListener('input', function () {
         var active = state.getActiveSession();
         if (active) active.inputDraft = inputEl.value;
-        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: getInputTextareaMaxPx() });
+        var maxPx = getInputTextareaMaxPx();
+        PS.PanelState.autoGrowTextareaHeight(inputEl, { minPx: 48, maxPx: maxPx });
         updateSendButton();
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 500);

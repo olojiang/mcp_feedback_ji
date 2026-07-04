@@ -6,7 +6,7 @@ exports.planHooksConfigUpdate = planHooksConfigUpdate;
 exports.applyHooksConfigPlan = applyHooksConfigPlan;
 exports.SOURCE_TAG = 'mcp-feedback-enhanced';
 const LEGACY_TAGS = ['mcp-feedback-v2'];
-const RETIRED_HOOKS = ['stop', 'sessionStart', 'preCompact'];
+const RETIRED_HOOKS = ['sessionStart', 'preCompact', 'stop'];
 function hooksCommandDrift(hooksConfig, nodeBin, preToolUseHookPath) {
     const hooks = hooksConfig.hooks;
     const entries = hooks?.preToolUse || [];

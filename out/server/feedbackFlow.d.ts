@@ -12,6 +12,7 @@ interface FeedbackFlowDeps {
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
     sendResult: (ws: WebSocket, result: {
+        status?: string;
         feedback: string;
         images?: string[];
     }) => void;

@@ -86,6 +86,8 @@ class WsHub {
         this.stateSyncFingerprints = new Map();
         this._mcpConnSeq = 0;
         this._mcpConnIds = new WeakMap();
+        this.lastHeartbeatAt = Date.now();
+        this.sleepResumeNotifiedAt = 0;
         this.version = version;
         this.clipboard = options.clipboard ?? {
             writeText: async () => { throw new Error('clipboard port not configured'); },
@@ -125,6 +127,7 @@ class WsHub {
                 }
                 this._send(ws, {
                     type: 'feedback_result',
+                    status: result.status ?? 'submitted',
                     feedback: result.feedback,
                     images: result.images,
                 });
@@ -492,10 +495,20 @@ class WsHub {
         }));
         this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp, messageCount });
     }
-    // ── Heartbeat ───────────────────────────────────────────
     _startHeartbeat() {
         this.heartbeatTimer = setInterval(() => {
-            this.clients.sweepStale(Date.now(), CLIENT_TIMEOUT, () => { });
+            const now = Date.now();
+            const gap = now - this.lastHeartbeatAt;
+            this.lastHeartbeatAt = now;
+            if (gap > 120000 && this.feedback.pendingCount() > 0) {
+                const minutesSleep = Math.round(gap / 60000);
+                if (now - this.sleepResumeNotifiedAt > 300000) {
+                    this.sleepResumeNotifiedAt = now;
+                    wsLog(`sleep_resume_detected: gap=${minutesSleep}min pending=${this.feedback.pendingCount()}`);
+                    this.onSleepResumeWithPending?.(minutesSleep);
+                }
+            }
+            this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
             this._ensureServerRegistration();
         }, HEARTBEAT_INTERVAL);
     }

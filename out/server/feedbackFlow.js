@@ -120,7 +120,11 @@ class FeedbackFlow {
                 reason: 'same_mcp_ws_same_trace',
                 summaryPreview: req.summary,
             });
-            this.deps.log(`feedbackRequest: duplicate ignored session=${traceReuse.sessionId ?? 'unknown'}`);
+            this.deps.log(`feedbackRequest: already_pending session=${traceReuse.sessionId ?? 'unknown'}`);
+            this.deps.sendResult(mcpWs, {
+                status: 'already_pending',
+                feedback: '',
+            });
             return;
         }
         if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {

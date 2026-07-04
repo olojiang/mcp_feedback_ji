@@ -1,6 +1,6 @@
 export const SOURCE_TAG = 'mcp-feedback-enhanced';
 const LEGACY_TAGS = ['mcp-feedback-v2'];
-const RETIRED_HOOKS = ['sessionStart', 'preCompact'];
+const RETIRED_HOOKS = ['sessionStart', 'preCompact', 'stop'];
 
 export interface HooksConfigPlan {
     changed: boolean;
@@ -33,7 +33,6 @@ export function planHooksConfigUpdate(
     const hooks = { ...(next.hooks as Record<string, Array<Record<string, unknown>>> || {}) };
     const hookEntries: Record<string, Record<string, unknown>> = {
         preToolUse: { command: `${nodeBin} ${preToolUseHookPath}` },
-        stop: { command: `${nodeBin} ${preToolUseHookPath}` },
     };
 
     for (const [event, entry] of Object.entries(hookEntries)) {

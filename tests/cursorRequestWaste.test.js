@@ -120,30 +120,30 @@ describe('hook-utils — workspaceKey', () => {
   })
 })
 
-describe('deploy/hooks — stop hook registration', () => {
-  it('planHooksConfigUpdate registers both preToolUse and stop', () => {
+describe('deploy/hooks — stop hook retired to prevent loop', () => {
+  it('planHooksConfigUpdate registers preToolUse only, not stop', () => {
     const input = { version: 1, hooks: {} }
     const plan = planHooksConfigUpdate('/node', '/hook/consume-pending.js', input)
     assert.equal(plan.changed, true)
     const next = applyHooksConfigPlan(input, plan)
     assert.ok(next.hooks.preToolUse)
-    assert.ok(next.hooks.stop)
+    assert.equal(next.hooks.stop, undefined, 'stop must be retired')
     assert.match(next.hooks.preToolUse[0].command, /consume-pending\.js/)
-    assert.match(next.hooks.stop[0].command, /consume-pending\.js/)
   })
 
-  it('strips sessionStart from legacy hooks', () => {
+  it('strips legacy hooks and removes existing stop hook', () => {
     const input = {
       version: 1,
       hooks: {
         sessionStart: [{ command: 'old', _source: SOURCE_TAG }],
         preCompact: [{ command: 'old', _source: SOURCE_TAG }],
+        stop: [{ command: 'old-stop', _source: SOURCE_TAG }],
       },
     }
     const plan = planHooksConfigUpdate('/node', '/hook/consume-pending.js', input)
     const next = applyHooksConfigPlan(input, plan)
     assert.equal(next.hooks.sessionStart, undefined)
     assert.equal(next.hooks.preCompact, undefined)
-    assert.ok(next.hooks.stop)
+    assert.equal(next.hooks.stop, undefined, 'stop must be retired')
   })
 })

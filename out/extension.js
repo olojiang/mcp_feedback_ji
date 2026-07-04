@@ -4731,8 +4731,12 @@ var FeedbackFlow = class {
         summaryPreview: req.summary
       });
       this.deps.log(
-        `feedbackRequest: duplicate ignored session=${traceReuse.sessionId ?? "unknown"}`
+        `feedbackRequest: already_pending session=${traceReuse.sessionId ?? "unknown"}`
       );
+      this.deps.sendResult(mcpWs, {
+        status: "already_pending",
+        feedback: ""
+      });
       return;
     }
     if (traceReuse.action === "reuse" || traceReuse.action === "steal") {
@@ -20005,6 +20009,8 @@ var WsHub = class {
     this.stateSyncFingerprints = /* @__PURE__ */ new Map();
     this._mcpConnSeq = 0;
     this._mcpConnIds = /* @__PURE__ */ new WeakMap();
+    this.lastHeartbeatAt = Date.now();
+    this.sleepResumeNotifiedAt = 0;
     this.version = version2;
     this.clipboard = options.clipboard ?? {
       writeText: async () => {
@@ -20046,6 +20052,7 @@ var WsHub = class {
         }
         this._send(ws, {
           type: "feedback_result",
+          status: result.status ?? "submitted",
           feedback: result.feedback,
           images: result.images
         });
@@ -20410,10 +20417,20 @@ var WsHub = class {
     }));
     this.stateSyncFingerprints.set(ws, { pending: pendingFp, hub: hubFp, messageCount });
   }
-  // ── Heartbeat ───────────────────────────────────────────
   _startHeartbeat() {
     this.heartbeatTimer = setInterval(() => {
-      this.clients.sweepStale(Date.now(), CLIENT_TIMEOUT, () => {
+      const now = Date.now();
+      const gap = now - this.lastHeartbeatAt;
+      this.lastHeartbeatAt = now;
+      if (gap > 12e4 && this.feedback.pendingCount() > 0) {
+        const minutesSleep = Math.round(gap / 6e4);
+        if (now - this.sleepResumeNotifiedAt > 3e5) {
+          this.sleepResumeNotifiedAt = now;
+          wsLog(`sleep_resume_detected: gap=${minutesSleep}min pending=${this.feedback.pendingCount()}`);
+          this.onSleepResumeWithPending?.(minutesSleep);
+        }
+      }
+      this.clients.sweepStale(now, CLIENT_TIMEOUT, () => {
       });
       this._ensureServerRegistration();
     }, HEARTBEAT_INTERVAL);
@@ -21442,7 +21459,7 @@ function applyMcpConfigPlan(config2, plan) {
 // src/deploy/hooks.ts
 var SOURCE_TAG = "mcp-feedback-enhanced";
 var LEGACY_TAGS = ["mcp-feedback-v2"];
-var RETIRED_HOOKS = ["stop", "sessionStart", "preCompact"];
+var RETIRED_HOOKS = ["sessionStart", "preCompact", "stop"];
 function hooksCommandDrift(hooksConfig, nodeBin, preToolUseHookPath) {
   const hooks = hooksConfig.hooks;
   const entries = hooks?.preToolUse || [];
@@ -21637,6 +21654,11 @@ async function activate(context) {
   wsServer.onFeedbackError((reason) => {
     vscode3.window.showWarningMessage(`MCP Feedback error: ${reason}`);
   });
+  wsServer.onSleepResumeWithPending = (minutesSleep) => {
+    const isChinese = vscode3.env.language.startsWith("zh");
+    const msg = isChinese ? `\u7CFB\u7EDF\u4F11\u7720\u4E86\u7EA6 ${minutesSleep} \u5206\u949F\uFF0C\u5F53\u524D\u4ECD\u6709\u6D3B\u8DC3\u7684 Agent \u4F1A\u8BDD\u3002Agent \u53EF\u80FD\u5728\u4F11\u7720\u671F\u95F4\u7EE7\u7EED\u6D88\u8017 Cursor Request\u3002` : `System slept for ~${minutesSleep} min with active agent sessions. Requests may have been consumed during sleep.`;
+    vscode3.window.showWarningMessage(msg);
+  };
   const getHtml = () => _loadWebviewHtml(extensionPath, port, getVersion());
   bottomProvider = new FeedbackViewProvider(
     getHtml,

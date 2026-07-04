@@ -65,6 +65,9 @@ export declare class WsHub {
     private _onPendingDelivered;
     private _hubSnapshot;
     private _sendState;
+    onSleepResumeWithPending?: (minutesSleep: number) => void;
+    private lastHeartbeatAt;
+    private sleepResumeNotifiedAt;
     private _startHeartbeat;
     private _ensureServerRegistration;
     private _send;
