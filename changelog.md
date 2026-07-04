@@ -22,13 +22,18 @@ All notable changes to this project will be documented in this file.
 - **`serverDiscovery.ts`**：无 `project_directory` 时用 agent 隐式工作区过滤候选 Hub
 - **`toolHandlers.ts`**：`extension_ws_close` 时 6×1s 重发现，等待 Hub 重启
 
+#### MCP 长等待韧性
+- **`cursorKeepalive.ts`**：默认 50min 自动 resolve，避免 Cursor ~60min 工具硬超时
+- **`extensionClient.ts`**：等待期间打印 `session_bound` / `session_id`；支持 progress 通知（`MCP_FEEDBACK_CURSOR_PROGRESS_MS`）
+
 ### Docs
 - 新增 `local_docs/troubleshooting.md`：死锁排查、grep 命令、手动 ↻ 恢复
-- 更新 `readme.md` 亮点与故障排查
+- 更新 `readme.md`：亮点表、死锁恢复专节、409 测试
 
 ### Test
-- 新增 `pendingSessionStore.test.js`、`pendingRestore.integration.test.js`
+- 新增 `pendingSessionStore.test.js`、`pendingRestore.integration.test.js`、`cursorKeepalive.test.js`、`pipelineLogging.test.js`
 - 扩展 `feedbackManager.test.js`、`panelState.test.js`
+- **409 测试全部通过**
 
 ## [2.5.1-ji.101] - 2026-07-04
 

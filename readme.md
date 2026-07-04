@@ -4,6 +4,21 @@
 
 **当前版本：`2.5.1-ji.115`**
 
+> **一句话**：让 Cursor Agent 在 IDE 里等你回复——**面板回复免费**，插件自身**不偷吃 Request**，Hub 重启 / 多窗口也不会左右互等。
+
+---
+
+## 为什么选择这个 Fork
+
+| 痛点 | 本 Fork 的解法 |
+|------|----------------|
+| 每条聊天消息都扣 Request | 用 `interactive_feedback` 面板回复，**不消耗 Cursor Request** |
+| Agent 结束就丢上下文 | `stop` hook 零成本提醒再调一次 feedback，不用 `deny` |
+| 多窗口 MCP 连错 Hub | 隐式工作区路由 + 6×1s 重发现，避免连到别的项目端口 |
+| Hub 重启后左右都在等 | Pending **磁盘持久化**，启动自动 restore + 面板 hydrate |
+| 断网重连级联重试 | Supersede 熔断 + `already_pending` 忽略重复调用 |
+| 排查困难 | 统一日轮转日志 + [`troubleshooting.md`](local_docs/troubleshooting.md) |
+
 ---
 
 ## 亮点
@@ -22,7 +37,7 @@
 | **排查文档** | [`local_docs/troubleshooting.md`](local_docs/troubleshooting.md)：死锁、pending 持久化、↻ 手动恢复、grep 命令 |
 | **统一日轮转日志** | extension / mcp-server / webview / hooks 四大子系统统一按天轮转 + 7 天清理；heartbeat 对数节流；passthrough 工具静默 |
 | **Deploy 工作流** | `npm run deploy` 自动 bump、编译、同步到 `~/.cursor/extensions/` 并更新 `mcp.json` |
-| **383+ 单测** | 协议路由、剪贴板、多 Tab、pipeline、日志轮转、heartbeat 节流、工具处理器、timer 生命周期等全覆盖 |
+| **409 单测** | 协议路由、pending 恢复、剪贴板、多 Tab、pipeline、日志轮转、keepalive、timer 生命周期等全覆盖 |
 
 ### Cursor Request 节省机制
 
@@ -41,7 +56,8 @@
 | **Supersede 防护** | 断网重连时旧 MCP 进程检测到 `superseded` 立即退出，不触发重试级联 |
 | **粘贴韧性** | Bridge 异常时自动降级原生粘贴（Cmd+V），3s 超时检测 + 重连恢复 |
 | **Sleep 检测** | macOS 合盖恢复时检测并警告用户 |
-| **全部本地通信** | 插件通信走 stdio / localhost WS，网络不稳定不影响 |
+| **Cursor keepalive** | 默认 50min 自动释放 + progress 通知，缓解 Cursor ~60min 工具硬超时 |
+| **Session 可追踪** | MCP 日志打印 `session_bound` / `session_id`，便于按 session 或 trace grep |
 
 ---
 
@@ -144,7 +160,19 @@ Chat fb-abc123  |  Chat fb-def456
 | 截图粘贴 | macOS Extension 读图；paste 去重 |
 | 链接粘贴两遍 | 单路径 keydown → WS |
 
-### 4. 日志与诊断
+### 5. 死锁自动恢复（ji.115）
+
+当 Agent 显示 `waiting for user feedback`、面板却卡在 `PENDING` 时，通常是 **Hub 连错端口**、**Hub 重启丢内存** 或 **面板 localStorage 陈旧**。
+
+| 机制 | 行为 |
+|------|------|
+| `pending-sessions/*.json` | enqueue / mcp_detach / shutdown 时落盘 |
+| Hub `start()` restore | 重启后 `pending_restore` 回放 `session_updated` 到面板 |
+| 面板 boot 顺序 | 先 `state_sync`，再合并 localStorage；resolved 不会被重开 |
+| 手动 ↻ | 触发 `forceReconnect` + `requestStateSync`，无需 Reload 即可尝试恢复 |
+| 排查 | 见 [`local_docs/troubleshooting.md`](local_docs/troubleshooting.md) |
+
+### 6. 日志与诊断
 
 | 文件 | 内容 |
 |------|------|
@@ -194,7 +222,7 @@ mcp_feedback_ji/
       "command": "/path/to/node",
       "args": ["/path/to/mcp-server/dist/index.js"],
       "env": {
-        "MCP_FEEDBACK_VERSION": "2.5.1-ji.90"
+        "MCP_FEEDBACK_VERSION": "2.5.1-ji.115"
       }
     }
   }
@@ -210,6 +238,7 @@ mcp_feedback_ji/
 | `MCP_FEEDBACK_VERSION` | deploy 写入 | 启动日志打印版本 |
 | `MCP_FEEDBACK_KILL_MCP_ON_DEPLOY` | 未设置 | deploy 时 SIGTERM 旧 MCP 进程 |
 | `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | 3000000 (50min) | MCP 侧 keepalive，缓解 Cursor ~60min 硬超时 |
+| `MCP_FEEDBACK_CURSOR_PROGRESS_MS` | 20000 | MCP 等待期间 progress 通知间隔 |
 | `MCP_FEEDBACK_PENDING_MAX_AGE_MS` | 86400000 (24h) | 磁盘 pending session 过期时间 |
 
 ---
@@ -217,7 +246,7 @@ mcp_feedback_ji/
 ## 测试
 
 ```bash
-npm test                  # 全量（383 tests）
+npm test                  # 全量（409 tests）
 npm run test:coverage     # 覆盖率 gate
 npm run test:e2e          # Playwright
 ```
