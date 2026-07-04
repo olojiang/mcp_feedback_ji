@@ -23,6 +23,7 @@ describe('wsHub mcp stale sweep', () => {
   let port = 0
 
   before(async () => {
+    process.env.MCP_FEEDBACK_TEST_HOOKS = '1'
     Module._load = function (request, parent, isMain) {
       if (request === 'vscode') return vscodeStub()
       return origLoad.call(this, request, parent, isMain)
@@ -37,6 +38,7 @@ describe('wsHub mcp stale sweep', () => {
 
   after(async () => {
     Module._load = origLoad
+    delete process.env.MCP_FEEDBACK_TEST_HOOKS
     if (hub) await hub.stop()
     hub = null
   })

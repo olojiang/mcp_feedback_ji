@@ -39,7 +39,8 @@ export function versionSkewWarnings(
         if (!e.alive || e.pid === localPid) continue;
         if (isTestRegistryEntry(e)) continue;
         if (e.version !== localVersion) {
-            const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
+            const pp = e.projectPath || '';
+            const ws = pp.split(/[/\\]/).pop() || pp || '-';
             warnings.push(`${ws} pid=${e.pid} runs ${e.version} (this window: ${localVersion})`);
         }
     }
@@ -48,7 +49,8 @@ export function versionSkewWarnings(
 
 export function formatRegistryTable(entries: RegistryEntry[]): string[] {
     return entries.map((e) => {
-        const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
+        const pp = e.projectPath || '';
+        const ws = pp.split(/[/\\]/).pop() || pp || '-';
         const status = e.alive ? 'live' : 'stale';
         const tag = isTestRegistryEntry(e) ? ' test' : '';
         return `${status}${tag} | ${ws} | :${e.port} pid=${e.pid} | ${e.version}`;

@@ -73,6 +73,16 @@ describe('serverDiscoveryCore', () => {
     assert.equal(picked.port, 48201)
   })
 
+  it('pickServerForProject rejects lone wrong-project hub when implicit workspace is set', () => {
+    const picked = pickServerForProject(
+      [
+        { port: 48201, pid: 93985, projectPath: '/Users/hunter/Workspace/spatial-smart-apps', version: '1' },
+      ],
+      '/Users/hunter/Workspace/mcp_feedback_ji',
+    )
+    assert.equal(picked, null)
+  })
+
   it('pickServerForProject returns null when multiple servers and no project', () => {
     const picked = pickServerForProject(
       [

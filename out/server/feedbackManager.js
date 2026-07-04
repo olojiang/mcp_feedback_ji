@@ -25,7 +25,9 @@ class FeedbackManager {
         const sessionId = newSessionId();
         const promise = new Promise((resolve, reject) => {
             this.queue.push({
-                sessionId, mcpClient, projectDir, traceId, summary, resolve, reject,
+                sessionId, mcpClient, projectDir, traceId, summary,
+                enqueuedAt: Date.now(),
+                resolve, reject,
             });
         });
         this.promises.set(sessionId, promise);
@@ -128,8 +130,39 @@ class FeedbackManager {
             mcp_detached: entry.mcpDetached === true,
         }));
     }
+    pendingSessionsForPersist() {
+        return this.queue.map((entry) => ({
+            id: entry.sessionId,
+            summary: entry.summary,
+            projectDir: entry.projectDir,
+            traceId: entry.traceId,
+            mcpDetached: entry.mcpDetached === true,
+            enqueuedAt: entry.enqueuedAt,
+        }));
+    }
     promiseForSession(sessionId) {
         return this.promises.get(sessionId) ?? null;
+    }
+    restoreDetachedSession(snapshot) {
+        if (this.queue.some((entry) => entry.sessionId === snapshot.sessionId)) {
+            return false;
+        }
+        const closedWs = { readyState: 3 };
+        const promise = new Promise((resolve, reject) => {
+            this.queue.push({
+                sessionId: snapshot.sessionId,
+                mcpClient: closedWs,
+                projectDir: snapshot.projectDir,
+                traceId: snapshot.traceId,
+                summary: snapshot.summary,
+                enqueuedAt: snapshot.enqueuedAt ?? Date.now(),
+                mcpDetached: true,
+                resolve,
+                reject,
+            });
+        });
+        this.promises.set(snapshot.sessionId, promise);
+        return true;
     }
     detachMcpClient(ws) {
         const detached = [];
@@ -155,6 +188,8 @@ class FeedbackManager {
     rejectAll(error) {
         for (const entry of this.queue) {
             this.promises.delete(entry.sessionId);
+            if (entry.mcpDetached)
+                continue;
             entry.reject(error);
         }
         this.queue = [];

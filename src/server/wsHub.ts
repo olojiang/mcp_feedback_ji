@@ -54,6 +54,13 @@ import { hubLog, hubStructuredLog } from '../extensionFileLog.js';
 import { buildStateSyncPayload, hubFingerprint, pendingSessionsFingerprint } from '../stateSyncPayload.js';
 import { formatSessionLifecycleLine } from '../sessionLifecycleLog.js';
 import { appendSessionJournalRecord } from '../sessionJournal.js';
+import { PipelineHop, pipelineTraceLine } from '../pipelineContracts.js';
+import {
+    clearPersistedPendingSessions,
+    isPersistedSessionExpired,
+    readPersistedPendingSessions,
+    writePersistedPendingSessions,
+} from '../pendingSessionStore.js';
 
 function wsLog(msg: string): void {
     hubLog(msg);
@@ -134,11 +141,28 @@ export class WsHub {
                     wsLog(`sendResult: skip closed ws readyState=${ws.readyState}`);
                     return;
                 }
+                wsLog(pipelineTraceLine(
+                    PipelineHop.MCP_RESULT,
+                    `session=${result.session_id ?? '-'} status=${result.status ?? 'submitted'} len=${(result.feedback || '').length}`,
+                ));
                 this._send(ws, {
                     type: 'feedback_result',
                     status: result.status ?? 'submitted',
                     feedback: result.feedback,
                     images: result.images,
+                    ...(result.session_id ? { session_id: result.session_id } : {}),
+                });
+            },
+            sendSessionBound: (ws, payload) => {
+                if (ws.readyState !== WebSocket.OPEN) return;
+                wsLog(pipelineTraceLine(
+                    PipelineHop.SESSION_BOUND,
+                    `session=${payload.session_id} trace=${payload.trace_id ?? '-'}`,
+                ));
+                this._send(ws, {
+                    type: 'session_bound',
+                    session_id: payload.session_id,
+                    ...(payload.trace_id ? { trace_id: payload.trace_id } : {}),
                 });
             },
             sendError: (ws, error) => {
@@ -148,6 +172,7 @@ export class WsHub {
                 });
             },
             onFeedbackRequested: undefined,
+            onFeedbackResolved: undefined,
             log: wsLog,
             getHubMeta: () => ({ port: this.port, pid: process.pid }),
             appendSessionJournal: (record) => appendSessionJournalRecord(record),
@@ -166,11 +191,22 @@ export class WsHub {
     }
 
     onFeedbackRequest(cb: () => void): void {
-        this.feedbackFlow.setOnFeedbackRequested(cb);
+        this.feedbackFlow.setOnFeedbackRequested(() => {
+            this._persistPendingSessions('enqueue');
+            cb();
+        });
     }
 
     onFeedbackResolved(cb: () => void): void {
-        this.feedbackFlow.setOnFeedbackResolved(cb);
+        this.feedbackFlow.setOnFeedbackResolved(() => {
+            if (!this.feedback.hasPending()) {
+                clearPersistedPendingSessions(this.workspaces);
+                wsLog('pending_persist: cleared reason=all_resolved');
+            } else {
+                this._persistPendingSessions('partial_resolve');
+            }
+            cb();
+        });
     }
 
     onFeedbackError(cb: (reason: string) => void): void {
@@ -245,6 +281,7 @@ export class WsHub {
         this._startHeartbeat();
 
         wsLog(`server started: port=${this.port} pid=${process.pid} version=${this.version} ws=${JSON.stringify(this.workspaces)}`);
+        this._restorePersistedPendingSessions();
         return this.port;
     }
 
@@ -262,6 +299,9 @@ export class WsHub {
 
         this.pending.clear();
 
+        if (this.feedback.hasPending() || this.pending.read()) {
+            this._persistPendingSessions('hub_shutdown');
+        }
         this.clients.closeAll();
 
         this.feedback.rejectAll(new Error('Server shutting down'));
@@ -279,6 +319,73 @@ export class WsHub {
 
     private _addMessage(msg: ConversationMessage): void {
         this.timeline.addMessage(msg);
+    }
+
+    private _persistPendingSessions(reason: string): void {
+        const sessions = this.feedback.pendingSessionsForPersist().map((s) => ({
+            id: s.id,
+            summary: s.summary,
+            projectDir: s.projectDir,
+            traceId: s.traceId,
+            mcpDetached: s.mcpDetached,
+            enqueuedAt: s.enqueuedAt,
+        }));
+        const queue = this.pending.read();
+        writePersistedPendingSessions(this.workspaces, sessions, {
+            pendingComments: queue?.comments ?? [],
+            pendingImages: queue?.images ?? [],
+        });
+        wsLog(
+            `pending_persist: reason=${reason} count=${sessions.length}`
+            + ` queue=${queue?.comments?.length ?? 0}`
+            + ` sessions=${sessions.map((s) => s.id).join(',') || '-'}`,
+        );
+    }
+
+    private _restorePersistedPendingSessions(): void {
+        const snap = readPersistedPendingSessions(this.workspaces);
+        if (!snap) return;
+        const queue = snap.pendingComments?.length || snap.pendingImages?.length
+            ? { comments: snap.pendingComments ?? [], images: snap.pendingImages ?? [] }
+            : null;
+        if (queue) {
+            this.pending.set(queue.comments, queue.images);
+            wsLog(
+                `pending_restore: queue comments=${queue.comments.length}`
+                + ` images=${queue.images.length}`,
+            );
+        }
+        let restored = 0;
+        let skipped = 0;
+        for (const s of snap.sessions) {
+            if (isPersistedSessionExpired(s)) {
+                skipped++;
+                wsLog(`pending_restore: skip session=${s.id} reason=expired`);
+                continue;
+            }
+            const ok = this.feedback.restoreDetachedSession({
+                sessionId: s.id,
+                projectDir: s.projectDir,
+                traceId: s.traceId,
+                summary: s.summary,
+                enqueuedAt: s.enqueuedAt,
+            });
+            if (ok) restored++;
+        }
+        wsLog(
+            `pending_restore: restored=${restored} skipped=${skipped} savedAt=${snap.savedAt}`
+            + ` sessions=${snap.sessions.map((s) => s.id).join(',')}`,
+        );
+        if (restored > 0) {
+            for (const session of this.feedback.pendingSessions()) {
+                this._broadcastSessionUpdated(
+                    session.summary,
+                    session.id,
+                    session.projectDir,
+                    session.traceId,
+                );
+            }
+        }
     }
 
     // ── Server Setup ────────────────────────────────────────
@@ -361,20 +468,23 @@ export class WsHub {
                 try {
                     this._routeMessage(ws, client, decodeWsMessage(raw));
                 } catch (e) {
-                    console.error('[MCP Feedback] Parse error:', e);
+                    wsLog(`protocol_parse_error: ${e instanceof Error ? e.message : String(e)}`);
                 }
             },
             onDisconnect: () => {
                 const detached = this.feedback.detachMcpClient(ws);
+                const mcpConnId = this._mcpConnIds.get(ws);
                 if (detached.length) {
                     wsLog(`mcp disconnected: ${formatDisconnectEvent('extension_ws_close', {
                         sessions: detached.join(','),
                     })}`);
                     wsLog(formatSessionLifecycleLine({
                         event: 'mcp_detach',
+                        mcpConnId,
                         detail: detached.join(','),
                         pendingCount: this.feedback.pendingCount(),
                     }));
+                    this._persistPendingSessions('mcp_detach');
                 }
                 this.clients.remove(ws);
                 this.stateSyncGenerations.delete(ws);
@@ -441,10 +551,13 @@ export class WsHub {
                 body: 'pong',
                 hub: this._hubSnapshot(),
             }),
-            onProtocolError: (context) => this._send(ws, {
-                type: 'protocol_error',
-                error: `Invalid message: ${context}`,
-            }),
+            onProtocolError: (context) => {
+                wsLog(`protocol_error: ${context} client=${client.clientType}`);
+                this._send(ws, {
+                    type: 'protocol_error',
+                    error: `Invalid message: ${context}`,
+                });
+            },
         });
     }
 
@@ -535,18 +648,29 @@ export class WsHub {
         const hubFp = hubFingerprint(hub as unknown as Record<string, unknown>);
         const lastFp = this.stateSyncFingerprints.get(ws);
         const messageCount = this.timeline.getMessages().length;
-        wsLog(
-            `stateSync: version=${this.version} port=${this.port} `
-            + `workspaces=${JSON.stringify(this.workspaces)} `
-            + `pendingSessions=${pendingSessions.length} queue=${this.feedback.pendingCount()} `
-            + `mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count} gen=${generation}`,
-        );
-        hubStructuredLog('state_sync', {
-            port: this.port,
-            pending: pendingSessions.length,
-            gen: generation,
-            incremental: generation > 0 ? '1' : '0',
-        });
+        const fpChanged = !lastFp
+            || lastFp.pending !== pendingFp
+            || lastFp.hub !== hubFp
+            || lastFp.messageCount !== messageCount;
+        if (fpChanged || generation === 0) {
+            const delta: string[] = [];
+            if (!lastFp) delta.push('init');
+            else {
+                if (lastFp.pending !== pendingFp) delta.push('pending');
+                if (lastFp.hub !== hubFp) delta.push('hub');
+                if (lastFp.messageCount !== messageCount) delta.push('messages');
+            }
+            wsLog(
+                `stateSync: gen=${generation} changed=${delta.join('+') || 'none'} `
+                + `pending=${pendingSessions.length} mcp=${hub.mcp_servers} detached=${hub.mcp_detached_count}`,
+            );
+            hubStructuredLog('state_sync', {
+                port: this.port,
+                pending: pendingSessions.length,
+                gen: generation,
+                changed: delta.join('+') || 'none',
+            });
+        }
         this._send(ws, buildStateSyncPayload({
             messages: this.timeline.getMessages(),
             syncGeneration: generation,

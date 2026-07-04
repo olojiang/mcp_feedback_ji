@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.101`**
+**当前版本：`2.5.1-ji.115`**
 
 ---
 
@@ -17,6 +17,9 @@
 | **连接状态可见** | 顶部显示 `v版本 ● Connected :端口 pid=进程号`；版本 skew 横幅提示 Reload |
 | **剪贴板与截图** | 面板内复制/粘贴；macOS 支持截图 Cmd+V 读图（Extension Host 侧 `pbpaste` + NSPasteboard） |
 | **Pending / Draft** | 无等待会话时可先攒草稿；Send 时合并 pending 队列并清空 PENDING 条 |
+| **Pending 磁盘恢复** | Hub 重启后从 `pending-sessions/` 恢复未决 session；面板 boot 先 `state_sync` 再合并 localStorage，避免陈旧 PENDING |
+| **Hub 路由加固** | 无 `project_directory` 时用 agent 隐式工作区过滤，避免连错端口（多窗口死锁） |
+| **排查文档** | [`local_docs/troubleshooting.md`](local_docs/troubleshooting.md)：死锁、pending 持久化、↻ 手动恢复、grep 命令 |
 | **统一日轮转日志** | extension / mcp-server / webview / hooks 四大子系统统一按天轮转 + 7 天清理；heartbeat 对数节流；passthrough 工具静默 |
 | **Deploy 工作流** | `npm run deploy` 自动 bump、编译、同步到 `~/.cursor/extensions/` 并更新 `mcp.json` |
 | **383+ 单测** | 协议路由、剪贴板、多 Tab、pipeline、日志轮转、heartbeat 节流、工具处理器、timer 生命周期等全覆盖 |
@@ -90,7 +93,7 @@ npm run deploy            # bump 版本 + 编译 + 同步到已安装扩展
 ## 面板一览
 
 ```
-v2.5.1-ji.101  ● Connected :48201 pid=20071   ↻
+v2.5.1-ji.115  ● Connected :48201 pid=20071   ↻
 Chat fb-abc123  |  Chat fb-def456
 ─────────────────────────────────────────────
   AI  请确认是否继续…
@@ -118,8 +121,10 @@ Chat fb-abc123  |  Chat fb-def456
 |------|------|
 | 按 workspace hash 注册 | `~/.config/mcp-feedback-enhanced/servers/{hash}.json` |
 | 目录匹配 | `exact / ancestor / descendant` 项目路径 |
-| cwd 推断 | 未传 `project_directory` 时从 MCP cwd 匹配已注册 workspace |
-| Rediscovery | 扩展重启时同一次调用内最多 3 轮 discovery |
+| cwd 推断 | 未传 `project_directory` 时从 MCP cwd + agent 隐式工作区匹配已注册 Hub |
+| Rediscovery | 扩展 WS 断连时 6×1s 重发现，等待 Hub 重启 |
+| Pending 持久化 | Hub shutdown / enqueue / mcp_detach 写入磁盘；启动时 restore 并 replay 到面板 |
+| 面板 hydrate | boot 先 `state_sync`，再 `reconcileLocalAfterServerSync`，resolved session 不会被 localStorage 重开 |
 | 禁用 browser fallback | 默认不弹浏览器；需 `MCP_FEEDBACK_BROWSER_FALLBACK=1` |
 | Stale webview 修复 | Reload 后强制刷新 panel HTML；early boot + bridge 广播 dedupe |
 
@@ -204,6 +209,8 @@ mcp_feedback_ji/
 | `MCP_FEEDBACK_PROJECT_DIRECTORY` | 未设置 | MCP 侧显式项目目录 |
 | `MCP_FEEDBACK_VERSION` | deploy 写入 | 启动日志打印版本 |
 | `MCP_FEEDBACK_KILL_MCP_ON_DEPLOY` | 未设置 | deploy 时 SIGTERM 旧 MCP 进程 |
+| `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | 3000000 (50min) | MCP 侧 keepalive，缓解 Cursor ~60min 硬超时 |
+| `MCP_FEEDBACK_PENDING_MAX_AGE_MS` | 86400000 (24h) | 磁盘 pending session 过期时间 |
 
 ---
 
@@ -219,8 +226,11 @@ npm run test:e2e          # Playwright
 
 ## 故障排查
 
+完整指南见 **[`local_docs/troubleshooting.md`](local_docs/troubleshooting.md)**（死锁、版本 skew、pending 恢复、grep 命令）。
+
 | 现象 | 处理 |
 |------|------|
+| 左右都在等（Agent waiting + 面板 PENDING） | 多为 Hub 连错端口或版本 skew；**Reload Window**（每个窗口）；MCP 关开；点 ↻ 触发 `state_sync` |
 | 面板 Disconnected | **Reload Window** 或点 ↻；查 `extension.log` |
 | Connected 但 Panel 空 | 多为旧 webview 缓存；Reload；查 `webview.log` 的 `bootReport` |
 | 版本号不更新 | ↻ 不够；需 **Developer: Reload Window**；多窗口各 Reload 一次 |

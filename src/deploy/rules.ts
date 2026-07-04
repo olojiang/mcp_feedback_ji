@@ -15,6 +15,7 @@ export const RULES_CONTENT = [
     '- MUST use interactive_feedback as your LAST tool call when wrapping up (hand off, summarize, or ask the user).',
     '- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.',
     '- IMPORTANT: If interactive_feedback returns an error (e.g. "not connected", timeout), do NOT retry. End your turn normally. Retrying wastes Cursor requests.',
+    '- If interactive_feedback returns [keepalive], do NOT treat it as user input. Call interactive_feedback again immediately to keep waiting.',
     '',
     'You have access to the interactive_feedback MCP tool for communicating with the user:',
     '- Use it to present results, ask questions, or check in with the user.',

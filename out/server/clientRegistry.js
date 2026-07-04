@@ -85,6 +85,9 @@ class ClientRegistry {
                 }
                 continue;
             }
+            if (client.webviewTransport === 'bridge') {
+                continue;
+            }
             if (now - client.lastPong > timeoutMs) {
                 try {
                     ws.close();

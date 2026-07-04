@@ -132,7 +132,7 @@
       return this.sessions[this.activeSessionId] || null
     }
 
-    ensureSession(id, label, summary, traceId) {
+    ensureSession(id, label, summary, traceId, opts) {
       if (!id) return null
       if (!this.sessions[id]) {
         this.sessions[id] = createSession(id, label, summary, traceId)
@@ -141,7 +141,7 @@
         if (label) this.sessions[id].label = label
         if (summary) this.sessions[id].summary = summary
         if (traceId) this.sessions[id].traceId = traceId
-        this.sessions[id].waiting = true
+        if (opts && opts.markWaiting) this.sessions[id].waiting = true
       }
       return this.sessions[id]
     }
@@ -320,7 +320,7 @@
           continue
         }
         acceptedPending.push(p)
-        this.ensureSession(p.id, p.label, p.summary, p.trace_id || p.traceId)
+        this.ensureSession(p.id, p.label, p.summary, p.trace_id || p.traceId, { markWaiting: true })
         latestPendingId = p.id || latestPendingId
         if (p.summary) {
           var sess = this.sessions[p.id]
@@ -346,6 +346,16 @@
       return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
     }
 
+    /** After server state_sync + optional localStorage merge, drop stale waiting flags. */
+    reconcileLocalAfterServerSync() {
+      this._reconcileWaitingWithServer(
+        (this.lastPendingSessionIds || []).map(function (id) {
+          return { id: id, waiting: true }
+        }),
+      )
+      return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
+    }
+
     _onSessionUpdated(msg) {
       var hubWs = this.hubSnapshot && this.hubSnapshot.workspaces
       if (msg.project_directory && !PanelState.sessionBelongsToPanel(this.panelWorkspace, msg.project_directory, hubWs)) {
@@ -364,7 +374,7 @@
       var id = msg.session_id
       if (!id) return this._onSessionUpdatedLegacy(msg)
 
-      var sess = this.ensureSession(id, msg.session_label, msg.summary, msg.trace_id)
+      var sess = this.ensureSession(id, msg.session_label, msg.summary, msg.trace_id, { markWaiting: true })
       if (msg.project_directory) sess.projectDirectory = msg.project_directory
       this.activeSessionId = id
       var sumText = msg.summary || ''

@@ -95,6 +95,7 @@ describe('FeedbackViewProvider message handlers', () => {
         attachWebview: () => ({
           dispose() {},
           deliver() {},
+          isAlive: () => true,
           socket: { on() {} },
         }),
         getDebugInfo: () => ({ workspaces: ['/tmp/ws'], port: 48201, pid: 1 }),

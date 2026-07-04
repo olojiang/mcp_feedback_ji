@@ -6,6 +6,7 @@ export interface WebviewBridge {
     socket: WebSocket;
     deliver: (raw: string) => void;
     dispose: () => void;
+    isAlive: () => boolean;
 }
 
 export function createWebviewBridge(postToPanel: WebviewOutbound): WebviewBridge {
@@ -52,6 +53,9 @@ export function createWebviewBridge(postToPanel: WebviewOutbound): WebviewBridge
         dispose() {
             socket.close();
             listeners.clear();
+        },
+        isAlive() {
+            return readyState === WebSocket.OPEN;
         },
     };
 }

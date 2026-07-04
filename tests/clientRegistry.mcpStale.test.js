@@ -31,7 +31,7 @@ describe('ClientRegistry mcp stale policy', () => {
     assert.equal(ws.closed, false)
   })
 
-  it('still sweeps idle webview clients', () => {
+  it('still sweeps idle TCP webview clients', () => {
     const reg = new ClientRegistry()
     const ws = fakeWs()
     const client = reg.add(ws)
@@ -44,5 +44,21 @@ describe('ClientRegistry mcp stale policy', () => {
     assert.equal(stale.length, 1)
     assert.equal(ws.closed, true)
     assert.equal(reg.counts().webviews, 0)
+  })
+
+  it('does not sweep bridge webview clients even when idle', () => {
+    const reg = new ClientRegistry()
+    const ws = fakeWs()
+    const client = reg.add(ws)
+    reg.setClientType(ws, 'webview')
+    client.webviewTransport = 'bridge'
+    client.lastPong = Date.now() - 200_000
+
+    const stale = []
+    reg.sweepStale(Date.now(), 90_000, (w) => stale.push(w))
+
+    assert.equal(stale.length, 0)
+    assert.equal(ws.closed, false)
+    assert.equal(reg.counts().webviews, 1)
   })
 })

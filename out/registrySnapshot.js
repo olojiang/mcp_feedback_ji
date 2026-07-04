@@ -31,7 +31,8 @@ function versionSkewWarnings(entries, localVersion, localPid) {
         if (isTestRegistryEntry(e))
             continue;
         if (e.version !== localVersion) {
-            const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
+            const pp = e.projectPath || '';
+            const ws = pp.split(/[/\\]/).pop() || pp || '-';
             warnings.push(`${ws} pid=${e.pid} runs ${e.version} (this window: ${localVersion})`);
         }
     }
@@ -39,7 +40,8 @@ function versionSkewWarnings(entries, localVersion, localPid) {
 }
 function formatRegistryTable(entries) {
     return entries.map((e) => {
-        const ws = e.projectPath.split(/[/\\]/).pop() || e.projectPath;
+        const pp = e.projectPath || '';
+        const ws = pp.split(/[/\\]/).pop() || pp || '-';
         const status = e.alive ? 'live' : 'stale';
         const tag = isTestRegistryEntry(e) ? ' test' : '';
         return `${status}${tag} | ${ws} | :${e.port} pid=${e.pid} | ${e.version}`;

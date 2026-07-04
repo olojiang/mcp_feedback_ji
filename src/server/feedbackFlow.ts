@@ -27,7 +27,8 @@ interface FeedbackFlowDeps {
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
-    sendResult: (ws: WebSocket, result: { status?: string; feedback: string; images?: string[] }) => void;
+    sendResult: (ws: WebSocket, result: { status?: string; feedback: string; images?: string[]; session_id?: string }) => void;
+    sendSessionBound?: (ws: WebSocket, payload: { session_id: string; trace_id?: string }) => void;
     sendError: (ws: WebSocket, error: Error) => void;
     onFeedbackRequested?: () => void;
     onFeedbackResolved?: () => void;
@@ -127,6 +128,11 @@ export class FeedbackFlow {
 
         const traceId = resolveTraceId(req.trace_id, readAgentContext()?.traceId);
 
+        this.deps.log(pipelineTraceLine(
+            PipelineHop.MCP_REQUEST,
+            `trace=${traceId ?? '-'} project=${req.project_directory ?? '(none)'}`,
+        ));
+
         this.deps.log(
             `feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`,
         );
@@ -161,6 +167,10 @@ export class FeedbackFlow {
             );
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
+            this.deps.sendSessionBound?.(mcpWs, {
+                session_id: transport.sessionId,
+                trace_id: traceId,
+            });
             return;
         }
 
@@ -193,6 +203,7 @@ export class FeedbackFlow {
             this.deps.sendResult(mcpWs, {
                 status: 'already_pending',
                 feedback: '',
+                session_id: traceReuse.sessionId,
             });
             return;
         }
@@ -224,6 +235,10 @@ export class FeedbackFlow {
             );
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, traceReuse.sessionId!);
+            this.deps.sendSessionBound?.(mcpWs, {
+                session_id: traceReuse.sessionId!,
+                trace_id: traceId,
+            });
             return;
         }
 
@@ -255,6 +270,7 @@ export class FeedbackFlow {
         this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory, traceId);
         this.deps.onFeedbackRequested?.();
         this._attachMcpPromiseHandlers(mcpWs, sessionId);
+        this.deps.sendSessionBound?.(mcpWs, { session_id: sessionId, trace_id: traceId });
     }
 
     private _attachMcpPromiseHandlers(mcpWs: WebSocket, sessionId: string): void {
@@ -272,7 +288,11 @@ export class FeedbackFlow {
             this.deps.sendResult(resolved.transport, {
                 feedback: resolved.feedback,
                 images: resolved.images,
+                session_id: sessionId,
             });
+            this.deps.log(
+                `feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`,
+            );
         }).catch((err) => {
             const reason = err instanceof Error ? err.message : 'Feedback error';
             this.deps.log(`feedbackRequest failed: ${reason}`);

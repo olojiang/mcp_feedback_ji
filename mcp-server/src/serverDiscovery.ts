@@ -170,18 +170,18 @@ export async function findExtensionServer(
         log(`discover: skipped ${skippedMismatch.length} project_mismatch: ${skippedMismatch.join(', ')}`);
     }
 
-    let picked = pickServerForProject(candidates, projectDirectory);
+    // When project_directory is omitted, resolve implicit workspace *before* auto-picking
+    // a lone hub. Otherwise a single wrong-project hub (e.g. spatial-smart-apps) wins
+    // while the correct window's hub is restarting — MCP waits on the wrong port.
+    const implicit = !want ? implicitProjectDirectory(agentContext) : undefined;
     let pickedFromImplicitProject: string | undefined;
-    if (!picked && !want) {
-        const implicit = implicitProjectDirectory(agentContext);
-        picked = pickServerForImplicitProject(candidates, implicit);
-        if (picked && implicit) {
-            pickedFromImplicitProject = normalizeProjectPath(implicit);
-            const source = agentContext?.workspaceRoots?.includes(implicit)
-                ? 'agent_context'
-                : 'cwd';
-            log(`feedback_request implicit_project=${pickedFromImplicitProject} source=${source}`);
-        }
+    let picked = pickServerForProject(candidates, want ?? implicit);
+    if (picked && implicit && !want) {
+        pickedFromImplicitProject = normalizeProjectPath(implicit);
+        const source = agentContext?.workspaceRoots?.includes(implicit)
+            ? 'agent_context'
+            : 'cwd';
+        log(`feedback_request implicit_project=${pickedFromImplicitProject} source=${source}`);
     }
 
     if (picked) {

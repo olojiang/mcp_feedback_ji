@@ -4,5 +4,6 @@ export interface WebviewBridge {
     socket: WebSocket;
     deliver: (raw: string) => void;
     dispose: () => void;
+    isAlive: () => boolean;
 }
 export declare function createWebviewBridge(postToPanel: WebviewOutbound): WebviewBridge;

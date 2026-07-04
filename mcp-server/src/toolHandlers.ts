@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
 import { findExtensionServer, readAgentContext, type ServerData } from './serverDiscovery.js';
-import { connectToExtension, requestFeedback } from './extensionClient.js';
+import { connectToExtension, requestFeedback, type RequestFeedbackDeps } from './extensionClient.js';
 import { browserFallback } from './browserFallback.js';
 import { runPostFeedbackHooks } from './postFeedbackHooks.js';
 import { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
@@ -62,6 +62,11 @@ function resolveTraceId(
     return pick && String(pick).trim() ? String(pick).trim() : undefined;
 }
 
+interface ToolCallContext {
+    progressToken?: string | number;
+    sendNotification?: RequestFeedbackDeps['sendNotification'];
+}
+
 interface ToolHandlerDeps {
     findExtensionServer: (projectDirectory?: string, log?: (msg: string) => void) => Promise<ServerData | null>;
     connectToExtension: typeof connectToExtension;
@@ -87,9 +92,14 @@ async function rediscoverExtensionServer(
     deps: ToolHandlerDeps,
     projectDirectory: string | undefined,
     log: (msg: string) => void,
+    opts?: { extended?: boolean },
 ): Promise<ServerData | null> {
-    const attempts = deps.rediscoveryAttempts ?? DEFAULT_REDISCOVERY_ATTEMPTS;
-    const retryDelayMs = deps.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    const attempts = opts?.extended
+        ? 6
+        : (deps.rediscoveryAttempts ?? DEFAULT_REDISCOVERY_ATTEMPTS);
+    const retryDelayMs = opts?.extended
+        ? 1000
+        : (deps.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS);
 
     for (let i = 1; i <= attempts; i++) {
         const server = await deps.findExtensionServer(projectDirectory, log);
@@ -144,7 +154,8 @@ export function buildToolDefinitions() {
 export function createToolCallHandler(deps: ToolHandlerDeps) {
     return async function handleToolCall(
         name: string,
-        args: unknown
+        args: unknown,
+        ctx?: ToolCallContext,
     ): Promise<{ content: ToolContent; isError?: boolean }> {
         if (name === 'get_system_info') {
             return {
@@ -204,11 +215,29 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         onWaitTick: deps.stdioKeepaliveTick
                             ? () => deps.stdioKeepaliveTick!(traceId, project_directory)
                             : undefined,
+                        progressToken: ctx?.progressToken,
+                        sendNotification: ctx?.sendNotification,
                     });
                     deps.log(
                         `[MCP Feedback] Feedback via extension port=${extensionServer.port} `
                         + `pid=${extensionServer.pid} status=${result.status ?? 'submitted'}`
+                        + ` session=${result.session_id ?? '-'}`,
                     );
+                    if (result.status === 'keepalive') {
+                        deps.log(
+                            `[MCP Feedback] keepalive auto-resolve message="${result.feedback}" `
+                            + `trace=${traceId ?? '(none)'} project=${project_directory ?? '(none)'}`,
+                        );
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: '[keepalive] Auto-released before Cursor tool timeout (no user reply yet). '
+                                    + 'Do NOT treat the placeholder text as user input. '
+                                    + 'Call interactive_feedback again immediately to continue waiting.'
+                                    + feedbackSuffix(),
+                            }],
+                        };
+                    }
                     if (result.status && result.status !== 'submitted' && result.status !== 'ok' && !result.feedback) {
                         return {
                             content: [{
@@ -248,7 +277,14 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                             }],
                         };
                     }
-                    extensionServer = await rediscoverExtensionServer(deps, project_directory, log);
+                    const extendedRediscover = errMsg.includes('extension_ws_close')
+                        || errMsg.includes('Connection timeout');
+                    extensionServer = await rediscoverExtensionServer(
+                        deps,
+                        project_directory,
+                        log,
+                        { extended: extendedRediscover },
+                    );
                 }
             }
 

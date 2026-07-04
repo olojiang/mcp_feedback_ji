@@ -67,6 +67,10 @@
     }
 
     function execWsSend(message) {
+        if (message && message.type === 'feedback_response') {
+            debugLog('feedback_response send session=' + (message.session_id || '(none)')
+                + ' queued=' + (!transportReady()));
+        }
         return PS.transportSendWithQueue(
             message,
             transportReady,
@@ -497,7 +501,12 @@
 
     function renderConnectionHealth() {
         var r = ensureConnectionRenderer();
-        if (r) r.render();
+        if (r) {
+            var result = r.render();
+            if (result && result.health && result.health.issues && result.health.issues.length) {
+                debugLog('connection_health issues=' + result.health.issues.join('; '));
+            }
+        }
     }
 
     function applyConnectionInfo(msg) {
@@ -624,11 +633,29 @@
         if (inputPaneHeightInput) inputPaneHeightInput.value = String(state.inputPaneHeight || 220);
     }
 
-    function loadState() {
-        try {
-            var d = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-            if (d) state.deserialize(d);
-        } catch (e) { /* ignore */ }
+    var pendingLocalRestore = null;
+    var bootHydratedFromServer = false;
+
+    function tryHydrateAfterStateSync() {
+        if (bootHydratedFromServer) return;
+        bootHydratedFromServer = true;
+        debugLog('hydrateAfterStateSync localRestore=' + (pendingLocalRestore ? 'yes' : 'no'));
+        if (pendingLocalRestore) {
+            try {
+                var d = JSON.parse(pendingLocalRestore);
+                if (d) state.deserialize(d);
+            } catch (e) { /* ignore */ }
+            pendingLocalRestore = null;
+        }
+        exec(state.reconcileLocalAfterServerSync());
+        renderTabs();
+        renderMessages();
+        renderPending();
+        renderStagedImages();
+        updateSendButton();
+        if (state.getActiveSession() && state.getActiveSession().inputDraft) {
+            inputEl.value = state.getActiveSession().inputDraft;
+        }
     }
 
     // ── Renderers (pure DOM from state) ─────────────────
@@ -1446,6 +1473,7 @@
         }
         exec(state.handleMessage(msg));
         if (msg.type === 'state_sync') {
+            tryHydrateAfterStateSync();
             if (msg.hub) applyHubSnapshot(msg.hub);
             renderConnectionHealth();
         }
@@ -1454,6 +1482,7 @@
                 + ' project=' + (msg.project_directory || '(none)'));
             if (msg.session_id && transportReady()) {
                 transportSend({ type: 'session_displayed', session_id: msg.session_id });
+                debugLog('session_displayed send session=' + msg.session_id);
             }
         }
         if (msg.type === 'clipboard_write_ok') {
@@ -1709,21 +1738,14 @@
 
     if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
     bootstrapErudaPanel();
-    loadState();
+    try { pendingLocalRestore = localStorage.getItem(STORAGE_KEY); } catch (e) { /* ignore */ }
     var storedPaneH = null;
     try { storedPaneH = localStorage.getItem('mcp-feedback-input-pane-height'); } catch (_e) { /* ignore */ }
     applyInputPaneHeight(storedPaneH || state.inputPaneHeight || 220);
     setupPaneSplitter();
     renderQuickReplies();
-    if (state.getActiveSession() && state.getActiveSession().inputDraft) {
-        inputEl.value = state.getActiveSession().inputDraft;
-    }
-    renderTabs();
-    renderMessages();
-    renderPending();
-    renderStagedImages();
-    updateSendButton();
     syncSettings();
+    renderConnectionHealth();
     if (!vscode) {
         bootstrapConnection();
     }

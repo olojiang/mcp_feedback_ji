@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.115] - 2026-07-05
+
+### Fix — 左右都在等的死锁恢复
+
+修复 Hub 重启 / MCP 连错端口后面板 PENDING 与 Agent waiting 不同步的问题。
+
+#### Pending 磁盘持久化
+- **`pendingSessionStore.ts`**：pending session 写入 `~/.config/mcp-feedback-enhanced/pending-sessions/<hash>.json`
+- **`wsHub.ts`**：enqueue / mcp_detach / hub_shutdown 时持久化；启动时 restore；空队列 cleanup 不再误删磁盘文件
+- **`feedbackManager.restoreDetachedSession()`**：Hub 重启后恢复 detached pending
+- **`feedbackManager.rejectAll()`**：已 detach 的 session 不 reject，避免 unhandledRejection
+
+#### 面板 boot 顺序
+- **`panelState.js`**：`ensureSession` 不再无条件 `waiting=true`；`reconcileLocalAfterServerSync()` 去陈旧 PENDING
+- **`panelApp.js`**：先 `state_sync`，再 `hydrateAfterStateSync` 合并 localStorage
+
+#### Hub 路由与重发现（ji.113–ji.114）
+- **`serverDiscovery.ts`**：无 `project_directory` 时用 agent 隐式工作区过滤候选 Hub
+- **`toolHandlers.ts`**：`extension_ws_close` 时 6×1s 重发现，等待 Hub 重启
+
+### Docs
+- 新增 `local_docs/troubleshooting.md`：死锁排查、grep 命令、手动 ↻ 恢复
+- 更新 `readme.md` 亮点与故障排查
+
+### Test
+- 新增 `pendingSessionStore.test.js`、`pendingRestore.integration.test.js`
+- 扩展 `feedbackManager.test.js`、`panelState.test.js`
+
 ## [2.5.1-ji.101] - 2026-07-04
 
 ### Fix — 断网重连韧性

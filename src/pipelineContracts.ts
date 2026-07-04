@@ -8,6 +8,7 @@ export const PipelineHop = {
     HUB_BROADCAST: 'hub→ui:session_updated',
     UI_RESPONSE: 'ui→hub:feedback_response',
     MCP_RESULT: 'hub→mcp:feedback_result',
+    SESSION_BOUND: 'hub→mcp:session_bound',
     UI_DISPLAYED: 'ui→hub:session_displayed',
 } as const;
 

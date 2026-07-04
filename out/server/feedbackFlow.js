@@ -76,6 +76,7 @@ class FeedbackFlow {
             return;
         }
         const traceId = (0, traceContext_1.resolveTraceId)(req.trace_id, (0, fileStore_1.readAgentContext)()?.traceId);
+        this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.MCP_REQUEST, `trace=${traceId ?? '-'} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
         if (transport.updated && transport.sessionId) {
@@ -96,6 +97,10 @@ class FeedbackFlow {
             this.deps.broadcastSessionUpdated(req.summary, transport.sessionId, req.project_directory, traceId);
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, transport.sessionId);
+            this.deps.sendSessionBound?.(mcpWs, {
+                session_id: transport.sessionId,
+                trace_id: traceId,
+            });
             return;
         }
         if (transport.skipReason === 'live_mcp_still_open') {
@@ -124,6 +129,7 @@ class FeedbackFlow {
             this.deps.sendResult(mcpWs, {
                 status: 'already_pending',
                 feedback: '',
+                session_id: traceReuse.sessionId,
             });
             return;
         }
@@ -147,6 +153,10 @@ class FeedbackFlow {
             this.deps.broadcastSessionUpdated(req.summary, traceReuse.sessionId, req.project_directory, traceId);
             this.deps.onFeedbackRequested?.();
             this._attachMcpPromiseHandlers(mcpWs, traceReuse.sessionId);
+            this.deps.sendSessionBound?.(mcpWs, {
+                session_id: traceReuse.sessionId,
+                trace_id: traceId,
+            });
             return;
         }
         this.deps.addMessage({
@@ -171,6 +181,7 @@ class FeedbackFlow {
         this.deps.broadcastSessionUpdated(req.summary, sessionId, req.project_directory, traceId);
         this.deps.onFeedbackRequested?.();
         this._attachMcpPromiseHandlers(mcpWs, sessionId);
+        this.deps.sendSessionBound?.(mcpWs, { session_id: sessionId, trace_id: traceId });
     }
     _attachMcpPromiseHandlers(mcpWs, sessionId) {
         if (!this.deps.feedback.tryAttachHandlers(sessionId))
@@ -189,7 +200,9 @@ class FeedbackFlow {
             this.deps.sendResult(resolved.transport, {
                 feedback: resolved.feedback,
                 images: resolved.images,
+                session_id: sessionId,
             });
+            this.deps.log(`feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`);
         }).catch((err) => {
             const reason = err instanceof Error ? err.message : 'Feedback error';
             this.deps.log(`feedbackRequest failed: ${reason}`);

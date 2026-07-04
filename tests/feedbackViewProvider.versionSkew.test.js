@@ -53,7 +53,7 @@ describe('FeedbackViewProvider version skew on bridge-connected', () => {
     const posts = []
     let onMessage = null
     const hub = {
-      attachWebview: () => ({ dispose() {}, deliver() {}, socket: { on() {} } }),
+      attachWebview: () => ({ dispose() {}, deliver() {}, isAlive: () => true, socket: { on() {} } }),
       getDebugInfo: () => ({ workspaces: ['/tmp/ws'], port: 48201, pid: 100 }),
     }
 

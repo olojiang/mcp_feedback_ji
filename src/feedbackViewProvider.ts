@@ -108,7 +108,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         this._setupHotReload(webviewView);
 
         webviewView.onDidChangeVisibility(() => {
-            if (webviewView.visible && !this._bridge) {
+            if (webviewView.visible) {
                 this._connectBridge(webviewView);
             }
         });
@@ -118,6 +118,9 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         }
 
         webviewView.onDidDispose(() => {
+            const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+            const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+            appendWebviewLog('webview disposed', typeof projectPath === 'string' ? projectPath : undefined);
             this._view = null;
             this._bridge?.dispose();
             this._bridge = null;
@@ -301,10 +304,18 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             clearInterval(this._bridgeBroadcastTimer);
             this._bridgeBroadcastTimer = undefined;
         }
+        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+        const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+        if (this._bridge && !this._bridge.isAlive()) {
+            appendWebviewLog('_connectBridge: bridge dead, recreating', typeof projectPath === 'string' ? projectPath : undefined);
+            this._bridge.dispose();
+            this._bridge = null;
+        }
         if (this._bridge) {
             this._broadcastBridgeConnected(view);
             return;
         }
+        appendWebviewLog('_connectBridge: attaching new bridge', typeof projectPath === 'string' ? projectPath : undefined);
         this._attachBridge(view);
         this._broadcastBridgeConnected(view);
     }
@@ -319,6 +330,11 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         this._bridgeBroadcastTimer = setInterval(() => {
             attempts += 1;
             if (!this._view || attempts >= 6) {
+                if (attempts >= 6 && this._view) {
+                    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                    const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                    appendWebviewLog('bridge_connected_broadcast_exhausted attempts=6', typeof projectPath === 'string' ? projectPath : undefined);
+                }
                 this._stopBridgeBroadcast();
                 return;
             }
@@ -434,6 +450,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
                 deliverHubMessage: (data) => {
                     if (this._bridge && data) {
                         this._bridge.deliver(JSON.stringify(data));
+                    } else if (data) {
+                        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                        const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
+                        appendWebviewLog('bridge_deliver_skipped reason=no_bridge', typeof projectPath === 'string' ? projectPath : undefined);
                     }
                 },
                 handleDebug: (v, traceId) => this._handleDebugRequest(v, traceId),

@@ -53,6 +53,8 @@ export declare class WsHub {
     stop(): Promise<void>;
     private _cleanup;
     private _addMessage;
+    private _persistPendingSessions;
+    private _restorePersistedPendingSessions;
     private _findPort;
     private _startServer;
     private _handleHttpRequest;

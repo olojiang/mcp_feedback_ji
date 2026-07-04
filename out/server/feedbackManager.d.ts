@@ -51,7 +51,22 @@ export declare class FeedbackManager {
     hasPending(): boolean;
     pendingCount(): number;
     pendingSessions(): PendingSessionSnapshot[];
+    pendingSessionsForPersist(): Array<{
+        id: string;
+        summary: string;
+        projectDir?: string;
+        traceId?: string;
+        mcpDetached: boolean;
+        enqueuedAt: number;
+    }>;
     promiseForSession(sessionId: string): Promise<ResolvedFeedback> | null;
+    restoreDetachedSession(snapshot: {
+        sessionId: string;
+        projectDir?: string;
+        traceId?: string;
+        summary: string;
+        enqueuedAt?: number;
+    }): boolean;
     detachMcpClient(ws: WebSocket): string[];
     isMcpDetached(sessionId: string): boolean;
     tryAttachHandlers(sessionId: string): boolean;

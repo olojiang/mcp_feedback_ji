@@ -16,12 +16,20 @@ const testFiles = readdirSync(testsDir).filter((f) => f.endsWith('.test.js'))
 const { PipelineHop } = require('../out/pipelineContracts.js')
 
 const HOP_COVERAGE = [
-  { hop: PipelineHop.MCP_REQUEST, tests: ['messageRouter.test.js', 'feedbackFlow.test.js', 'fullPipelineChain.integration.test.js'] },
+  { hop: PipelineHop.MCP_REQUEST, tests: ['messageRouter.test.js', 'feedbackFlow.test.js', 'fullPipelineChain.integration.test.js', 'pipelineLogging.test.js'] },
   { hop: PipelineHop.HUB_ENQUEUE, tests: ['feedbackFlow.test.js', 'feedbackManager.test.js'] },
   { hop: PipelineHop.HUB_BROADCAST, tests: ['feedbackDelivery.test.js', 'projectDirectory.pipeline.test.js', 'fullPipelineChain.integration.test.js'] },
   { hop: PipelineHop.UI_RESPONSE, tests: ['panelState.test.js', 'feedbackFlow.test.js', 'fullPipelineChain.integration.test.js'] },
-  { hop: PipelineHop.MCP_RESULT, tests: ['fullPipelineChain.integration.test.js', 'feedbackPipeline.integration.test.js'] },
+  { hop: PipelineHop.MCP_RESULT, tests: ['fullPipelineChain.integration.test.js', 'feedbackPipeline.integration.test.js', 'pipelineLogging.test.js'] },
+  { hop: PipelineHop.SESSION_BOUND, tests: ['pipelineLogging.test.js', 'feedbackFlow.test.js'] },
   { hop: PipelineHop.UI_DISPLAYED, tests: ['messageRouter.test.js', 'feedbackDelivery.test.js', 'fullPipelineChain.integration.test.js'] },
+]
+
+const SPECIAL_COVERAGE = [
+  { area: 'cursor keepalive', tests: ['cursorKeepalive.test.js', 'pipelineLogging.test.js'] },
+  { area: 'stdio keepalive', tests: ['mcpStdioKeepalive.test.js'] },
+  { area: 'bridge stale sweep', tests: ['clientRegistry.mcpStale.test.js'] },
+  { area: 'dead bridge recovery', tests: ['feedbackViewProvider.test.js'] },
 ]
 
 describe('pipeline coverage matrix', () => {
@@ -44,4 +52,12 @@ describe('pipeline coverage matrix', () => {
       assert.ok(testFiles.includes(file), `missing ${file}`)
     }
   })
+
+  for (const { area, tests } of SPECIAL_COVERAGE) {
+    it(`${area} covered by ${tests.join(', ')}`, () => {
+      for (const file of tests) {
+        assert.ok(testFiles.includes(file), `missing test file ${file} for ${area}`)
+      }
+    })
+  }
 })

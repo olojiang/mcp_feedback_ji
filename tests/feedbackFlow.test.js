@@ -95,6 +95,7 @@ describe('FeedbackFlow stale session_id fallback', () => {
       summary: 'Trace test',
       project_directory: '/proj',
     })
+    assert.ok(logs.some((l) => l.includes('pipeline: mcp→hub:feedback_request')))
     assert.ok(logs.some((l) => l.includes('pipeline: hub:enqueue') && l.includes('project=/proj')))
     assert.ok(logs.some((l) => l.includes('feedbackRequest: accepted session=') && l.includes('project=/proj')))
 

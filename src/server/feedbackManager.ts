@@ -48,6 +48,7 @@ interface PendingFeedback {
     projectDir?: string;
     traceId?: string;
     summary: string;
+    enqueuedAt: number;
     mcpDetached?: boolean;
     handlersAttached?: boolean;
     resolve: (result: ResolvedFeedback) => void;
@@ -75,7 +76,9 @@ export class FeedbackManager {
         const sessionId = newSessionId();
         const promise = new Promise<ResolvedFeedback>((resolve, reject) => {
             this.queue.push({
-                sessionId, mcpClient, projectDir, traceId, summary, resolve, reject,
+                sessionId, mcpClient, projectDir, traceId, summary,
+                enqueuedAt: Date.now(),
+                resolve, reject,
             });
         });
         this.promises.set(sessionId, promise);
@@ -186,8 +189,54 @@ export class FeedbackManager {
         }));
     }
 
+    pendingSessionsForPersist(): Array<{
+        id: string;
+        summary: string;
+        projectDir?: string;
+        traceId?: string;
+        mcpDetached: boolean;
+        enqueuedAt: number;
+    }> {
+        return this.queue.map((entry) => ({
+            id: entry.sessionId,
+            summary: entry.summary,
+            projectDir: entry.projectDir,
+            traceId: entry.traceId,
+            mcpDetached: entry.mcpDetached === true,
+            enqueuedAt: entry.enqueuedAt,
+        }));
+    }
+
     promiseForSession(sessionId: string): Promise<ResolvedFeedback> | null {
         return this.promises.get(sessionId) ?? null;
+    }
+
+    restoreDetachedSession(snapshot: {
+        sessionId: string;
+        projectDir?: string;
+        traceId?: string;
+        summary: string;
+        enqueuedAt?: number;
+    }): boolean {
+        if (this.queue.some((entry) => entry.sessionId === snapshot.sessionId)) {
+            return false;
+        }
+        const closedWs = { readyState: 3 } as WebSocket;
+        const promise = new Promise<ResolvedFeedback>((resolve, reject) => {
+            this.queue.push({
+                sessionId: snapshot.sessionId,
+                mcpClient: closedWs,
+                projectDir: snapshot.projectDir,
+                traceId: snapshot.traceId,
+                summary: snapshot.summary,
+                enqueuedAt: snapshot.enqueuedAt ?? Date.now(),
+                mcpDetached: true,
+                resolve,
+                reject,
+            });
+        });
+        this.promises.set(snapshot.sessionId, promise);
+        return true;
     }
 
     detachMcpClient(ws: WebSocket): string[] {
@@ -216,6 +265,7 @@ export class FeedbackManager {
     rejectAll(error: Error): void {
         for (const entry of this.queue) {
             this.promises.delete(entry.sessionId);
+            if (entry.mcpDetached) continue;
             entry.reject(error);
         }
         this.queue = [];

@@ -48,6 +48,9 @@ function createWebviewBridge(postToPanel) {
             socket.close();
             listeners.clear();
         },
+        isAlive() {
+            return readyState === ws_1.WebSocket.OPEN;
+        },
     };
 }
 //# sourceMappingURL=webviewBridge.js.map

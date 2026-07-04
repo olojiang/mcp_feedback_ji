@@ -30,6 +30,7 @@ function makeProvider(opts = {}) {
     attachWebview: () => ({
       dispose() {},
       deliver() {},
+      isAlive: () => true,
       socket: { on() {} },
     }),
     getDebugInfo: () => ({ workspaces: ['/tmp/ws'] }),
@@ -81,6 +82,7 @@ describe('FeedbackViewProvider sync timing', () => {
             delivered = JSON.parse(raw)
             cb(JSON.parse(raw))
           },
+          isAlive: () => true,
           socket: { on() {} },
         }
         return b
@@ -114,6 +116,56 @@ describe('FeedbackViewProvider sync timing', () => {
     provider.syncServer(48202)
     assert.equal(bridgeDisposed, true)
     assert.equal(posts.filter((m) => m.type === 'please-reconnect').length, 0)
+  })
+})
+
+describe('FeedbackViewProvider dead bridge recovery', () => {
+  it('recreates bridge when isAlive returns false on reconnect', () => {
+    let attachCount = 0
+    let currentAlive = true
+    const posts = []
+    let onMessage = null
+    let visibilityCallback = null
+    const hub = {
+      attachWebview: () => {
+        attachCount++
+        return {
+          dispose() { currentAlive = false },
+          deliver() {},
+          isAlive: () => currentAlive,
+          socket: { on() {} },
+        }
+      },
+      getDebugInfo: () => ({ workspaces: ['/tmp/ws'] }),
+    }
+    const provider = new FeedbackViewProvider(
+      () => '<html></html>',
+      () => 48201,
+      () => '2.5.1-test',
+      () => hub,
+      { fsPath: '/ext' },
+    )
+    const view = {
+      visible: true,
+      webview: {
+        html: '',
+        cspSource: 'csp:',
+        options: {},
+        onDidReceiveMessage: (cb) => { onMessage = cb },
+        postMessage: (msg) => posts.push(msg),
+        asWebviewUri: (uri) => uri,
+      },
+      onDidChangeVisibility: (cb) => { visibilityCallback = cb },
+      onDidDispose: () => {},
+    }
+    provider.resolveWebviewView(view, {}, {})
+    assert.equal(attachCount, 1, 'initial bridge attached')
+
+    currentAlive = false
+    view.visible = true
+    visibilityCallback?.()
+
+    assert.equal(attachCount, 2, 'dead bridge detected and recreated')
   })
 })
 

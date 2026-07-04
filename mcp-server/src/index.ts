@@ -61,9 +61,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: buildToolDefinitions(),
 }));
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
-    return handleToolCall(name, args);
+    return handleToolCall(name, args, {
+        progressToken: extra._meta?.progressToken,
+        sendNotification: extra.sendNotification,
+    });
 });
 
 // ─── Start ────────────────────────────────────────────────

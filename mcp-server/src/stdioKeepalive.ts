@@ -1,4 +1,5 @@
 import { feedbackWaitHeartbeatLine, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
+import { mcpLog } from './logger.js';
 
 export { STDIO_KEEPALIVE_MS };
 
@@ -10,9 +11,11 @@ export function createStdioKeepaliveTick(
     server: StdioKeepaliveServer,
 ): (traceId?: string, projectDirectory?: string) => void {
     return (traceId?: string, projectDirectory?: string) => {
+        const line = feedbackWaitHeartbeatLine(traceId, projectDirectory);
+        mcpLog(`event=stdio_keepalive ${line}`);
         void server.sendLoggingMessage({
             level: 'info',
-            data: feedbackWaitHeartbeatLine(traceId, projectDirectory),
+            data: line,
         }).catch(() => {
             // Client may not subscribe to logging; keepalive is best-effort.
         });

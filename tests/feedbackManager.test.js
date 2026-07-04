@@ -91,6 +91,30 @@ describe('FeedbackManager', () => {
     ])
   })
 
+  it('restoreDetachedSession rehydrates hub restart pending with same session id', async () => {
+    const fm = new FeedbackManager()
+    const restored = fm.restoreDetachedSession({
+      sessionId: 'fb-restored-1',
+      projectDir: '/proj',
+      traceId: 'trace-1',
+      summary: 'still waiting',
+    })
+    assert.equal(restored, true)
+    assert.equal(fm.pendingCount(), 1)
+    assert.equal(fm.pendingSessions()[0].mcp_detached, true)
+
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const reuse = fm.reuseByTraceId(ws2, 'trace-1', 'still waiting')
+    assert.equal(reuse.action, 'reuse')
+    assert.equal(reuse.sessionId, 'fb-restored-1')
+
+    const pendingPromise = fm.promiseForSession('fb-restored-1')
+    assert.equal(fm.resolveBySessionId('fb-restored-1', { feedback: 'ok' }), true)
+    const resolved = await pendingPromise
+    assert.equal(resolved.feedback, 'ok')
+    assert.equal(resolved.transport, ws2)
+  })
+
   it('detachMcpClient marks pending sessions when mcp websocket closes', async () => {
     const fm = new FeedbackManager()
     const ws = { id: 'ws1', readyState: 3 }

@@ -73,6 +73,30 @@ describe('PanelState multi-session', () => {
     assert.equal(state.sessions['fb-2'].waiting, true)
   })
 
+  it('state_sync does not re-open a locally resolved session when server pending is empty', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-resolved',
+      session_label: 'r',
+      summary: 'Question',
+    })
+    state.submitFeedback('done', [], { session_id: 'fb-resolved' })
+    assert.equal(state.sessions['fb-resolved'].waiting, false)
+
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 0,
+      messages: [],
+    })
+    state.reconcileLocalAfterServerSync()
+
+    assert.equal(state.sessions['fb-resolved'].waiting, false)
+  })
+
   it('syncs pending sessions from server state', () => {
     const state = new PanelState()
     const cmds = state.handleMessage({

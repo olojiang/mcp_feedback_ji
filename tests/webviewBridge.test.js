@@ -23,4 +23,19 @@ describe('webviewBridge', () => {
     assert.equal(outbound[0].port, 48201)
     bridge.dispose()
   })
+
+  it('isAlive returns true when open and false after dispose', () => {
+    const bridge = createWebviewBridge(() => {})
+    assert.equal(bridge.isAlive(), true)
+    bridge.dispose()
+    assert.equal(bridge.isAlive(), false)
+  })
+
+  it('silently drops outbound messages after dispose', () => {
+    const outbound = []
+    const bridge = createWebviewBridge((msg) => outbound.push(msg))
+    bridge.dispose()
+    bridge.socket.send(JSON.stringify({ type: 'should_be_dropped' }))
+    assert.equal(outbound.length, 0)
+  })
 })

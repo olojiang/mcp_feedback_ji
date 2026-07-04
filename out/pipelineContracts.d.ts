@@ -6,6 +6,7 @@ export declare const PipelineHop: {
     readonly HUB_BROADCAST: "hub→ui:session_updated";
     readonly UI_RESPONSE: "ui→hub:feedback_response";
     readonly MCP_RESULT: "hub→mcp:feedback_result";
+    readonly SESSION_BOUND: "hub→mcp:session_bound";
     readonly UI_DISPLAYED: "ui→hub:session_displayed";
 };
 export type PipelineHopId = (typeof PipelineHop)[keyof typeof PipelineHop];
