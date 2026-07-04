@@ -18,6 +18,7 @@ exports.RULES_CONTENT = [
     '- If you are about to end your turn and you have NOT called interactive_feedback in this turn, you are NOT done. Call it first.',
     '- MUST use interactive_feedback as your LAST tool call when wrapping up (hand off, summarize, or ask the user).',
     '- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.',
+    '- IMPORTANT: If interactive_feedback returns an error (e.g. "not connected", timeout), do NOT retry. End your turn normally. Retrying wastes Cursor requests.',
     '',
     'You have access to the interactive_feedback MCP tool for communicating with the user:',
     '- Use it to present results, ask questions, or check in with the user.',
