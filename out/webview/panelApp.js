@@ -1684,12 +1684,16 @@
 
     // ── Heartbeat ───────────────────────────────────────
 
-    setInterval(function () {
+    var _heartbeatId = setInterval(function () {
         if (transportReady()) {
             transportSend({ type: 'ping' });
         }
         renderConnectionHealth();
     }, 30000);
+
+    window.addEventListener('pagehide', function () {
+        clearInterval(_heartbeatId);
+    });
 
     // ── Init ────────────────────────────────────────────
 

@@ -86,6 +86,7 @@ class WsHub {
         this.stateSyncFingerprints = new Map();
         this._mcpConnSeq = 0;
         this._mcpConnIds = new WeakMap();
+        this._clipboardHandlers = null;
         this.lastHeartbeatAt = Date.now();
         this.sleepResumeNotifiedAt = 0;
         this.version = version;
@@ -93,6 +94,7 @@ class WsHub {
             writeText: async () => { throw new Error('clipboard port not configured'); },
             readText: async () => '',
         };
+        this._readImageBase64 = options.readImageBase64 ?? clipboardImage_1.readClipboardImageBase64;
         this.feedback = new feedbackManager_1.FeedbackManager();
         this.pending = new pendingManager_1.PendingManager();
         this.timeline = new projectTimeline_1.ProjectTimeline(MESSAGE_CAP);
@@ -345,13 +347,19 @@ class WsHub {
         });
         return client;
     }
+    _getClipboardHandlers() {
+        if (!this._clipboardHandlers) {
+            this._clipboardHandlers = (0, clipboardHandlers_js_1.createClipboardHandlers)({
+                clipboard: this.clipboard,
+                readImageBase64: this._readImageBase64,
+                log: wsLog,
+                send: (targetWs, data) => this._send(targetWs, data),
+            });
+        }
+        return this._clipboardHandlers;
+    }
     _routeMessage(ws, client, msg) {
-        const clipboardHandlers = (0, clipboardHandlers_js_1.createClipboardHandlers)({
-            clipboard: this.clipboard,
-            readImageBase64: clipboardImage_1.readClipboardImageBase64,
-            log: wsLog,
-            send: (targetWs, data) => this._send(targetWs, data),
-        });
+        const clipboardHandlers = this._getClipboardHandlers();
         (0, routeAdapter_1.dispatchRouteMessage)(ws, client, msg, {
             onRegister: (clientType) => {
                 client.clientType = clientType;

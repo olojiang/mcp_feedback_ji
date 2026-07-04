@@ -40,6 +40,7 @@ describe('P5-1 clipboardPort', () => {
         writeText: async () => {},
         readText: async () => 'injected',
       },
+      readImageBase64: async () => null,
     })
     hub.setWorkspaces(['/tmp/clip-test'])
     const port = await hub.start()

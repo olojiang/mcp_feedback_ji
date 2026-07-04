@@ -67,6 +67,7 @@ const MESSAGE_CAP = 500;
 
 export interface WsHubOptions {
     clipboard?: ClipboardPort;
+    readImageBase64?: () => Promise<string | null>;
 }
 
 export class WsHub {
@@ -90,6 +91,7 @@ export class WsHub {
         messageCount: number;
     }>();
     private readonly clipboard: ClipboardPort;
+    private readonly _readImageBase64: () => Promise<string | null>;
     private _mcpConnSeq = 0;
     private readonly _mcpConnIds = new WeakMap<WebSocket, number>();
 
@@ -99,6 +101,7 @@ export class WsHub {
             writeText: async () => { throw new Error('clipboard port not configured'); },
             readText: async () => '',
         };
+        this._readImageBase64 = options.readImageBase64 ?? readClipboardImageBase64;
         this.feedback = new FeedbackManager();
         this.pending = new PendingManager();
         this.timeline = new ProjectTimeline(MESSAGE_CAP);
@@ -380,13 +383,21 @@ export class WsHub {
         return client;
     }
 
+    private _clipboardHandlers: ReturnType<typeof createClipboardHandlers> | null = null;
+    private _getClipboardHandlers() {
+        if (!this._clipboardHandlers) {
+            this._clipboardHandlers = createClipboardHandlers({
+                clipboard: this.clipboard,
+                readImageBase64: this._readImageBase64,
+                log: wsLog,
+                send: (targetWs, data) => this._send(targetWs, data),
+            });
+        }
+        return this._clipboardHandlers;
+    }
+
     private _routeMessage(ws: WebSocket, client: ConnectedClient, msg: WSMessage): void {
-        const clipboardHandlers = createClipboardHandlers({
-            clipboard: this.clipboard,
-            readImageBase64: readClipboardImageBase64,
-            log: wsLog,
-            send: (targetWs, data) => this._send(targetWs, data),
-        });
+        const clipboardHandlers = this._getClipboardHandlers();
         dispatchRouteMessage(ws, client, msg, {
             onRegister: (clientType) => {
                 client.clientType = clientType;

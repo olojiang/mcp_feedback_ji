@@ -110,6 +110,7 @@ class FeedbackViewProvider {
             this._view = null;
             this._bridge?.dispose();
             this._bridge = null;
+            this._stopBridgeBroadcast();
             this._stopHotReload();
         });
     }

@@ -22,9 +22,10 @@ const _tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fvp-test-log-'))
 setWebviewLogDirForTests(_tmpLogDir)
 after(() => { setWebviewLogDirForTests(null); fs.rmSync(_tmpLogDir, { recursive: true, force: true }) })
 
-function makeProvider() {
+function makeProvider(opts = {}) {
   const posts = []
   let onMessage = null
+  let disposeCallback = null
   const hub = {
     attachWebview: () => ({
       dispose() {},
@@ -51,10 +52,10 @@ function makeProvider() {
       asWebviewUri: (uri) => uri,
     },
     onDidChangeVisibility: () => {},
-    onDidDispose: () => {},
+    onDidDispose: (cb) => { disposeCallback = cb },
   }
   provider.resolveWebviewView(view, {}, {})
-  return { provider, posts, onMessage, view }
+  return { provider, posts, onMessage, view, triggerDispose: () => disposeCallback?.() }
 }
 
 describe('FeedbackViewProvider sync timing', () => {
@@ -113,5 +114,16 @@ describe('FeedbackViewProvider sync timing', () => {
     provider.syncServer(48202)
     assert.equal(bridgeDisposed, true)
     assert.equal(posts.filter((m) => m.type === 'please-reconnect').length, 0)
+  })
+})
+
+describe('FeedbackViewProvider dispose cleanup', () => {
+  it('stops bridge broadcast timer on dispose to prevent timer leak', async () => {
+    const { posts, triggerDispose } = makeProvider()
+    const countBefore = posts.filter((m) => m.type === 'bridge-connected').length
+    triggerDispose()
+    await new Promise((r) => setTimeout(r, 1200))
+    const countAfter = posts.filter((m) => m.type === 'bridge-connected').length
+    assert.equal(countAfter, countBefore, 'no new bridge-connected after dispose')
   })
 })

@@ -10,6 +10,7 @@ import { type WebviewBridge } from './webviewBridge';
 import type { ClipboardPort } from '../clipboardPort.js';
 export interface WsHubOptions {
     clipboard?: ClipboardPort;
+    readImageBase64?: () => Promise<string | null>;
 }
 export declare class WsHub {
     private server;
@@ -26,6 +27,7 @@ export declare class WsHub {
     private readonly stateSyncGenerations;
     private readonly stateSyncFingerprints;
     private readonly clipboard;
+    private readonly _readImageBase64;
     private _mcpConnSeq;
     private readonly _mcpConnIds;
     constructor(version?: string, options?: WsHubOptions);
@@ -57,6 +59,8 @@ export declare class WsHub {
     private _registerServer;
     private _handleConnection;
     private _bindClient;
+    private _clipboardHandlers;
+    private _getClipboardHandlers;
     private _routeMessage;
     private _handleFeedbackRequest;
     private _handleFeedbackResponse;

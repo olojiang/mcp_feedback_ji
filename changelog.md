@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.98] - 2026-07-04
+
+### Fix — 架构审查修复
+
+深度架构审查发现并修复 4 个问题。
+
+#### 内存泄漏修复
+- **Bridge broadcast timer leak**: `onDidDispose` 未清理 `_bridgeBroadcastTimer`，webview 关闭后定时器继续执行
+- **Heartbeat interval leak**: `panelApp.js` 30s heartbeat interval 在 `pagehide` 时清理
+
+#### 性能优化
+- **Clipboard handlers 缓存**: `wsHub._routeMessage` 每条消息重复创建 `clipboardHandlers`，改为懒加载单例
+- **Discovery 并行 health check**: `serverDiscovery.ts` 串行 `fetchHealth` 改为 `Promise.all` 并行，减少 MCP 工具调用延迟
+- **WsHub 支持注入 `readImageBase64`**: 解决测试中系统剪贴板干扰导致的 flaky test
+
+### Test
+- 新增 bridge broadcast timer dispose 测试
+- 修复 clipboard_paste 测试（mock `readImageBase64` 避免系统剪贴板干扰）
+- 测试总数 375→376，全部通过
+
 ## [2.5.1-ji.95] - 2026-07-04
 
 ### Feature — 日志可观测性优化

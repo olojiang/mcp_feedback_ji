@@ -27,7 +27,7 @@ describe('wsHub webview handlers', () => {
 
   before(async () => {
     const { WsHub } = require('../out/server/wsHub.js')
-    hub = new WsHub('hub-handlers', { clipboard: testClipboard() })
+    hub = new WsHub('hub-handlers', { clipboard: testClipboard(), readImageBase64: async () => null })
     hub.setWorkspaces(['/tmp/hub-handlers'])
     port = await hub.start()
   })

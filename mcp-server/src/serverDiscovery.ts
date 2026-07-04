@@ -120,6 +120,7 @@ export async function findExtensionServer(
     const candidates: ServerData[] = [];
     const skippedMismatch: string[] = [];
 
+    const aliveEntries: { f: string; entry: ServerData }[] = [];
     for (const f of listJSONFiles(getServersDir())) {
         const filePath = path.join(getServersDir(), f);
         const entry = readJSON<ServerData>(filePath);
@@ -130,8 +131,18 @@ export async function findExtensionServer(
             deleteRegistryFile(filePath);
             continue;
         }
+        aliveEntries.push({ f, entry });
+    }
 
-        const health = await fetchHealth(entry.port);
+    const healthResults = await Promise.all(
+        aliveEntries.map(async ({ f, entry }) => {
+            const health = await fetchHealth(entry.port);
+            return { f, entry, health };
+        })
+    );
+
+    for (const { f, entry, health } of healthResults) {
+        const filePath = path.join(getServersDir(), f);
         if (!health) {
             log(`discover: skip port=${entry.port} source=${f} reason=health_fail`);
             continue;

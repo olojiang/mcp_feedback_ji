@@ -20099,6 +20099,7 @@ var WsHub = class {
     this.stateSyncFingerprints = /* @__PURE__ */ new Map();
     this._mcpConnSeq = 0;
     this._mcpConnIds = /* @__PURE__ */ new WeakMap();
+    this._clipboardHandlers = null;
     this.lastHeartbeatAt = Date.now();
     this.sleepResumeNotifiedAt = 0;
     this.version = version2;
@@ -20108,6 +20109,7 @@ var WsHub = class {
       },
       readText: async () => ""
     };
+    this._readImageBase64 = options.readImageBase64 ?? readClipboardImageBase64;
     this.feedback = new FeedbackManager();
     this.pending = new PendingManager();
     this.timeline = new ProjectTimeline(MESSAGE_CAP);
@@ -20358,13 +20360,19 @@ var WsHub = class {
     });
     return client;
   }
+  _getClipboardHandlers() {
+    if (!this._clipboardHandlers) {
+      this._clipboardHandlers = createClipboardHandlers({
+        clipboard: this.clipboard,
+        readImageBase64: this._readImageBase64,
+        log: wsLog,
+        send: (targetWs, data) => this._send(targetWs, data)
+      });
+    }
+    return this._clipboardHandlers;
+  }
   _routeMessage(ws, client, msg) {
-    const clipboardHandlers = createClipboardHandlers({
-      clipboard: this.clipboard,
-      readImageBase64: readClipboardImageBase64,
-      log: wsLog,
-      send: (targetWs, data) => this._send(targetWs, data)
-    });
+    const clipboardHandlers = this._getClipboardHandlers();
     dispatchRouteMessage(ws, client, msg, {
       onRegister: (clientType) => {
         client.clientType = clientType;
@@ -20932,6 +20940,7 @@ var FeedbackViewProvider = class {
       this._view = null;
       this._bridge?.dispose();
       this._bridge = null;
+      this._stopBridgeBroadcast();
       this._stopHotReload();
     });
   }
