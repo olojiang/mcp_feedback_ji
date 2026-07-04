@@ -142,6 +142,19 @@ stateDiagram-v2
     Pending --> Pending: WS 断开（修复前永久卡住）
 ```
 
+### Bug 4: `_onSessionUpdated` 重复消息 (ji.92 追加修复)
+
+`_onSessionUpdated` 每次收到 `session_updated` 事件都无条件 push AI 消息。
+bridge 重连时同一事件到达多次 → 消息列表出现 3 个一模一样的 AI 消息气泡。
+
+**修复：** 添加与 `_onStateSync` 一致的去重检查：
+
+```javascript
+if (!lastMsg || lastMsg.role !== 'ai' || lastMsg.content !== sumText) {
+    sess.messages.push({ role: 'ai', content: sumText, ... })
+}
+```
+
 ## 已知遗留问题
 
 | 问题 | 类型 | 影响 |

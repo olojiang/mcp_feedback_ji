@@ -367,11 +367,15 @@
       var sess = this.ensureSession(id, msg.session_label, msg.summary, msg.trace_id)
       if (msg.project_directory) sess.projectDirectory = msg.project_directory
       this.activeSessionId = id
-      sess.messages.push({
-        role: 'ai',
-        content: msg.summary || '',
-        timestamp: new Date().toISOString(),
-      })
+      var sumText = msg.summary || ''
+      var lastMsg = sess.messages.length ? sess.messages[sess.messages.length - 1] : null
+      if (!lastMsg || lastMsg.role !== 'ai' || lastMsg.content !== sumText) {
+        sess.messages.push({
+          role: 'ai',
+          content: sumText,
+          timestamp: new Date().toISOString(),
+        })
+      }
 
       var cmds = [
         render('tabs', 'messages', 'pending', 'input', 'staged_images'),
