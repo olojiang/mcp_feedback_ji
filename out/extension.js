@@ -21208,18 +21208,17 @@ var FeedbackViewProvider = class {
     const handlers = {
       ...buildDefaultWebviewHandlers(vscode),
       "webview-ready": (msg, v, ctx) => {
+        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+        const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
         if (this._webviewReadyAcked) {
-          const workspaces2 = this._getHub()?.getDebugInfo()?.workspaces;
-          const projectPath2 = Array.isArray(workspaces2) ? workspaces2[0] : void 0;
-          appendWebviewLog(`webview-ready ignored duplicate phase=${String(msg.phase || "")}`, typeof projectPath2 === "string" ? projectPath2 : void 0);
+          appendWebviewLog(`webview-ready reconnect phase=${String(msg.phase || "")}`, typeof projectPath === "string" ? projectPath : void 0);
+          ctx.connectBridge(v);
           return;
         }
         this._webviewReadyAcked = true;
         ctx.stopBridgeBroadcast?.();
         if (!ctx.hasBridge()) ctx.connectBridge(v);
         else v.webview.postMessage(ctx.bridgePayload());
-        const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
-        const projectPath = Array.isArray(workspaces) ? workspaces[0] : void 0;
         appendWebviewLog(`webview-ready phase=${String(msg.phase || "default")}`, typeof projectPath === "string" ? projectPath : void 0);
       },
       "request-debug": (msg, v, ctx) => {

@@ -984,6 +984,7 @@
                     window.__mcpPendingPasteId = null;
                     window.__mcpWsPastePending = false;
                     clipboardBridgeHealthy = false;
+                    debugLog('requestClipboardPaste: bridge timeout rid=' + rid + ' — fallback to native paste');
                 }
             }, 3000);
             return;
@@ -1475,6 +1476,7 @@
             window.__mcpPendingPasteId = null;
             window.__mcpWsPastePending = false;
             window.__mcpWsPasteAt = 0;
+            if (!clipboardBridgeHealthy) debugLog('clipboard_paste_result: bridge recovered rid=' + msg.request_id);
             clipboardBridgeHealthy = true;
             if (msg.image) {
                 addImage(msg.image);
@@ -1530,6 +1532,7 @@
         var action = bridgeGate.onBridgeConnected();
         window.__mcpBootstrapped = true;
         reconnectAttempts = 0;
+        if (!clipboardBridgeHealthy) debugLog('onBridgeConnected: clipboard bridge restored');
         clipboardBridgeHealthy = true;
         if (action.labels) updateConnectionLabels(msg);
         if (!action.register && !action.stateSync) {

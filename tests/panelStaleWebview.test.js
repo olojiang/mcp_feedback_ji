@@ -26,10 +26,10 @@ describe('panel stale webview fix (ji.75)', () => {
     assert.doesNotMatch(panelApp, /webview-ready posted phase=late/)
   })
 
-  it('feedbackViewProvider dedupes webview-ready', () => {
+  it('feedbackViewProvider handles duplicate webview-ready with reconnect', () => {
     const provider = readFileSync(join(root, 'src/feedbackViewProvider.ts'), 'utf8')
     assert.match(provider, /_webviewReadyAcked/)
-    assert.match(provider, /webview-ready ignored duplicate/)
+    assert.match(provider, /webview-ready reconnect/)
   })
 
   it('extension forces retainContextWhenHidden false', () => {

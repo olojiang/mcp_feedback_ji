@@ -392,18 +392,17 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         const handlers = {
             ...buildDefaultWebviewHandlers(vscode),
             'webview-ready': (msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
+                const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
+                const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
                 if (this._webviewReadyAcked) {
-                    const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
-                    const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
-                    appendWebviewLog(`webview-ready ignored duplicate phase=${String(msg.phase || '')}`, typeof projectPath === 'string' ? projectPath : undefined);
+                    appendWebviewLog(`webview-ready reconnect phase=${String(msg.phase || '')}`, typeof projectPath === 'string' ? projectPath : undefined);
+                    ctx.connectBridge(v);
                     return;
                 }
                 this._webviewReadyAcked = true;
                 ctx.stopBridgeBroadcast?.();
                 if (!ctx.hasBridge()) ctx.connectBridge(v);
                 else v.webview.postMessage(ctx.bridgePayload());
-                const workspaces = this._getHub()?.getDebugInfo()?.workspaces;
-                const projectPath = Array.isArray(workspaces) ? workspaces[0] : undefined;
                 appendWebviewLog(`webview-ready phase=${String(msg.phase || 'default')}`, typeof projectPath === 'string' ? projectPath : undefined);
             },
             'request-debug': (msg: Record<string, unknown>, v: vscode.WebviewView, ctx: import('./webviewMessageRouter.js').WebviewRouterContext) => {
