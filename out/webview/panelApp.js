@@ -901,8 +901,9 @@
 
     // ── Image Handling ──────────────────────────────────
 
+    var clipboardBridgeHealthy = true;
     function extensionClipboardReady() {
-        return transportReady();
+        return transportReady() && clipboardBridgeHealthy;
     }
 
     function extractImagesFromClipboard(clipboardData) {
@@ -982,6 +983,7 @@
                 if (window.__mcpPendingPasteId === rid) {
                     window.__mcpPendingPasteId = null;
                     window.__mcpWsPastePending = false;
+                    clipboardBridgeHealthy = false;
                 }
             }, 3000);
             return;
@@ -1473,6 +1475,7 @@
             window.__mcpPendingPasteId = null;
             window.__mcpWsPastePending = false;
             window.__mcpWsPasteAt = 0;
+            clipboardBridgeHealthy = true;
             if (msg.image) {
                 addImage(msg.image);
                 showToast('Pasted');
@@ -1527,6 +1530,7 @@
         var action = bridgeGate.onBridgeConnected();
         window.__mcpBootstrapped = true;
         reconnectAttempts = 0;
+        clipboardBridgeHealthy = true;
         if (action.labels) updateConnectionLabels(msg);
         if (!action.register && !action.stateSync) {
             vscode.postMessage({ type: 'bridge-ack' });

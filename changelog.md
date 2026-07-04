@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.101] - 2026-07-04
+
+### Fix — 断网重连韧性
+
+修复断网重连场景下的两个关键问题。
+
+#### Steal Cascade 防护（意外 Cursor Request）
+- **问题**：断网重连后 Cursor 以同一 `traceId` 重新调用 `interactive_feedback`，导致新旧 MCP 进程互相 supersede，形成重试级联，消耗额外 Cursor Request
+- **修复 `toolHandlers.ts`**：检测到 `superseded` 错误时立即返回提示信息，不再重试；明确告知 Agent 不要再次调用
+- **修复 `extensionClient.ts`**：收到 `feedback_error` 后立即 `ws.close()` 关闭连接，防止旧连接残留
+
+#### 粘贴韧性（Bridge 异常时 Cmd+V 失效）
+- **问题**：WebSocket bridge 断开或超时后，`extensionClipboardReady()` 仍返回 `true`，拦截了原生粘贴事件，导致无法粘贴文本和图片
+- **修复 `panelApp.js`**：引入 `clipboardBridgeHealthy` 状态跟踪 bridge 剪贴板健康度
+  - 粘贴请求超时 3s → 标记 `clipboardBridgeHealthy = false` → 自动回退原生粘贴
+  - 粘贴成功或 bridge 重连 → 恢复 `clipboardBridgeHealthy = true`
+
+### Test
+- 383 测试全部通过（3 个预存失败与本次修改无关）
+
 ## [2.5.1-ji.98] - 2026-07-04
 
 ### Fix — 架构审查修复

@@ -104,6 +104,7 @@ export function requestFeedback(
                 } else if (msg.type === 'feedback_error') {
                     cleanup();
                     ws.off('message', handler);
+                    try { ws.close(); } catch { /* ignore */ }
                     reject(new Error(msg.error || 'Feedback error'));
                 }
             } catch {

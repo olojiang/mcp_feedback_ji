@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.98`**
+**当前版本：`2.5.1-ji.101`**
 
 ---
 
@@ -19,7 +19,7 @@
 | **Pending / Draft** | 无等待会话时可先攒草稿；Send 时合并 pending 队列并清空 PENDING 条 |
 | **统一日轮转日志** | extension / mcp-server / webview / hooks 四大子系统统一按天轮转 + 7 天清理；heartbeat 对数节流；passthrough 工具静默 |
 | **Deploy 工作流** | `npm run deploy` 自动 bump、编译、同步到 `~/.cursor/extensions/` 并更新 `mcp.json` |
-| **376+ 单测** | 协议路由、剪贴板、多 Tab、pipeline、日志轮转、heartbeat 节流、工具处理器、timer 生命周期等全覆盖 |
+| **383+ 单测** | 协议路由、剪贴板、多 Tab、pipeline、日志轮转、heartbeat 节流、工具处理器、timer 生命周期等全覆盖 |
 
 ### Cursor Request 节省机制
 
@@ -31,9 +31,12 @@
 |----------|------|
 | **`already_pending` 忽略** | 重复的 `interactive_feedback` 调用不完成工具调用，Cursor 不启动新 Agent 轮次 |
 | **`stop` hook + followup_message** | Agent 结束前零成本提醒调用 `interactive_feedback`，不使用 `deny`（deny 会消耗 1 request） |
+| **Supersede 熔断** | 断网重连时新 MCP 进程 supersede 旧进程，旧进程立即返回不重试，阻断级联消耗 |
 | **超时 resolve** | MCP 等待超时返回结果而非抛错，避免 Agent 进入错误处理循环 |
 | **高阈值 enforcement** | 安全网阈值 50 次工具调用 / 15 分钟，正常使用不触发 |
 | **per-workspace 计数** | 多窗口独立计数，互不干扰 |
+| **Supersede 防护** | 断网重连时旧 MCP 进程检测到 `superseded` 立即退出，不触发重试级联 |
+| **粘贴韧性** | Bridge 异常时自动降级原生粘贴（Cmd+V），3s 超时检测 + 重连恢复 |
 | **Sleep 检测** | macOS 合盖恢复时检测并警告用户 |
 | **全部本地通信** | 插件通信走 stdio / localhost WS，网络不稳定不影响 |
 
@@ -87,7 +90,7 @@ npm run deploy            # bump 版本 + 编译 + 同步到已安装扩展
 ## 面板一览
 
 ```
-v2.5.1-ji.90   ● Connected :48201 pid=20071   ↻
+v2.5.1-ji.101  ● Connected :48201 pid=20071   ↻
 Chat fb-abc123  |  Chat fb-def456
 ─────────────────────────────────────────────
   AI  请确认是否继续…
@@ -207,7 +210,7 @@ mcp_feedback_ji/
 ## 测试
 
 ```bash
-npm test                  # 全量（313 tests）
+npm test                  # 全量（383 tests）
 npm run test:coverage     # 覆盖率 gate
 npm run test:e2e          # Playwright
 ```
@@ -224,6 +227,7 @@ npm run test:e2e          # Playwright
 | Deploy 横幅 | 磁盘新版本已 deploy，Extension Host 内存仍是旧版 → Reload |
 | Agent 无反馈进面板 | 查 MCP 日志 `Feedback via extension port=`；检查 `project_mismatch` |
 | 多窗口 Extension unavailable | Agent 应传 `project_directory` 或设 `MCP_FEEDBACK_PROJECT_DIRECTORY` |
+| 面板内无法粘贴 | Bridge 异常时自动降级为原生粘贴；若仍失败可 Reload Window |
 | 截图粘贴失败 | 仅 macOS Extension 读图；查 `clipboard-paste ok image=true` |
 
 **一次完整调用对照**：MCP `feedback_request start` → `discover: accept` → Extension `enqueued session=fb-...` → 面板新 Tab。

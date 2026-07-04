@@ -237,6 +237,17 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         `[MCP Feedback] Extension port=${extensionServer.port} `
                         + `pid=${extensionServer.pid} attempt ${attempt}/${maxAttempts} failed: ${errMsg}`
                     );
+                    if (errMsg.includes('superseded')) {
+                        deps.log('[MCP Feedback] Superseded by another MCP call — not retrying');
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: 'This interactive_feedback call was superseded by a newer invocation. '
+                                    + 'The feedback session is still active in the panel. '
+                                    + 'Do NOT call interactive_feedback again — the active call will deliver the result.',
+                            }],
+                        };
+                    }
                     extensionServer = await rediscoverExtensionServer(deps, project_directory, log);
                 }
             }
