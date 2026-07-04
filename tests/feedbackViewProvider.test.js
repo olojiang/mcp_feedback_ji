@@ -1,7 +1,10 @@
-import { describe, it } from 'node:test'
+import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import Module from 'node:module'
+import os from 'node:os'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const origLoad = Module._load
@@ -13,6 +16,11 @@ Module._load = function (request, parent, isMain) {
 }
 
 const { FeedbackViewProvider } = require('../out/feedbackViewProvider.js')
+const { setWebviewLogDirForTests } = require('../out/webviewLog.js')
+
+const _tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fvp-test-log-'))
+setWebviewLogDirForTests(_tmpLogDir)
+after(() => { setWebviewLogDirForTests(null); fs.rmSync(_tmpLogDir, { recursive: true, force: true }) })
 
 function makeProvider() {
   const posts = []

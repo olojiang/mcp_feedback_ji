@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test'
+import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import Module from 'node:module'
@@ -9,6 +9,11 @@ import path from 'node:path'
 const require = createRequire(import.meta.url)
 const origLoad = Module._load
 const providerPath = require.resolve('../out/feedbackViewProvider.js')
+
+const _tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fvp-msg-test-log-'))
+const { setWebviewLogDirForTests } = require('../out/webviewLog.js')
+setWebviewLogDirForTests(_tmpLogDir)
+after(() => { setWebviewLogDirForTests(null); fs.rmSync(_tmpLogDir, { recursive: true, force: true }) })
 
 function clearProviderCache() {
   for (const key of Object.keys(require.cache)) {

@@ -2,6 +2,9 @@ import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import Module from 'node:module'
+import os from 'node:os'
+import fs from 'node:fs'
+import path from 'node:path'
 import { WebSocket } from 'ws'
 
 const require = createRequire(import.meta.url)
@@ -15,6 +18,17 @@ Module._load = function (request, parent, isMain) {
 
 const { WsHub } = require('../out/server/wsHub.js')
 const { PanelState } = require('../out/webview/panelState.js')
+const { setExtensionLogDirForTests } = require('../out/extensionFileLog.js')
+const { setWebviewLogDirForTests } = require('../out/webviewLog.js')
+
+const _tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trace-pipe-test-log-'))
+setExtensionLogDirForTests(_tmpLogDir)
+setWebviewLogDirForTests(_tmpLogDir)
+after(() => {
+  setExtensionLogDirForTests(null)
+  setWebviewLogDirForTests(null)
+  fs.rmSync(_tmpLogDir, { recursive: true, force: true })
+})
 
 describe('trace_id pipeline integration', () => {
   let hub = null

@@ -4492,13 +4492,17 @@ function createBatchedLogger(filePath, sink) {
 
 // src/extensionFileLog.ts
 var LOG_BASE_NAME = "extension";
+var logDirOverride = null;
+function resolveLogDir() {
+  return logDirOverride ?? getLogsDir();
+}
 var hubLogger = null;
 function getHubLogger() {
   if (!hubLogger) {
     hubLogger = createBatchedLogger("", {
       append(_filePath, line) {
         try {
-          appendDailyRotatingLog(getLogsDir(), LOG_BASE_NAME, line);
+          appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME, line);
         } catch {
         }
       }
@@ -20582,23 +20586,23 @@ var os3 = __toESM(require("os"));
 
 // src/webviewLog.ts
 var LOG_BASE_NAME2 = "webview";
-var logDirOverride = null;
-function resolveLogDir() {
-  return logDirOverride ?? getLogsDir();
+var logDirOverride2 = null;
+function resolveLogDir2() {
+  return logDirOverride2 ?? getLogsDir();
 }
 function appendWebviewLog(msg, projectPath) {
   try {
     const prefix = projectPath ? `[${projectPath}] ` : "";
     const line = `[${(/* @__PURE__ */ new Date()).toISOString()}] ${prefix}${msg}`;
-    appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME2, line);
+    appendDailyRotatingLog(resolveLogDir2(), LOG_BASE_NAME2, line);
   } catch {
   }
 }
 function webviewLogPath() {
-  return dailyLogFilePath(resolveLogDir(), LOG_BASE_NAME2, localDateKey());
+  return dailyLogFilePath(resolveLogDir2(), LOG_BASE_NAME2, localDateKey());
 }
 function truncateWebviewLog() {
-  return truncateDailyLog(resolveLogDir(), LOG_BASE_NAME2);
+  return truncateDailyLog(resolveLogDir2(), LOG_BASE_NAME2);
 }
 
 // src/logPaths.ts

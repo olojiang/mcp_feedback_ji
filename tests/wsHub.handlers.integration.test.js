@@ -7,11 +7,14 @@ import path from 'node:path'
 import { WebSocket } from 'ws'
 
 const require = createRequire(import.meta.url)
-const LOG_PATH = path.join(
-  process.env.MCP_FEEDBACK_CONFIG_DIR || path.join(os.homedir(), '.config', 'mcp-feedback-enhanced'),
-  'logs',
-  'extension.log',
-)
+const { setExtensionLogDirForTests } = require('../out/extensionFileLog.js')
+const { setWebviewLogDirForTests } = require('../out/webviewLog.js')
+
+const _tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-hub-test-log-'))
+setExtensionLogDirForTests(_tmpLogDir)
+setWebviewLogDirForTests(_tmpLogDir)
+
+const LOG_PATH = path.join(_tmpLogDir, 'extension.log')
 
 function testClipboard() {
   const { createTestClipboard } = require('../out/testClipboard.js')
@@ -32,6 +35,9 @@ describe('wsHub webview handlers', () => {
   after(async () => {
     if (hub) await hub.stop()
     hub = null
+    setExtensionLogDirForTests(null)
+    setWebviewLogDirForTests(null)
+    fs.rmSync(_tmpLogDir, { recursive: true, force: true })
   })
 
   it('clipboard_write responds with clipboard_write_ok', async () => {

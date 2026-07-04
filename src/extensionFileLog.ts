@@ -4,6 +4,17 @@ import { createBatchedLogger, formatStructuredLine, type LogComponent, type Stru
 
 const LOG_BASE_NAME = 'extension';
 
+let logDirOverride: string | null = null;
+
+/** Test hook: redirect extension logs to a temp directory. */
+export function setExtensionLogDirForTests(dir: string | null): void {
+    logDirOverride = dir;
+}
+
+function resolveLogDir(): string {
+    return logDirOverride ?? getLogsDir();
+}
+
 let hubLogger: ReturnType<typeof createBatchedLogger> | null = null;
 
 function getHubLogger() {
@@ -11,7 +22,7 @@ function getHubLogger() {
         hubLogger = createBatchedLogger('', {
             append(_filePath, line) {
                 try {
-                    appendDailyRotatingLog(getLogsDir(), LOG_BASE_NAME, line);
+                    appendDailyRotatingLog(resolveLogDir(), LOG_BASE_NAME, line);
                 } catch { /* ignore */ }
             },
         });
