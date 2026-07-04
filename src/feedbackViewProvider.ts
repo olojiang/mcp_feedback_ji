@@ -316,7 +316,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         this._bridgeBroadcastTimer = setInterval(() => {
             post();
             attempts += 1;
-            if (attempts >= 30 && this._bridgeBroadcastTimer) {
+            if (attempts >= 6 && this._bridgeBroadcastTimer) {
                 clearInterval(this._bridgeBroadcastTimer);
                 this._bridgeBroadcastTimer = undefined;
             }

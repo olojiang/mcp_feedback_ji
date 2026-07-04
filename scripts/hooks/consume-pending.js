@@ -72,7 +72,10 @@ async function main() {
     writeAgentContext(workspaceRoots, { traceId: traceId });
     var convId = (input.conversation_id || '').slice(0, 8);
     var genId = (input.generation_id || '').slice(0, 8);
-    log(hook + ': tool=' + toolName + ' conv=' + convId + ' gen=' + genId + ' loop=' + loopCount);
+    var isPassthrough = PASSTHROUGH_TOOLS.some(function (t) { return (toolName || '').toLowerCase() === t; });
+    if (!isPassthrough) {
+        log(hook + ': tool=' + toolName + ' conv=' + convId + ' gen=' + genId + ' loop=' + loopCount);
+    }
 
     if (hook === 'stop') {
         log('stop: noop — disabled to prevent followup_message loop (status=' + (input.status || '') + ')');
@@ -81,9 +84,9 @@ async function main() {
     }
 
     if (isAllowlisted(toolName)) {
-        log('  allowlisted tool=' + toolName);
+        if (!isPassthrough) log('  allowlisted tool=' + toolName);
         updateCounter(toolName);
-        output({});
+        output({}, isPassthrough);
         return;
     }
 

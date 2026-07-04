@@ -38,7 +38,7 @@ function readJSON<T>(filePath: string): T | null {
 function listJSONFiles(dir: string): string[] {
     try {
         if (!fs.existsSync(dir)) return [];
-        return fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+        return fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !f.startsWith('_'));
     } catch {
         return [];
     }

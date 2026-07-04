@@ -69,8 +69,8 @@ function log(msg) {
     } catch (e) {}
 }
 
-function output(obj) {
-    log('  -> output: ' + JSON.stringify(obj).slice(0, 300));
+function output(obj, quiet) {
+    if (!quiet) log('  -> output: ' + JSON.stringify(obj).slice(0, 300));
     process.stdout.write(JSON.stringify(obj));
 }
 

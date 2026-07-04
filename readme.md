@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.90`**
+**当前版本：`2.5.1-ji.95`**
 
 ---
 
@@ -17,9 +17,9 @@
 | **连接状态可见** | 顶部显示 `v版本 ● Connected :端口 pid=进程号`；版本 skew 横幅提示 Reload |
 | **剪贴板与截图** | 面板内复制/粘贴；macOS 支持截图 Cmd+V 读图（Extension Host 侧 `pbpaste` + NSPasteboard） |
 | **Pending / Draft** | 无等待会话时可先攒草稿；Send 时合并 pending 队列并清空 PENDING 条 |
-| **按天轮转日志** | `webview-YYYY-MM-DD.log` 保留 7 天；`webview.log` 为当天别名；支持一键清空 |
+| **统一日轮转日志** | extension / mcp-server / webview / hooks 四大子系统统一按天轮转 + 7 天清理；heartbeat 对数节流；passthrough 工具静默 |
 | **Deploy 工作流** | `npm run deploy` 自动 bump、编译、同步到 `~/.cursor/extensions/` 并更新 `mcp.json` |
-| **312+ 单测** | 协议路由、剪贴板、多 Tab、pipeline、E2E 等全覆盖 |
+| **374+ 单测** | 协议路由、剪贴板、多 Tab、pipeline、日志轮转、heartbeat 节流、工具处理器等全覆盖 |
 
 ### Cursor Request 节省机制
 

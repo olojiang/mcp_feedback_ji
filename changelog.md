@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.95] - 2026-07-04
+
+### Feature — 日志可观测性优化
+
+全面改善四大日志子系统（extension / mcp-server / webview / hooks）的信噪比，消除三大日志噪声源。
+
+#### Bridge 广播风暴修复
+- **`_broadcastBridgeConnected` 最大重试 30→6**: 配合 `bridge-ack` 立即停止，最差 3 秒内结束（原 15 秒）
+- webview 日志 `onBridgeConnected` 行数预期 ~372 行/天 → ~10 行/天
+
+#### Discovery 噪声过滤
+- **`listJSONFiles` 过滤 `_` 前缀**: `_instance.lock.json` 等内部文件不再被当作服务注册处理
+- 消除每次请求 ~96 条无用日志
+
+#### Hooks 日志静默 passthrough 工具
+- **识别 passthrough 工具**（Read/Grep/Glob/SemanticSearch 等）跳过 header + allowlisted + output 日志
+- 仅保留计数器更新（enforcement 机制不受影响）
+- hooks.log 预期 ~32K 行/天 → ~5K 行/天
+
+### Test
+- 新增 `toolHandlers.test.js`：10 个测试覆盖 MCP 工具核心路径（依赖注入、tool definitions、state handling）
+- 新增 `hookUtils.test.js`：12 个测试覆盖 hook 工具函数（findServer、readFeedbackState、log rotation）
+- 测试总数 312→374（+62），全部通过
+
+### 文档
+- 新增 `local_docs/fix_log_0704.md`：日志可观测性优化完整文档（含 3 个 Mermaid 图）
+
 ## [2.5.1-ji.90] - 2026-07-04
 
 ### Feature — Cursor Request 零浪费保护
