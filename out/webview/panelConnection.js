@@ -23,9 +23,11 @@
         state.sessionOrder,
         pendingList,
       )
+      var lastHubActivityAt = helpers.getLastHubActivityAt ? helpers.getLastHubActivityAt() : 0
+      var lastHealthyHubAt = Math.max(helpers.getLastPongAt() || 0, lastHubActivityAt || 0)
       var pingStale = bridgeGate.isReady()
-        && helpers.getLastPongAt() > 0
-        && (Date.now() - helpers.getLastPongAt() > helpers.PING_STALE_MS)
+        && lastHealthyHubAt > 0
+        && (Date.now() - lastHealthyHubAt > helpers.PING_STALE_MS)
       var hubPidMismatch = !!(state.hubSnapshot && helpers.getConnectedHubPid()
         && state.hubSnapshot.pid && helpers.getConnectedHubPid() !== state.hubSnapshot.pid)
       var health = PS.ConnectionHealth.evaluate({

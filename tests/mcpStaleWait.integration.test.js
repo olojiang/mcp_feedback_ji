@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import Module from 'node:module'
 import { WebSocket } from 'ws'
+import { installIsolatedConfig } from './helpers/isolatedConfig.js'
 
 const require = createRequire(import.meta.url)
+installIsolatedConfig('mcp-feedback-stale-wait-')
 const origLoad = Module._load
 
 function vscodeStub() {

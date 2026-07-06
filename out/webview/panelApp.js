@@ -149,6 +149,7 @@
     var userPingPending = false;
     var userPingTimer = null;
     var lastPongAt = 0;
+    var lastHubActivityAt = 0;
     var connectedHubPid = null;
     var agentResumeWatchTimer = null;
 
@@ -532,6 +533,7 @@
             helpers: {
                 PING_STALE_MS: PING_STALE_MS,
                 getLastPongAt: function () { return lastPongAt; },
+                getLastHubActivityAt: function () { return lastHubActivityAt; },
                 getConnectedHubPid: function () { return connectedHubPid; },
                 getLastExtensionDebugReport: function () { return lastExtensionDebugReport; },
                 getWsPort: getWsPort,
@@ -1521,8 +1523,9 @@
 
     function handleProtocolMessage(msg) {
         if (!msg || !msg.type) return;
+        lastHubActivityAt = Date.now();
         if (msg.type === 'pong') {
-            lastPongAt = Date.now();
+            lastPongAt = lastHubActivityAt;
             if (msg.hub) applyHubSnapshot(msg.hub);
             finishUserPing(msg.body);
             exec(state.handleMessage(msg));

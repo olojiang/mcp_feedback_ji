@@ -6,8 +6,10 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import { WebSocket } from 'ws'
+import { installIsolatedConfig } from './helpers/isolatedConfig.js'
 
 const require = createRequire(import.meta.url)
+installIsolatedConfig('mcp-feedback-trace-pipeline-')
 const origLoad = Module._load
 Module._load = function (request, parent, isMain) {
   if (request === 'vscode') {

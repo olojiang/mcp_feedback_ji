@@ -2,8 +2,10 @@ import { describe, it, mock, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { WebSocket } from 'ws'
+import { installIsolatedConfig } from './helpers/isolatedConfig.js'
 
 const require = createRequire(import.meta.url)
+installIsolatedConfig('mcp-feedback-p569-')
 
 describe('P5-1 clipboardPort', () => {
   it('createClipboardHandlers uses injected port without vscode', async () => {

@@ -70,4 +70,61 @@ describe('panelConnection createConnectionRenderer', () => {
     assert.equal(second.skipped, true)
     assert.equal(setCalls, 1)
   })
+
+  it('does not report ping stale when a recent hub message was received after the last pong', () => {
+    const mod = loadModule()
+    const now = Date.now()
+    var evaluatedPingStale = null
+    var renderer = mod.createConnectionRenderer({
+      PS: {
+        PanelState: {
+          buildHealthSignature: (h, extras) => JSON.stringify({ h, extras }),
+          shouldSkipHealthRender: () => false,
+          formatConnectionStatusLabel: (level, pid) => (pid ? level + ' pid=' + pid : level),
+        },
+        ConnectionHealth: {
+          countStaleLocalWaiting: () => 0,
+          evaluate: (input) => {
+            evaluatedPingStale = input.pingStale
+            return {
+              level: input.pingStale ? 'degraded' : 'ok',
+              label: input.pingStale ? 'Degraded' : 'Connected',
+              detail: input.pingStale ? 'Hub ping timeout' : 'Agent: live',
+              portPid: '',
+              issues: input.pingStale ? ['Hub ping timeout'] : [],
+            }
+          },
+        },
+      },
+      state: {
+        sessions: {},
+        sessionOrder: [],
+        lastPendingSessionIds: [],
+        waitingCount: 0,
+        hubSnapshot: { port: 48201, pid: 1 },
+        routingMismatch: null,
+      },
+      bridgeGate: { isReady: () => true },
+      elements: {
+        connectionDetailEl: { textContent: '', dataset: {}, title: '' },
+        wsPortEl: { textContent: '' },
+      },
+      helpers: {
+        PING_STALE_MS: 45000,
+        getLastPongAt: () => now - 120000,
+        getLastHubActivityAt: () => now,
+        getConnectedHubPid: () => 1,
+        getLastExtensionDebugReport: () => null,
+        getWsPort: () => '48201',
+        setWsStatus: () => {},
+        showVersionSkewBanner: () => {},
+        updateWaitingBadge: () => {},
+        showRoutingBanner: () => {},
+      },
+    })
+
+    var result = renderer.render()
+    assert.equal(evaluatedPingStale, false)
+    assert.equal(result.health.level, 'ok')
+  })
 })

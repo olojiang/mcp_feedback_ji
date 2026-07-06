@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import Module from 'node:module'
 import { WebSocket } from 'ws'
+import { installIsolatedConfig } from './helpers/isolatedConfig.js'
 
 const require = createRequire(import.meta.url)
+installIsolatedConfig('mcp-feedback-timing-')
 const origLoad = Module._load
 Module._load = function (request, parent, isMain) {
   if (request === 'vscode') {

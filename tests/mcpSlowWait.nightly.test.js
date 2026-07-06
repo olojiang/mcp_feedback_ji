@@ -7,8 +7,10 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import Module from 'node:module'
 import { WebSocket } from 'ws'
+import { installIsolatedConfig } from './helpers/isolatedConfig.js'
 
 const require = createRequire(import.meta.url)
+installIsolatedConfig('mcp-feedback-slow-wait-')
 const origLoad = Module._load
 const SLOW = process.env.MCP_SLOW_TESTS === '1'
 
