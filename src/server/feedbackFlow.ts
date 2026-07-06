@@ -29,6 +29,7 @@ interface FeedbackFlowDeps {
         traceId?: string,
     ) => void;
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
+    broadcastFeedbackUndelivered?: (feedback: string, sessionId: string, detail: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
     sendResult: (ws: WebSocket, result: { status?: string; feedback: string; images?: string[]; session_id?: string }) => void;
@@ -353,7 +354,15 @@ export class FeedbackFlow {
                 );
                 this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
                 this.deps.queueAsPending(resolved.feedback, resolved.images);
-                this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+                if (this.deps.broadcastFeedbackUndelivered) {
+                    this.deps.broadcastFeedbackUndelivered(
+                        resolved.feedback,
+                        sessionId,
+                        'Cursor Agent 链接已断 — 回复已存入队列，请 toggle MCP',
+                    );
+                } else {
+                    this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+                }
                 this.deps.onFeedbackResolved?.();
                 return;
             }

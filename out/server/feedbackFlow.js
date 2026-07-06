@@ -244,7 +244,12 @@ class FeedbackFlow {
                 this._notifyAgentTurnEnded(sessionId, 'link_lost', 'Cursor Agent 链接已断，回复已存入队列 — Settings → MCP toggle off/on', this.deps.feedback.waitMetaForSession(sessionId)?.traceId);
                 this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
                 this.deps.queueAsPending(resolved.feedback, resolved.images);
-                this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+                if (this.deps.broadcastFeedbackUndelivered) {
+                    this.deps.broadcastFeedbackUndelivered(resolved.feedback, sessionId, 'Cursor Agent 链接已断 — 回复已存入队列，请 toggle MCP');
+                }
+                else {
+                    this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+                }
                 this.deps.onFeedbackResolved?.();
                 return;
             }

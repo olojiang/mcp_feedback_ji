@@ -247,6 +247,8 @@
           return this._onSessionUpdated(msg)
         case 'feedback_submitted':
           return this._onFeedbackSubmitted(msg)
+        case 'feedback_undelivered':
+          return this._onFeedbackUndelivered(msg)
         case 'pending_delivered':
           return this._onPendingDelivered(msg)
         case 'pending_synced':
@@ -266,6 +268,30 @@
       var ids = this.lastPendingSessionIds || []
       if (ids.indexOf(id) < 0) {
         this.lastPendingSessionIds = ids.concat([id])
+      }
+    }
+
+    _sessionLinkLost(sess) {
+      if (!sess || !sess.id || !sess.waiting) return false
+      if (sess.mcpDetached || sess.cursorEnded) return true
+      var hub = this.hubSnapshot
+      if (!hub || !hub.mcp_detached_count) return false
+      var ids = this.lastPendingSessionIds || []
+      return ids.indexOf(sess.id) >= 0
+    }
+
+    _syncDetachedFromHub() {
+      var hub = this.hubSnapshot
+      if (!hub || !hub.mcp_detached_count) return
+      var ids = this.lastPendingSessionIds || []
+      for (var i = 0; i < ids.length; i++) {
+        var sess = this.sessions[ids[i]]
+        if (sess && sess.waiting) {
+          sess.mcpDetached = true
+          if (!sess.statusDetail) {
+            sess.statusDetail = 'Cursor Agent 已断开 — 回复将存入队列，请 toggle MCP'
+          }
+        }
       }
     }
 
@@ -314,6 +340,7 @@
         if (!msg.hub_unchanged && msg.hub) {
           this.hubSnapshot = msg.hub
         }
+        this._syncDetachedFromHub()
         this._reconcileWaitingWithServer(
           (this.lastPendingSessionIds || []).map(function (id) {
             return { id: id, waiting: true }
@@ -360,6 +387,7 @@
       this.globalPendingImages = msg.pending_images || []
       this.hubSnapshot = msg.hub || null
       this.lastPendingSessionIds = acceptedPending.map(function (p) { return p.id })
+      this._syncDetachedFromHub()
       return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
     }
 
@@ -412,7 +440,8 @@
           if (restored.label) local.label = restored.label
           if (restored.traceId) local.traceId = restored.traceId
           if (restored.projectDirectory) local.projectDirectory = restored.projectDirectory
-          if (restored.mcpDetached) local.mcpDetached = restored.mcpDetached
+          local.mcpDetached = !!restored.mcpDetached
+          if (restored.statusDetail) local.statusDetail = restored.statusDetail
           if (restored.messages && restored.messages.length) {
             var localMsgs = local.messages || []
             if (!localMsgs.length || restored.messages.length > localMsgs.length) {
@@ -425,6 +454,7 @@
       if (latestId && this.sessions[latestId] && this.sessions[latestId].waiting) {
         this.activeSessionId = latestId
       }
+      this._syncDetachedFromHub()
     }
 
     /** After server state_sync + optional localStorage merge, drop stale waiting flags. */
@@ -437,6 +467,7 @@
         if (this.sessions[sid]) this.sessions[sid].waiting = true
       }
       this._reconcileWaitingWithServer(pendingList)
+      this._syncDetachedFromHub()
       return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
     }
 
@@ -544,6 +575,21 @@
       return [render('tabs', 'messages', 'input', 'staged_images'), dom('save_state')]
     }
 
+    _onFeedbackUndelivered(msg) {
+      var id = msg.session_id || this.activeSessionId
+      if (!id || !this.sessions[id]) return []
+      var sess = this.sessions[id]
+      sess.mcpDetached = true
+      sess.cursorEnded = true
+      sess.waiting = true
+      if (msg.detail) sess.statusDetail = msg.detail
+      return [
+        notify({ type: 'agent-link-lost-queued', session_id: id, detail: sess.statusDetail }),
+        render('tabs', 'messages', 'pending', 'input', 'staged_images'),
+        dom('save_state'),
+      ]
+    }
+
     _onPendingDelivered(msg) {
       var id = this.activeSessionId
       if (!id || !this.sessions[id]) return []
@@ -611,7 +657,7 @@
         images: mergedImages.length > 0 ? mergedImages : undefined,
       })
 
-      if (sess.mcpDetached || sess.cursorEnded) {
+      if (sess.mcpDetached || sess.cursorEnded || this._sessionLinkLost(sess)) {
         if (mergedText && mergedText.trim()) {
           this.globalPendingQueue.push(mergedText.trim())
         }
@@ -637,8 +683,6 @@
         detachedCmds.push(dom('save_state'))
         return detachedCmds
       }
-
-      sess.waiting = false
 
       var cmds = [
         wsSend({
@@ -821,9 +865,11 @@
     getUIState() {
       var active = this.getActiveSession()
       var waiting = !!(active && active.waiting)
+      var linkLost = !!(active && active.waiting && this._sessionLinkLost(active))
       return {
-        buttonMode: waiting ? 'send' : 'queue',
+        buttonMode: linkLost ? 'queue_lost' : (waiting ? 'send' : 'queue'),
         isWaiting: waiting,
+        linkLost: linkLost,
         waitingCount: this.waitingCount,
         activeSessionId: this.activeSessionId,
       }

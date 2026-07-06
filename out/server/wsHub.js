@@ -116,6 +116,14 @@ class WsHub {
                     ...(sessionId ? { session_id: sessionId } : {}),
                 });
             },
+            broadcastFeedbackUndelivered: (feedback, sessionId, detail) => {
+                this._broadcastToWebviews({
+                    type: 'feedback_undelivered',
+                    feedback,
+                    detail,
+                    session_id: sessionId,
+                });
+            },
             clearPending: () => {
                 this.pending.clear();
                 this._broadcastToWebviews({ type: 'pending_synced', comments: [], images: [] });
@@ -685,6 +693,14 @@ class WsHub {
                 ...(session.projectDir ? { project_directory: session.projectDir } : {}),
                 ...(session.traceId ? { trace_id: session.traceId } : {}),
             });
+            if (session.mcp_detached) {
+                this._send(ws, (0, agentTurnStatus_js_1.agentTurnStatusPayload)({
+                    sessionId: session.id,
+                    reason: 'link_lost',
+                    detail: 'Cursor Agent 已断开 — 回复将存入队列，请 toggle MCP',
+                    traceId: session.traceId,
+                }));
+            }
         }
     }
     _emitAgentTurnStatus(sessionId, reason, detail, traceId) {

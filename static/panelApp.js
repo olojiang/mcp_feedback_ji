@@ -886,6 +886,10 @@
             sendBtn.disabled = !hasContent;
             sendBtn.textContent = ui.waitingCount > 1 ? 'Send (' + ui.waitingCount + ' waiting)' : 'Send';
             sendBtn.className = 'send-btn';
+        } else if (ui.buttonMode === 'queue_lost') {
+            sendBtn.disabled = !hasContent;
+            sendBtn.textContent = 'Queue (link lost)';
+            sendBtn.className = 'send-btn queue-mode queue-lost-mode';
         } else {
             sendBtn.disabled = !hasContent;
             sendBtn.textContent = 'Queue';

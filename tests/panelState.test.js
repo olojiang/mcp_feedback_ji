@@ -69,6 +69,8 @@ describe('PanelState multi-session', () => {
     assert.equal(ws.message.session_id, 'fb-1')
     assert.equal(ws.message.feedback, 'Reply to A first')
     assert.equal(ws.message.project_directory, '/proj/a')
+    assert.equal(state.sessions['fb-1'].waiting, true)
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-1', feedback: 'Reply to A first' })
     assert.equal(state.sessions['fb-1'].waiting, false)
     assert.equal(state.sessions['fb-2'].waiting, true)
   })
@@ -82,6 +84,7 @@ describe('PanelState multi-session', () => {
       summary: 'Question',
     })
     state.submitFeedback('done', [], { session_id: 'fb-resolved' })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-resolved', feedback: 'done' })
     assert.equal(state.sessions['fb-resolved'].waiting, false)
 
     state.handleMessage({
@@ -270,6 +273,7 @@ describe('PanelState multi-session', () => {
     const state = new PanelState()
     state.handleMessage({ type: 'session_updated', session_id: 'fb-old', summary: 'Old' })
     state.submitFeedback('done', [], { session_id: 'fb-old' })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-old', feedback: 'done' })
     state.handleMessage({ type: 'session_updated', session_id: 'fb-new', summary: 'New' })
     state.setActiveSession('fb-old')
 
@@ -370,14 +374,53 @@ describe('PanelState multi-session', () => {
       }],
       pending_comments: [],
       pending_images: [],
-      hub: { workspaces: ['/proj'] },
+      hub: { workspaces: ['/proj'], mcp_detached_count: 1, pending_count: 1, mcp_servers: 0 },
     })
+    assert.equal(state.getUIState().buttonMode, 'queue_lost')
     const cmds = state.submitFeedback('hello', [])
     const qp = cmds.find((c) => c.type === 'ws_send' && c.message.type === 'queue-pending')
     assert.ok(qp)
     assert.ok(qp.message.comments.includes('hello'))
     assert.ok(cmds.some((c) => c.type === 'notify' && c.message.type === 'agent-link-lost-queued'))
     assert.equal(state.sessions['fb-detached'].mcpDetached, true)
+  })
+
+  it('syncs mcp_detached from hub snapshot when panel missed agent_turn_status', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [{
+        id: 'fb-detached',
+        label: 'd',
+        summary: 'wait',
+        waiting: true,
+      }],
+      pending_comments: [],
+      pending_images: [],
+      hub: { workspaces: ['/proj'], mcp_detached_count: 1, pending_count: 1, mcp_servers: 0 },
+    })
+    assert.equal(state.sessions['fb-detached'].mcpDetached, true)
+    assert.equal(state.getUIState().buttonMode, 'queue_lost')
+  })
+
+  it('feedback_undelivered reopens waiting tab with link lost state', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-x',
+      summary: 'Question',
+    })
+    state.submitFeedback('my reply', [], { session_id: 'fb-x' })
+    assert.equal(state.sessions['fb-x'].waiting, true)
+    state.handleMessage({
+      type: 'feedback_undelivered',
+      session_id: 'fb-x',
+      feedback: 'my reply',
+      detail: 'Agent link lost',
+    })
+    assert.equal(state.sessions['fb-x'].waiting, true)
+    assert.equal(state.sessions['fb-x'].mcpDetached, true)
+    assert.equal(state.getUIState().buttonMode, 'queue_lost')
   })
 
   it('agent_turn_status marks session cursorEnded and keeps waiting', () => {

@@ -10,6 +10,7 @@ interface FeedbackFlowDeps {
     addMessage: (msg: ConversationMessage) => void;
     broadcastSessionUpdated: (summary: string, sessionId?: string, projectDirectory?: string, traceId?: string) => void;
     broadcastFeedbackSubmitted: (feedback?: string, sessionId?: string) => void;
+    broadcastFeedbackUndelivered?: (feedback: string, sessionId: string, detail: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
     sendResult: (ws: WebSocket, result: {

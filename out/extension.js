@@ -5152,7 +5152,15 @@ var FeedbackFlow = class {
         );
         this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
         this.deps.queueAsPending(resolved.feedback, resolved.images);
-        this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+        if (this.deps.broadcastFeedbackUndelivered) {
+          this.deps.broadcastFeedbackUndelivered(
+            resolved.feedback,
+            sessionId,
+            "Cursor Agent \u94FE\u63A5\u5DF2\u65AD \u2014 \u56DE\u590D\u5DF2\u5B58\u5165\u961F\u5217\uFF0C\u8BF7 toggle MCP"
+          );
+        } else {
+          this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
+        }
         this.deps.onFeedbackResolved?.();
         return;
       }
@@ -20433,6 +20441,14 @@ var WsHub = class {
           ...sessionId ? { session_id: sessionId } : {}
         });
       },
+      broadcastFeedbackUndelivered: (feedback, sessionId, detail) => {
+        this._broadcastToWebviews({
+          type: "feedback_undelivered",
+          feedback,
+          detail,
+          session_id: sessionId
+        });
+      },
       clearPending: () => {
         this.pending.clear();
         this._broadcastToWebviews({ type: "pending_synced", comments: [], images: [] });
@@ -21007,6 +21023,14 @@ var WsHub = class {
         ...session.projectDir ? { project_directory: session.projectDir } : {},
         ...session.traceId ? { trace_id: session.traceId } : {}
       });
+      if (session.mcp_detached) {
+        this._send(ws, agentTurnStatusPayload({
+          sessionId: session.id,
+          reason: "link_lost",
+          detail: "Cursor Agent \u5DF2\u65AD\u5F00 \u2014 \u56DE\u590D\u5C06\u5B58\u5165\u961F\u5217\uFF0C\u8BF7 toggle MCP",
+          traceId: session.traceId
+        }));
+      }
     }
   }
   _emitAgentTurnStatus(sessionId, reason, detail, traceId) {
