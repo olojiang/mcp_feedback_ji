@@ -61,4 +61,10 @@ describe('pendingSessionStore', () => {
     writePersistedPendingSessions(['/proj/a'], [{ id: 'fb-a', summary: 'q' }])
     assert.equal(readPersistedPendingSessions(['/proj/b']), null)
   })
+
+  it('uses all workspace roots in the pending filename', () => {
+    const onlyPrimary = pendingSessionsFilePath(['/proj/a'])
+    const multiRoot = pendingSessionsFilePath(['/proj/a', '/proj/b'])
+    assert.notEqual(onlyPrimary, multiRoot)
+  })
 })

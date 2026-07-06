@@ -3820,14 +3820,17 @@ function readServerByHash(hash2) {
 function writeServer(hash2, data) {
   safeWriteJSON(path2.join(getServersDir(), `${hash2}.json`), data);
 }
-function readRegistryLock() {
-  return safeReadJSON(path2.join(getServersDir(), "_instance.lock.json"));
+function registryLockFileName(hash2) {
+  return hash2 ? `_instance.${hash2}.lock.json` : "_instance.lock.json";
 }
-function writeRegistryLock(lock) {
-  safeWriteJSON(path2.join(getServersDir(), "_instance.lock.json"), lock);
+function readRegistryLock(hash2) {
+  return safeReadJSON(path2.join(getServersDir(), registryLockFileName(hash2)));
 }
-function clearRegistryLock() {
-  safeDelete(path2.join(getServersDir(), "_instance.lock.json"));
+function writeRegistryLock(lock, hash2) {
+  safeWriteJSON(path2.join(getServersDir(), registryLockFileName(hash2)), lock);
+}
+function clearRegistryLock(hash2) {
+  safeDelete(path2.join(getServersDir(), registryLockFileName(hash2)));
 }
 function deleteServerByHash(hash2) {
   return safeDelete(path2.join(getServersDir(), `${hash2}.json`));
@@ -3900,28 +3903,39 @@ function canAcquireRegistryLock(existing, owner, isAlive, now, staleMs = 1e4) {
 }
 function writeServersBatch(deps) {
   const now = deps.now ?? Date.now();
-  const lock = {
-    pid: deps.info.pid,
-    port: deps.info.port,
-    acquired_at: now,
-    workspaces: deps.workspaces.slice()
-  };
-  const existing = deps.readLock();
-  if (!canAcquireRegistryLock(existing, lock, deps.isAlive, now)) {
-    return { ok: false, reason: "registry_locked", hashes: [] };
+  const entries = deps.workspaces.map((workspace3) => ({
+    workspace: workspace3,
+    hash: deps.projectHash(workspace3)
+  }));
+  for (const entry of entries) {
+    const lock = {
+      pid: deps.info.pid,
+      port: deps.info.port,
+      acquired_at: now,
+      workspaces: [entry.workspace]
+    };
+    const existing = deps.readLock(entry.hash);
+    if (!canAcquireRegistryLock(existing, lock, deps.isAlive, now)) {
+      return { ok: false, reason: "registry_locked", hashes: [] };
+    }
   }
-  deps.writeLock(lock);
   const hashes = [];
-  for (const ws of deps.workspaces) {
-    const hash2 = deps.projectHash(ws);
-    deps.writeServer(hash2, {
+  for (const entry of entries) {
+    const lock = {
+      pid: deps.info.pid,
+      port: deps.info.port,
+      acquired_at: now,
+      workspaces: [entry.workspace]
+    };
+    deps.writeLock(entry.hash, lock);
+    deps.writeServer(entry.hash, {
       port: deps.info.port,
       pid: deps.info.pid,
       version: deps.info.version,
       started_at: deps.info.started_at,
-      projectPath: ws
+      projectPath: entry.workspace
     });
-    hashes.push(hash2);
+    hashes.push(entry.hash);
   }
   return { ok: true, hashes };
 }
@@ -20557,8 +20571,8 @@ function isPersistedSessionExpired(session, now = Date.now(), maxAgeMs = PENDING
   return now - anchor > maxAgeMs;
 }
 function pendingSessionsFilePath(workspaces) {
-  const primary = workspaces[0] || "_default";
-  return path8.join(getConfigDir(), "pending-sessions", `${projectHash(primary)}.json`);
+  const hashes = workspaces.length ? workspaces.map((workspace3) => projectHash(workspace3)).sort() : [projectHash("_default")];
+  return path8.join(getConfigDir(), "pending-sessions", `${hashes.join("-")}.json`);
 }
 function ensureParent(filePath) {
   fs5.mkdirSync(path8.dirname(filePath), { recursive: true });
@@ -20850,7 +20864,11 @@ var WsHub = class {
       this.server = null;
     }
     for (const ws of this.workspaces) {
-      deleteServerByHash(projectHash(ws));
+      const hash2 = projectHash(ws);
+      deleteServerByHash(hash2);
+      if (releaseRegistryLockIfOwner(readRegistryLock(hash2), process.pid)) {
+        clearRegistryLock(hash2);
+      }
     }
     if (releaseRegistryLockIfOwner(readRegistryLock(), process.pid)) {
       clearRegistryLock();
@@ -20958,7 +20976,7 @@ var WsHub = class {
       },
       projectHash,
       readLock: readRegistryLock,
-      writeLock: writeRegistryLock,
+      writeLock: (hash2, lock) => writeRegistryLock(lock, hash2),
       writeServer,
       isAlive: (pid) => {
         try {

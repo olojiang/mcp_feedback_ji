@@ -6,7 +6,7 @@ export interface RegistryLock {
 }
 /** Whether this hub instance may write registry files for the given workspaces. */
 export declare function canAcquireRegistryLock(existing: RegistryLock | null, owner: RegistryLock, isAlive: (pid: number) => boolean, now: number, staleMs?: number): boolean;
-export declare function registryLockPath(serversDir: string): string;
+export declare function registryLockPath(serversDir: string, hash?: string): string;
 export interface WriteServersBatchDeps {
     workspaces: string[];
     info: {
@@ -16,8 +16,8 @@ export interface WriteServersBatchDeps {
         started_at: number;
     };
     projectHash: (workspacePath: string) => string;
-    readLock: () => RegistryLock | null;
-    writeLock: (lock: RegistryLock) => void;
+    readLock: (hash: string) => RegistryLock | null;
+    writeLock: (hash: string, lock: RegistryLock) => void;
     writeServer: (hash: string, data: {
         port: number;
         pid: number;

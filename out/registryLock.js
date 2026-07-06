@@ -16,33 +16,44 @@ function canAcquireRegistryLock(existing, owner, isAlive, now, staleMs = 10000) 
         return true;
     return false;
 }
-function registryLockPath(serversDir) {
-    return `${serversDir}/_instance.lock.json`;
+function registryLockPath(serversDir, hash) {
+    return hash ? `${serversDir}/_instance.${hash}.lock.json` : `${serversDir}/_instance.lock.json`;
 }
 function writeServersBatch(deps) {
     const now = deps.now ?? Date.now();
-    const lock = {
-        pid: deps.info.pid,
-        port: deps.info.port,
-        acquired_at: now,
-        workspaces: deps.workspaces.slice(),
-    };
-    const existing = deps.readLock();
-    if (!canAcquireRegistryLock(existing, lock, deps.isAlive, now)) {
-        return { ok: false, reason: 'registry_locked', hashes: [] };
+    const entries = deps.workspaces.map((workspace) => ({
+        workspace,
+        hash: deps.projectHash(workspace),
+    }));
+    for (const entry of entries) {
+        const lock = {
+            pid: deps.info.pid,
+            port: deps.info.port,
+            acquired_at: now,
+            workspaces: [entry.workspace],
+        };
+        const existing = deps.readLock(entry.hash);
+        if (!canAcquireRegistryLock(existing, lock, deps.isAlive, now)) {
+            return { ok: false, reason: 'registry_locked', hashes: [] };
+        }
     }
-    deps.writeLock(lock);
     const hashes = [];
-    for (const ws of deps.workspaces) {
-        const hash = deps.projectHash(ws);
-        deps.writeServer(hash, {
+    for (const entry of entries) {
+        const lock = {
+            pid: deps.info.pid,
+            port: deps.info.port,
+            acquired_at: now,
+            workspaces: [entry.workspace],
+        };
+        deps.writeLock(entry.hash, lock);
+        deps.writeServer(entry.hash, {
             port: deps.info.port,
             pid: deps.info.pid,
             version: deps.info.version,
             started_at: deps.info.started_at,
-            projectPath: ws,
+            projectPath: entry.workspace,
         });
-        hashes.push(hash);
+        hashes.push(entry.hash);
     }
     return { ok: true, hashes };
 }

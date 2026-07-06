@@ -288,7 +288,11 @@ class WsHub {
             this.server = null;
         }
         for (const ws of this.workspaces) {
-            (0, fileStore_1.deleteServerByHash)((0, fileStore_1.projectHash)(ws));
+            const hash = (0, fileStore_1.projectHash)(ws);
+            (0, fileStore_1.deleteServerByHash)(hash);
+            if ((0, registryLock_1.releaseRegistryLockIfOwner)((0, fileStore_1.readRegistryLock)(hash), process.pid)) {
+                (0, fileStore_1.clearRegistryLock)(hash);
+            }
         }
         if ((0, registryLock_1.releaseRegistryLockIfOwner)((0, fileStore_1.readRegistryLock)(), process.pid)) {
             (0, fileStore_1.clearRegistryLock)();
@@ -393,7 +397,7 @@ class WsHub {
             },
             projectHash: fileStore_1.projectHash,
             readLock: fileStore_1.readRegistryLock,
-            writeLock: fileStore_1.writeRegistryLock,
+            writeLock: (hash, lock) => (0, fileStore_1.writeRegistryLock)(lock, hash),
             writeServer: fileStore_1.writeServer,
             isAlive: (pid) => {
                 try {

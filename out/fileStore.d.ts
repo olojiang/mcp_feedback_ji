@@ -10,9 +10,9 @@ export declare function readProject(hash: string): ProjectState | null;
 export declare function writeProject(hash: string, data: ProjectState): void;
 export declare function readServerByHash(hash: string): ServerInfo | null;
 export declare function writeServer(hash: string, data: ServerInfo): void;
-export declare function readRegistryLock(): RegistryLock | null;
-export declare function writeRegistryLock(lock: RegistryLock): void;
-export declare function clearRegistryLock(): void;
+export declare function readRegistryLock(hash?: string): RegistryLock | null;
+export declare function writeRegistryLock(lock: RegistryLock, hash?: string): void;
+export declare function clearRegistryLock(hash?: string): void;
 export declare function deleteServerByHash(hash: string): boolean;
 export declare function cleanupStaleServers(): number;
 export interface AgentContextFile {

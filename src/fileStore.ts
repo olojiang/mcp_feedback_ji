@@ -78,16 +78,20 @@ export function writeServer(hash: string, data: ServerInfo): void {
     safeWriteJSON(path.join(getServersDir(), `${hash}.json`), data);
 }
 
-export function readRegistryLock(): RegistryLock | null {
-    return safeReadJSON<RegistryLock>(path.join(getServersDir(), '_instance.lock.json'));
+function registryLockFileName(hash?: string): string {
+    return hash ? `_instance.${hash}.lock.json` : '_instance.lock.json';
 }
 
-export function writeRegistryLock(lock: RegistryLock): void {
-    safeWriteJSON(path.join(getServersDir(), '_instance.lock.json'), lock);
+export function readRegistryLock(hash?: string): RegistryLock | null {
+    return safeReadJSON<RegistryLock>(path.join(getServersDir(), registryLockFileName(hash)));
 }
 
-export function clearRegistryLock(): void {
-    safeDelete(path.join(getServersDir(), '_instance.lock.json'));
+export function writeRegistryLock(lock: RegistryLock, hash?: string): void {
+    safeWriteJSON(path.join(getServersDir(), registryLockFileName(hash)), lock);
+}
+
+export function clearRegistryLock(hash?: string): void {
+    safeDelete(path.join(getServersDir(), registryLockFileName(hash)));
 }
 
 export function deleteServerByHash(hash: string): boolean {

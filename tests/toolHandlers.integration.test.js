@@ -31,6 +31,42 @@ describe('toolHandlers integration', () => {
     assert.match(result.content[0].text, /traced ok/)
   })
 
+  it('does not pass trace_id from a foreign agent context', async () => {
+    const prev = process.env.CURSOR_TRACE_ID
+    delete process.env.CURSOR_TRACE_ID
+    try {
+      let wireTrace = 'unset'
+      const handler = createToolCallHandler({
+        findExtensionServer: async () => ({
+          port: 48201, pid: 1, projectPath: '/repo/current', version: '1',
+        }),
+        connectToExtension: async () => ({ close() {} }),
+        requestFeedback: async (_ws, _summary, _project, traceId) => {
+          wireTrace = traceId
+          return { feedback: 'foreign trace ignored' }
+        },
+        browserFallback: async () => 'browser',
+        log: () => {},
+        readAgentContext: () => ({
+          traceId: 'foreign-trace',
+          workspaceRoots: ['/repo/other'],
+          updatedAt: Date.now(),
+        }),
+      })
+
+      const result = await handler('interactive_feedback', {
+        summary: 'trace test',
+        project_directory: '/repo/current',
+      })
+
+      assert.equal(wireTrace, undefined)
+      assert.match(result.content[0].text, /foreign trace ignored/)
+    } finally {
+      if (prev === undefined) delete process.env.CURSOR_TRACE_ID
+      else process.env.CURSOR_TRACE_ID = prev
+    }
+  })
+
   it('uses browser fallback when extension missing and env flag set', async () => {
     const prev = process.env.MCP_FEEDBACK_BROWSER_FALLBACK
     process.env.MCP_FEEDBACK_BROWSER_FALLBACK = '1'

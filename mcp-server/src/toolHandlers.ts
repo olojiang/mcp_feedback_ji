@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
 import { findExtensionServer, readAgentContext, type ServerData } from './serverDiscovery.js';
+import { projectPathMatches } from './serverDiscoveryCore.js';
 import { connectToExtension, requestFeedback, type RequestFeedbackDeps } from './extensionClient.js';
 import { browserFallback } from './browserFallback.js';
 import { runPostFeedbackHooks } from './postFeedbackHooks.js';
@@ -96,11 +97,24 @@ interface ToolHandlerDeps {
     requestFeedback: typeof requestFeedback;
     browserFallback: typeof browserFallback;
     log: (msg: string) => void;
-    readAgentContext?: () => { traceId?: string } | null;
+    readAgentContext?: () => { traceId?: string; workspaceRoots?: string[] } | null;
     rediscoveryAttempts?: number;
     retryDelayMs?: number;
     /** MCP stdio keepalive while waiting for user feedback (prevents ~30s Cursor idle drop). */
     stdioKeepaliveTick?: (traceId?: string, projectDirectory?: string) => void | Promise<void>;
+}
+
+function agentContextTraceForProject(
+    agentContext: { traceId?: string; workspaceRoots?: string[] } | null,
+    projectDirectory?: string,
+): string | undefined {
+    if (!agentContext?.traceId) return undefined;
+    if (!projectDirectory) return undefined;
+    const roots = agentContext.workspaceRoots ?? [];
+    if (!roots.length) return undefined;
+    return roots.some((root) => projectPathMatches(root, projectDirectory))
+        ? agentContext.traceId
+        : undefined;
 }
 
 const DEFAULT_EXTENSION_ATTEMPTS = 2;
@@ -217,7 +231,8 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
         const summary = parsed.summary.replace(/\s*\[preflight:done\]\s*/g, '').trim();
         const { project_directory } = parsed;
         const agentCtx = deps.readAgentContext?.() ?? null;
-        const traceId = resolveTraceId(undefined, agentCtx?.traceId, process.env.CURSOR_TRACE_ID);
+        const contextTraceId = agentContextTraceForProject(agentCtx, project_directory);
+        const traceId = resolveTraceId(undefined, contextTraceId, process.env.CURSOR_TRACE_ID);
 
         try {
             const log = (msg: string) => deps.log(msg);

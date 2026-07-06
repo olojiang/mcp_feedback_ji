@@ -164,6 +164,35 @@ describe('serverDiscoveryCore', () => {
     assert.equal(resolved, '/tmp')
   })
 
+  it('resolveImplicitProjectDirectory rejects recent agent context from a different trace', () => {
+    const now = Date.now()
+    const resolved = resolveImplicitProjectDirectory({
+      cwd: '/tmp',
+      agentContext: {
+        traceId: 'trace-other',
+        workspaceRoots: ['/Users/hunter/Workspace/other'],
+        updatedAt: now,
+      },
+      traceId: 'trace-current',
+      now,
+    })
+    assert.equal(resolved, '/tmp')
+  })
+
+  it('resolveImplicitProjectDirectory does not use agent context without a current trace', () => {
+    const now = Date.now()
+    const resolved = resolveImplicitProjectDirectory({
+      cwd: '/tmp',
+      agentContext: {
+        traceId: 'trace-other',
+        workspaceRoots: ['/Users/hunter/Workspace/other'],
+        updatedAt: now,
+      },
+      now,
+    })
+    assert.equal(resolved, '/tmp')
+  })
+
   it('pickServerForProject picks newest started_at on duplicate project', () => {
     const picked = pickServerForProject(
       [

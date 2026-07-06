@@ -39,8 +39,10 @@ export function isPersistedSessionExpired(
 }
 
 export function pendingSessionsFilePath(workspaces: string[]): string {
-    const primary = workspaces[0] || '_default';
-    return path.join(getConfigDir(), 'pending-sessions', `${projectHash(primary)}.json`);
+    const hashes = workspaces.length
+        ? workspaces.map((workspace) => projectHash(workspace)).sort()
+        : [projectHash('_default')];
+    return path.join(getConfigDir(), 'pending-sessions', `${hashes.join('-')}.json`);
 }
 
 function ensureParent(filePath: string): void {

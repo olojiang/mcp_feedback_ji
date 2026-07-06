@@ -159,7 +159,7 @@ export function resolveImplicitProjectDirectory(options: {
     const ttl = options.contextTtlMs ?? 5 * 60 * 1000;
     if (ctx?.workspaceRoots?.length && ctx.updatedAt && now - ctx.updatedAt <= ttl) {
         const traceId = options.traceId || '';
-        if (!traceId || !ctx.traceId || traceId === ctx.traceId || now - ctx.updatedAt <= 2 * 60 * 1000) {
+        if (traceId && ctx.traceId && traceId === ctx.traceId) {
             return normalizeProjectPath(ctx.workspaceRoots[0]);
         }
     }

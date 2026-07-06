@@ -56,8 +56,10 @@ function isPersistedSessionExpired(session, now = Date.now(), maxAgeMs = exports
     return now - anchor > maxAgeMs;
 }
 function pendingSessionsFilePath(workspaces) {
-    const primary = workspaces[0] || '_default';
-    return path.join((0, configPaths_js_1.getConfigDir)(), 'pending-sessions', `${(0, fileStore_js_1.projectHash)(primary)}.json`);
+    const hashes = workspaces.length
+        ? workspaces.map((workspace) => (0, fileStore_js_1.projectHash)(workspace)).sort()
+        : [(0, fileStore_js_1.projectHash)('_default')];
+    return path.join((0, configPaths_js_1.getConfigDir)(), 'pending-sessions', `${hashes.join('-')}.json`);
 }
 function ensureParent(filePath) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });

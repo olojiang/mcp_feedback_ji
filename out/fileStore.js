@@ -118,14 +118,17 @@ function readServerByHash(hash) {
 function writeServer(hash, data) {
     safeWriteJSON(path.join((0, configPaths_1.getServersDir)(), `${hash}.json`), data);
 }
-function readRegistryLock() {
-    return safeReadJSON(path.join((0, configPaths_1.getServersDir)(), '_instance.lock.json'));
+function registryLockFileName(hash) {
+    return hash ? `_instance.${hash}.lock.json` : '_instance.lock.json';
 }
-function writeRegistryLock(lock) {
-    safeWriteJSON(path.join((0, configPaths_1.getServersDir)(), '_instance.lock.json'), lock);
+function readRegistryLock(hash) {
+    return safeReadJSON(path.join((0, configPaths_1.getServersDir)(), registryLockFileName(hash)));
 }
-function clearRegistryLock() {
-    safeDelete(path.join((0, configPaths_1.getServersDir)(), '_instance.lock.json'));
+function writeRegistryLock(lock, hash) {
+    safeWriteJSON(path.join((0, configPaths_1.getServersDir)(), registryLockFileName(hash)), lock);
+}
+function clearRegistryLock(hash) {
+    safeDelete(path.join((0, configPaths_1.getServersDir)(), registryLockFileName(hash)));
 }
 function deleteServerByHash(hash) {
     return safeDelete(path.join((0, configPaths_1.getServersDir)(), `${hash}.json`));

@@ -324,7 +324,11 @@ export class WsHub {
         if (this.server) { this.server.close(); this.server = null; }
 
         for (const ws of this.workspaces) {
-            deleteServerByHash(projectHash(ws));
+            const hash = projectHash(ws);
+            deleteServerByHash(hash);
+            if (releaseRegistryLockIfOwner(readRegistryLock(hash), process.pid)) {
+                clearRegistryLock(hash);
+            }
         }
         if (releaseRegistryLockIfOwner(readRegistryLock(), process.pid)) {
             clearRegistryLock();
@@ -447,7 +451,7 @@ export class WsHub {
             },
             projectHash,
             readLock: readRegistryLock,
-            writeLock: writeRegistryLock,
+            writeLock: (hash, lock) => writeRegistryLock(lock, hash),
             writeServer,
             isAlive: (pid) => {
                 try {
