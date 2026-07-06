@@ -99,17 +99,28 @@ export function requestFeedback(
     let boundSessionId = '-';
 
     return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
+        let settled = false;
+
+        const settle = (
+            outcome: { kind: 'resolve'; value: { status?: string; feedback: string; images?: string[]; session_id?: string } }
+                | { kind: 'reject'; error: Error },
+        ) => {
+            if (settled) return;
+            settled = true;
             cleanup();
+            ws.off('message', handler);
+            if (outcome.kind === 'resolve') resolve(outcome.value);
+            else reject(outcome.error);
+        };
+
+        const timeout = setTimeout(() => {
             log('[requestFeedback] 24h timeout reached — resolving with status=timeout');
-            resolve({ status: 'timeout', feedback: '' });
+            settle({ kind: 'resolve', value: { status: 'timeout', feedback: '' } });
         }, 86_400_000);
 
         const cursorKeepalive = cursorKeepaliveMs > 0
             ? setTimeout(() => {
                 const elapsedMs = elapsedWaitMs(startedAt);
-                cleanup();
-                ws.off('message', handler);
                 log(cursorKeepaliveLogLine({
                     traceId,
                     projectDirectory,
@@ -124,8 +135,8 @@ export function requestFeedback(
                     keepaliveMs: cursorKeepaliveMs,
                     detail: 'tool_will_complete_end_turn_no_retry',
                 }));
+                settle({ kind: 'resolve', value: { status: 'keepalive', feedback: cursorKeepaliveMessage } });
                 try { ws.close(); } catch { /* ignore */ }
-                resolve({ status: 'keepalive', feedback: cursorKeepaliveMessage });
             }, cursorKeepaliveMs)
             : undefined;
 
@@ -195,6 +206,7 @@ export function requestFeedback(
                     // Resolving early would complete the tool call, causing Cursor
                     // to start a new agent turn (wasting a request).
                     if (msg.status === 'already_pending') {
+                        if (msg.session_id) boundSessionId = msg.session_id;
                         log(
                             '[requestFeedback] already_pending — staying subscribed session='
                             + (msg.session_id || '-'),
@@ -202,22 +214,21 @@ export function requestFeedback(
                         return;
                     }
                     if (msg.status === 'released_duplicate') {
-                        cleanup();
-                        ws.off('message', handler);
                         log(
                             '[requestFeedback] released_duplicate session='
                             + (msg.session_id || '-')
                             + ' trace=' + (msg.trace_id || traceId || '-'),
                         );
-                        resolve({
-                            status: 'released_duplicate',
-                            feedback: '',
-                            session_id: msg.session_id,
+                        settle({
+                            kind: 'resolve',
+                            value: {
+                                status: 'released_duplicate',
+                                feedback: '',
+                                session_id: msg.session_id,
+                            },
                         });
                         return;
                     }
-                    cleanup();
-                    ws.off('message', handler);
                     logWaitLifecycle('resolve', {
                         status: msg.status || 'submitted',
                         feedback_len: (msg.feedback || '').length,
@@ -227,11 +238,14 @@ export function requestFeedback(
                         + ' session=' + (msg.session_id || '-')
                         + ' feedbackLen=' + (msg.feedback || '').length,
                     );
-                    resolve({
-                        status: msg.status,
-                        feedback: msg.feedback || '',
-                        images: msg.images,
-                        session_id: msg.session_id,
+                    settle({
+                        kind: 'resolve',
+                        value: {
+                            status: msg.status,
+                            feedback: msg.feedback || '',
+                            images: msg.images,
+                            session_id: msg.session_id,
+                        },
                     });
                 } else if (msg.type === 'session_bound') {
                     boundSessionId = msg.session_id || '-';
@@ -240,11 +254,9 @@ export function requestFeedback(
                         + ' trace=' + (msg.trace_id || traceId || '-'),
                     );
                 } else if (msg.type === 'feedback_error') {
-                    cleanup();
-                    ws.off('message', handler);
                     log(`[requestFeedback] feedback_error error=${msg.error || 'Feedback error'}`);
+                    settle({ kind: 'reject', error: new Error(msg.error || 'Feedback error') });
                     try { ws.close(); } catch { /* ignore */ }
-                    reject(new Error(msg.error || 'Feedback error'));
                 }
             } catch {
                 // ignore parse errors
@@ -253,10 +265,9 @@ export function requestFeedback(
 
         ws.on('message', handler);
         ws.once('close', () => {
+            if (settled) return;
             const elapsedMs = elapsedWaitMs(startedAt);
             const risk = classifyWsCloseBillingRisk(elapsedMs);
-            cleanup();
-            ws.off('message', handler);
             logWaitLifecycle('ws_close', { billing_risk: risk });
             log(requestBillingRiskLogLine({
                 reason: risk,
@@ -269,7 +280,10 @@ export function requestFeedback(
                     : 'ws_closed_before_keepalive',
             }));
             log('[requestFeedback] WS closed during feedback wait — rejecting');
-            reject(new Error(formatExtensionCloseError('feedback wait')));
+            settle({
+                kind: 'reject',
+                error: new Error(formatExtensionCloseError('feedback wait', risk)),
+            });
         });
 
         ws.send(JSON.stringify({

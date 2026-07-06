@@ -53,3 +53,33 @@ export function panelSubmitDeliveredLogLine(opts: {
     if (opts.mcpWsReadyState !== undefined) parts.push(`mcp_ws_ready_state=${opts.mcpWsReadyState}`);
     return parts.join(' ');
 }
+
+export function feedbackSubmittedBroadcastLogLine(opts: {
+    sessionId?: string;
+    traceId?: string;
+    feedbackLen?: number;
+}): string {
+    const parts = [
+        'event=feedback_submitted_broadcast',
+        `session=${opts.sessionId || '-'}`,
+        `trace=${opts.traceId || '-'}`,
+    ];
+    if (opts.feedbackLen !== undefined) parts.push(`feedback_len=${opts.feedbackLen}`);
+    return parts.join(' ');
+}
+
+export function feedbackUndeliveredBroadcastLogLine(opts: {
+    sessionId: string;
+    traceId?: string;
+    feedbackLen?: number;
+    detail?: string;
+}): string {
+    const parts = [
+        'event=feedback_undelivered_broadcast',
+        `session=${opts.sessionId}`,
+        `trace=${opts.traceId || '-'}`,
+    ];
+    if (opts.feedbackLen !== undefined) parts.push(`feedback_len=${opts.feedbackLen}`);
+    if (opts.detail) parts.push(`detail=${opts.detail}`);
+    return parts.join(' ');
+}

@@ -73,4 +73,26 @@ describe('panel transport send + queue', () => {
     }
     assert.deepEqual(sent.map((m) => m.type), ['a', 'b', 'feedback_response'])
   })
+
+  it('outbound queue drops non-feedback before feedback_response when full', () => {
+    const queue = new OutboundQueue(2)
+    queue.enqueue({ type: 'ping' })
+    queue.enqueue({ type: 'status_update' })
+    const size = queue.enqueue({ type: 'feedback_response', feedback: 'hello' })
+    assert.equal(size, 2)
+    const drained = queue.drain()
+    assert.equal(drained.length, 2)
+    assert.ok(drained.some((m) => m.type === 'feedback_response'))
+    assert.ok(!drained.some((m) => m.type === 'status_update'))
+  })
+
+  it('bridge reconnect after init triggers stateSync', () => {
+    const gate = new BridgeSessionGate()
+    const first = gate.onBridgeConnected()
+    assert.equal(first.stateSync, true)
+    gate.resetForReconnect()
+    const second = gate.onBridgeConnected()
+    assert.equal(second.stateSync, true)
+    assert.equal(second.register, false)
+  })
 })

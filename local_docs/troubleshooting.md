@@ -92,7 +92,7 @@ rg 'reason=cursor_hard_timeout_suspected' ~/.config/mcp-feedback-enhanced/logs/m
 | `our_keepalive` | 我们 30min 主动结束工具 | 可能 1 次（工具完成），但 ji.116+ Agent 不再连环调 |
 | `cursor_hard_timeout_suspected` | 等待 ≥35min 后 WS 被关 | 可能 1 次（Cursor 硬超时） |
 | `extension_ws_close` | 较短等待时 WS 断开 | 视 Agent 是否重试 |
-| `released_duplicate` / `superseded` | 同 trace 重复调用 | ji.116+ 应 end turn，不连环 |
+| `released_duplicate` / `superseded` | 同 trace 重复调用 | ji.116+ 应 end turn；ji.135+ hooks 可 deny 拦截 |
 
 | `panel_submit_no_effect.reason` | 含义 | Cursor 会响应？ |
 |---|---|---|
@@ -144,6 +144,27 @@ rg 'request_waste_guard|cursor_keepalive_auto_resolve|released_duplicate|keepali
 | `changed=pending+hub` | stateSync 仅在状态变化时记录 |
 | `detached=true` | MCP 已断开但 session 仍 pending |
 | `elapsed_min=N total_min=50` | 等待进度（分钟） |
+| `event=feedback_submitted_broadcast` | Hub 已向面板广播提交确认（extension.log） |
+| `event=feedback_submitted_received` | 面板收到提交确认（webview.log） |
+| `event=hooks_feedback_tool` | Cursor hooks 放行 interactive_feedback（hooks.log） |
+| `action=deny_duplicate` | hooks 拦截同 trace 重复 feedback（ji.135+，减 Usage 浪费） |
+| `event=agent_resume_stall` | submitted 后 30s Agent 未续跑（webview 提示） |
+| `event=agent_turn_status_received` | 面板收到 Agent 断开/结束通知（webview.log） |
+
+## hooks ↔ MCP 关联排查
+
+当 Usage 莫名 +1 或 Agent 自动调 feedback 时，用 trace 前 8 位对齐三层：
+
+```bash
+TRACE=0498f00a
+rg "$TRACE|hooks_feedback_tool|action=deny_duplicate|feedback_request start|released_duplicate|feedback_submitted" \
+  ~/.config/mcp-feedback-enhanced/logs/
+```
+
+| 只有 hooks、无 MCP `feedback_request start` | Agent 发起了工具但 MCP 仍在等旧 session（stdio 占用） |
+| `action=deny_duplicate` | ji.135+ hooks 已拦截重复 feedback，Agent 应 end turn |
+| 有 `released_duplicate` 无 `feedback_submitted_received` | Cursor request 已结束，面板仍显示等待 |
+| 有 `panel_submit_delivered` 无 Cursor 续跑 | 插件已送达，问题在 Cursor Agent 调度（日志无法观测） |
 
 ## 环境变量（mcp.json env）
 

@@ -8,6 +8,7 @@ import {
   pickServerForProject,
   pickServerForImplicitProject,
   resolveImplicitProjectDirectory,
+  preferVersionMatchedCandidates,
   isCurrentRegistryEntry,
   resolveWsUrl,
 } from '../mcp-server/dist/serverDiscoveryCore.js'
@@ -225,5 +226,25 @@ describe('serverDiscoveryCore', () => {
       ),
       false
     )
+  })
+
+  it('preferVersionMatchedCandidates keeps only matching hub versions when available', () => {
+    const candidates = [
+      { port: 48201, version: '2.5.1-ji.126' },
+      { port: 48202, version: '2.5.1-ji.133' },
+    ]
+    const result = preferVersionMatchedCandidates(candidates, '2.5.1-ji.133')
+    assert.equal(result.versionFiltered, true)
+    assert.equal(result.kept.length, 1)
+    assert.equal(result.kept[0].port, 48202)
+  })
+
+  it('preferVersionMatchedCandidates falls back when no version match', () => {
+    const candidates = [
+      { port: 48201, version: '2.5.1-ji.126' },
+    ]
+    const result = preferVersionMatchedCandidates(candidates, '2.5.1-ji.133')
+    assert.equal(result.versionFiltered, false)
+    assert.equal(result.kept.length, 1)
   })
 })

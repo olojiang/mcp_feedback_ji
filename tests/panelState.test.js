@@ -440,5 +440,99 @@ describe('PanelState multi-session', () => {
     assert.equal(state.sessions['fb-end'].mcpDetached, true)
     assert.equal(state.sessions['fb-end'].waiting, true)
     assert.ok(cmds.some((c) => c.type === 'notify' && c.message.type === 'agent-turn-status'))
+    assert.ok(cmds.some((c) => c.type === 'render' && c.targets.indexOf('input') >= 0))
+    assert.ok(cmds.some((c) => c.type === 'render' && c.targets.indexOf('connection') >= 0))
+  })
+
+  it('cursor_ended still sends feedback_response instead of queue-pending', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-cursor-ended',
+      summary: 'Question',
+    })
+    state.handleMessage({
+      type: 'agent_turn_status',
+      session_id: 'fb-cursor-ended',
+      reason: 'cursor_ended',
+      detail: 'Agent turn ended but MCP may still be live',
+    })
+    assert.equal(state.sessions['fb-cursor-ended'].cursorEnded, true)
+    assert.equal(state.sessions['fb-cursor-ended'].mcpDetached, false)
+    assert.equal(state.getUIState().buttonMode, 'send')
+    const cmds = state.submitFeedback('still try deliver', [], { session_id: 'fb-cursor-ended' })
+    const fr = cmds.find((c) => c.type === 'ws_send' && c.message.type === 'feedback_response')
+    assert.ok(fr, 'should send feedback_response when only cursorEnded')
+    assert.equal(fr.message.feedback, 'still try deliver')
+  })
+
+  it('submitFeedback blocks duplicate while submitInFlight', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-dup', summary: 'Q' })
+    const first = state.submitFeedback('first', [])
+    assert.ok(first.some((c) => c.type === 'ws_send' && c.message.type === 'feedback_response'))
+    assert.equal(state.sessions['fb-dup'].submitInFlight, true)
+    const second = state.submitFeedback('second', [])
+    assert.equal(second.length, 0)
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-dup', feedback: 'first' })
+    assert.equal(state.sessions['fb-dup'].submitInFlight, false)
+    assert.equal(state.sessions['fb-dup'].waiting, false)
+  })
+
+  it('feedback_undelivered clears submitInFlight', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-und', summary: 'Q' })
+    state.submitFeedback('reply', [], { session_id: 'fb-und' })
+    assert.equal(state.sessions['fb-und'].submitInFlight, true)
+    state.handleMessage({
+      type: 'feedback_undelivered',
+      session_id: 'fb-und',
+      feedback: 'reply',
+      detail: 'link lost',
+    })
+    assert.equal(state.sessions['fb-und'].submitInFlight, false)
+    assert.equal(state.sessions['fb-und'].waiting, true)
+  })
+
+  it('getUIState shows Send when another tab is waiting but active is resolved', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-wait', summary: 'Q' })
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-done',
+      summary: 'Done',
+    })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-done', feedback: 'ok' })
+    state.setActiveSession('fb-done')
+    assert.equal(state.sessions['fb-wait'].waiting, true)
+    assert.equal(state.sessions['fb-done'].waiting, false)
+    assert.equal(state.getUIState().buttonMode, 'send')
+  })
+
+  it('feedback_submitted clears duplicate text from globalPendingQueue', () => {
+    const state = new PanelState()
+    state.globalPendingQueue = ['hello']
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-x', summary: 'Q' })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-x', feedback: 'hello' })
+    assert.deepEqual(state.globalPendingQueue, [])
+  })
+
+  it('restoreServerGlobalPending prefers server queue over stale local', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [],
+      pending_comments: ['from-server'],
+      pending_images: ['img-srv'],
+      pending_images_count: 1,
+      feedback_queue_size: 1,
+      messages: [],
+    })
+    const snap = state.snapshotServerGlobalPending()
+    state.globalPendingQueue = ['stale-local']
+    state.globalPendingImages = []
+    state.restoreServerGlobalPending(snap)
+    assert.deepEqual(state.globalPendingQueue, ['from-server'])
+    assert.deepEqual(state.globalPendingImages, ['img-srv'])
   })
 })

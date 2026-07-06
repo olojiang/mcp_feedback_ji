@@ -14,6 +14,7 @@ import {
     pickServerForProject,
     projectPathMatches,
     resolveImplicitProjectDirectory,
+    preferVersionMatchedCandidates,
     type AgentContextSnapshot,
 } from './serverDiscoveryCore.js';
 
@@ -24,6 +25,7 @@ export {
     pickServerForProject,
     pickServerForImplicitProject,
     resolveWsUrl,
+    preferVersionMatchedCandidates,
 } from './serverDiscoveryCore.js';
 
 function readJSON<T>(filePath: string): T | null {
@@ -162,20 +164,38 @@ export async function findExtensionServer(
             continue;
         }
 
-        candidates.push(entry);
-        log(`discover: accept port=${entry.port} pid=${entry.pid} source=${f}`);
+        candidates.push({
+            ...entry,
+            version: health.version || entry.version,
+        });
+        log(`discover: accept port=${entry.port} pid=${entry.pid} source=${f} version=${health.version || entry.version || '-'}`);
     }
 
     if (!candidates.length && skippedMismatch.length) {
         log(`discover: skipped ${skippedMismatch.length} project_mismatch: ${skippedMismatch.join(', ')}`);
     }
 
+    const mcpVer = currentMcpVersion();
+    const versionPick = preferVersionMatchedCandidates(candidates, mcpVer);
+    if (versionPick.versionFiltered) {
+        log(
+            `discover: version_filter mcp=${mcpVer} kept=${versionPick.kept.length} `
+            + `dropped=${candidates.length - versionPick.kept.length}`,
+        );
+    } else if (mcpVer !== 'unknown' && candidates.length > 1) {
+        log(
+            `discover: version_skew_warn mcp=${mcpVer} `
+            + `available=${candidates.map((c) => c.version || '-').join(',')}`,
+        );
+    }
+    const filteredCandidates = versionPick.kept;
+
     // When project_directory is omitted, resolve implicit workspace *before* auto-picking
     // a lone hub. Otherwise a single wrong-project hub (e.g. spatial-smart-apps) wins
     // while the correct window's hub is restarting — MCP waits on the wrong port.
     const implicit = !want ? implicitProjectDirectory(agentContext) : undefined;
     let pickedFromImplicitProject: string | undefined;
-    let picked = pickServerForProject(candidates, want ?? implicit);
+    let picked = pickServerForProject(filteredCandidates, want ?? implicit);
     if (picked && implicit && !want) {
         pickedFromImplicitProject = normalizeProjectPath(implicit);
         const source = agentContext?.workspaceRoots?.includes(implicit)

@@ -53,9 +53,10 @@ describe('pipeline logging — MCP layer', () => {
     )
 
     assert.ok(logs.some((l) => l.includes('feedback_request_sent')))
-    assert.ok(logs.some((l) => l.includes('armed cursor_keepalive_ms=')))
+    assert.ok(logs.some((l) => l.includes('wait_config') && l.includes('keepalive_ms=')))
     assert.ok(logs.some((l) => l.includes('[requestFeedback] feedback_error')))
 
+    ws.close()
     await new Promise((r) => wss.close(r))
   })
 
@@ -100,6 +101,44 @@ describe('pipeline logging — MCP layer', () => {
     assert.ok(logs.some((l) => l.includes('resolved status=submitted session=fb-test-1')))
 
     ws.close()
+    await new Promise((r) => wss.close(r))
+  }, { timeout: 5000 })
+
+  it('requestFeedback ignores ws close after settled resolve', async () => {
+    const logs = []
+    const wss = new WebSocketServer({ port: 0 })
+    const port = await new Promise((resolve) => {
+      wss.on('listening', () => resolve(wss.address().port))
+    })
+
+    wss.on('connection', (serverWs) => {
+      serverWs.once('message', () => {
+        serverWs.send(JSON.stringify({
+          type: 'feedback_result',
+          status: 'submitted',
+          feedback: 'ok',
+          session_id: 'fb-settle',
+        }))
+        serverWs.close()
+      })
+    })
+
+    const ws = await new Promise((resolve, reject) => {
+      const client = new (require('ws'))(`ws://127.0.0.1:${port}`)
+      client.once('open', () => resolve(client))
+      client.once('error', reject)
+    })
+
+    const result = await requestFeedback(ws, 'summary', '/repo', 'trace-settle', {
+      log: (m) => logs.push(m),
+      heartbeatMs: 1_000_000,
+      stdioKeepaliveMs: 1_000_000,
+      cursorKeepaliveMs: 0,
+    })
+
+    assert.equal(result.feedback, 'ok')
+    assert.ok(!logs.some((l) => l.includes('WS closed during feedback wait — rejecting')))
+
     await new Promise((r) => wss.close(r))
   }, { timeout: 5000 })
 })

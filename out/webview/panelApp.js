@@ -150,6 +150,45 @@
     var userPingTimer = null;
     var lastPongAt = 0;
     var connectedHubPid = null;
+    var agentResumeWatchTimer = null;
+
+    var agentResumeWatch = window.PanelAgentResumeWatchModule || null;
+    var AGENT_RESUME_STALL_MS = agentResumeWatch
+        ? agentResumeWatch.AGENT_RESUME_STALL_MS
+        : 30000;
+    var AGENT_RESUME_STALL_TOAST = agentResumeWatch
+        ? agentResumeWatch.AGENT_RESUME_STALL_TOAST
+        : 'Reply delivered. If Cursor still spins: Stop the turn, then send a new chat message.';
+
+    function clearAgentResumeWatch() {
+        if (agentResumeWatchTimer) {
+            clearTimeout(agentResumeWatchTimer);
+            agentResumeWatchTimer = null;
+        }
+    }
+
+    function startAgentResumeWatch(sessionId) {
+        if (agentResumeWatch) {
+            agentResumeWatchTimer = agentResumeWatch.scheduleAgentResumeWatch(
+                clearAgentResumeWatch,
+                setTimeout,
+                AGENT_RESUME_STALL_MS,
+                function () {
+                    agentResumeWatchTimer = null;
+                    debugLog(agentResumeWatch.agentResumeStallLogLine(sessionId, state.waitingCount));
+                    showToast(AGENT_RESUME_STALL_TOAST);
+                },
+            );
+            return;
+        }
+        clearAgentResumeWatch();
+        agentResumeWatchTimer = setTimeout(function () {
+            agentResumeWatchTimer = null;
+            debugLog('event=agent_resume_stall session=' + (sessionId || '-')
+                + ' waiting_count=' + state.waitingCount);
+            showToast(AGENT_RESUME_STALL_TOAST);
+        }, AGENT_RESUME_STALL_MS);
+    }
     var PING_STALE_MS = 45000;
     var erudaInited = false;
     var erudaDisplayPct = Math.round(
@@ -572,6 +611,7 @@
                             case 'messages': renderMessages(); break;
                             case 'pending': renderPending(); break;
                             case 'input': updateSendButton(); break;
+                            case 'connection': renderConnectionHealth(); break;
                             case 'images': renderStagedImages(); break;
                             case 'staged_images': renderStagedImages(); break;
                         }
@@ -653,6 +693,7 @@
         bootHydratedFromServer = true;
         debugLog('hydrateAfterStateSync localRestore=' + (pendingLocalRestore ? 'yes' : 'no'));
         var serverPending = state.snapshotServerPendingSessions();
+        var serverGlobal = state.snapshotServerGlobalPending();
         if (serverPending.length) {
             debugLog('hydrateAfterStateSync server_pending_snapshot n=' + serverPending.length
                 + ' ids=' + serverPending.map(function (p) { return p.id; }).join(','));
@@ -665,6 +706,7 @@
             pendingLocalRestore = null;
         }
         state.restoreServerPendingSessions(serverPending);
+        state.restoreServerGlobalPending(serverGlobal);
         debugLog('hydrateAfterStateSync restored waiting_count=' + state.waitingCount
             + ' active=' + (state.activeSessionId || '(none)'));
         exec(state.reconcileLocalAfterServerSync());
@@ -883,8 +925,10 @@
         var staged = state.getStagedImages();
         var hasContent = inputEl.value.trim().length > 0 || staged.length > 0;
         if (ui.buttonMode === 'send') {
-            sendBtn.disabled = !hasContent;
-            sendBtn.textContent = ui.waitingCount > 1 ? 'Send (' + ui.waitingCount + ' waiting)' : 'Send';
+            sendBtn.disabled = !hasContent || ui.submitInFlight;
+            sendBtn.textContent = ui.submitInFlight
+                ? 'Sending...'
+                : (ui.waitingCount > 1 ? 'Send (' + ui.waitingCount + ' waiting)' : 'Send');
             sendBtn.className = 'send-btn';
         } else if (ui.buttonMode === 'queue_lost') {
             sendBtn.disabled = !hasContent;
@@ -1497,17 +1541,38 @@
         }
         exec(state.handleMessage(msg));
         if (msg.type === 'state_sync') {
+            var hubPid = msg.hub && msg.hub.pid;
+            if (hubPid && connectedHubPid && hubPid !== connectedHubPid) {
+                debugLog('hub_pid_changed old=' + connectedHubPid + ' new=' + hubPid + ' re-hydrate');
+                bootHydratedFromServer = false;
+            }
             tryHydrateAfterStateSync();
             if (msg.hub) applyHubSnapshot(msg.hub);
             renderConnectionHealth();
         }
         if (msg.type === 'session_updated') {
+            clearAgentResumeWatch();
             debugLog('session_updated received session=' + (msg.session_id || '(legacy)')
                 + ' project=' + (msg.project_directory || '(none)'));
             if (msg.session_id && transportReady()) {
                 transportSend({ type: 'session_displayed', session_id: msg.session_id });
                 debugLog('session_displayed send session=' + msg.session_id);
             }
+        }
+        if (msg.type === 'feedback_submitted') {
+            debugLog('event=feedback_submitted_received session=' + (msg.session_id || '(none)')
+                + ' feedback_len=' + ((msg.feedback && msg.feedback.length) || 0)
+                + ' waiting_cleared=true');
+            startAgentResumeWatch(msg.session_id);
+        }
+        if (msg.type === 'feedback_undelivered') {
+            debugLog('event=feedback_undelivered_received session=' + (msg.session_id || '(none)')
+                + ' feedback_len=' + ((msg.feedback && msg.feedback.length) || 0)
+                + ' detail=' + (msg.detail || '-'));
+        }
+        if (msg.type === 'agent_turn_status') {
+            debugLog('event=agent_turn_status_received session=' + (msg.session_id || '(none)')
+                + ' reason=' + (msg.reason || '-') + ' detail=' + (msg.detail || '-'));
         }
         if (msg.type === 'clipboard_write_ok') {
             window.__mcpPendingCopyText = null;

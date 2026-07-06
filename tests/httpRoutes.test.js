@@ -103,4 +103,34 @@ describe('HTTP operational routes', () => {
     handleHttpRoute(makeReq('/pending'), resEmpty, { ...deps(), pending })
     assert.equal(resEmpty.statusCode, 404)
   })
+
+  it('reports live feedback wait for trace over HTTP', () => {
+    const feedback = {
+      liveWaitForTrace: (traceId) => (
+        traceId === 'trace-abc'
+          ? { sessionId: 'fb-1', detached: false }
+          : null
+      ),
+    }
+    const resHit = makeRes()
+    handleHttpRoute(
+      makeReq('/feedback-active?trace_id=trace-abc'),
+      resHit,
+      { ...deps(), feedback },
+    )
+    assert.equal(resHit.statusCode, 200)
+    assert.deepEqual(JSON.parse(resHit.body), {
+      active: true,
+      sessionId: 'fb-1',
+      detached: false,
+    })
+
+    const resMiss = makeRes()
+    handleHttpRoute(
+      makeReq('/feedback-active?trace_id=other'),
+      resMiss,
+      { ...deps(), feedback },
+    )
+    assert.equal(resMiss.statusCode, 404)
+  })
 })

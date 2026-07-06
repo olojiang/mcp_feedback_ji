@@ -1,24 +1,29 @@
 #!/usr/bin/env node
 
-const { log, output, readStdin, httpGet, findServer, readFeedbackState, writeFeedbackState, readEnforcementConfig, writeAgentContext, workspaceKey } = require('./hook-utils');
+const hookUtils = require('./hook-utils');
+const {
+    isInteractiveFeedbackTool,
+    buildDuplicateFeedbackDeny,
+    shouldSkipRulesRefresh,
+} = require('./feedback-guard');
 
 const ALLOWLIST_TOOLS = ['interactive_feedback', 'get_system_info', 'mcp-feedback-enhanced'];
 const PASSTHROUGH_TOOLS = ['task', 'switchmode', 'read', 'grep', 'glob', 'semanticsearch', 'readlints', 'todowrite', 'askquestion', 'websearch', 'webfetch', 'fetchmcpresource'];
 async function consumePending(port) {
     try {
-        var result = await httpGet(port, '/pending?consume=1');
+        var result = await hookUtils.httpGet(port, '/pending?consume=1');
         if (result.status === 200 && result.data) {
             var comments = result.data.comments || [];
             if (comments.length > 0 || result.data.images) {
                 var combined = comments.join('\n\n') || '(image pending)';
-                log('  consumed pending comments=' + comments.length);
+                hookUtils.log('  consumed pending comments=' + comments.length);
                 return combined;
             }
         }
-        log('  no pending (status=' + result.status + ')');
+        hookUtils.log('  no pending (status=' + result.status + ')');
         return null;
     } catch (err) {
-        log('  HTTP error ' + err.message);
+        hookUtils.log('  HTTP error ' + err.message);
         return null;
     }
 }
@@ -34,7 +39,7 @@ function isAllowlisted(toolName) {
 function fmtAgent(text) {
     var tail = (text && String(text).trim().toLowerCase() === 'finished')
         ? '\n\nUser sent Finished. You may stop calling interactive_feedback.'
-        : '\n\nCall interactive_feedback again before ending your turn, unless user sent Finished.';
+        : '\n\nContinue the task. Call interactive_feedback again before ending your turn, unless user sent Finished.';
     return '[User Feedback] New feedback from user:\n\n"' + text + '"' + tail;
 }
 
@@ -45,7 +50,7 @@ function fmtUser(text) {
 var _wsKey = '_global';
 
 function updateCounter(toolName) {
-    var state = readFeedbackState(_wsKey);
+    var state = hookUtils.readFeedbackState(_wsKey);
     if (toolName.toLowerCase().includes('interactive_feedback')) {
         state.lastFeedbackAt = Date.now();
         state.toolsSinceFeedback = 0;
@@ -54,13 +59,29 @@ function updateCounter(toolName) {
     }
     state.lastToolAt = Date.now();
     state.lastTool = toolName.toLowerCase();
-    writeFeedbackState(state, _wsKey);
+    hookUtils.writeFeedbackState(state, _wsKey);
     return state;
 }
 
-async function main() {
-    var input = readStdin();
-    if (!input) { output({}); return; }
+async function checkActiveFeedbackWait(port, traceId) {
+    if (!port || !traceId) return null;
+    try {
+        var result = await hookUtils.httpGet(
+            port,
+            '/feedback-active?trace_id=' + encodeURIComponent(traceId),
+        );
+        if (result.status === 200 && result.data && result.data.active) {
+            return result.data;
+        }
+        return null;
+    } catch (err) {
+        hookUtils.log('  feedback-active error ' + err.message);
+        return null;
+    }
+}
+
+async function runHook(input) {
+    if (!input) { hookUtils.output({}); return {}; }
 
     var hook = input.hook_event_name || 'preToolUse';
     var toolName = input.tool_name || '';
@@ -68,49 +89,77 @@ async function main() {
     var traceId = input.trace_id || input.cursor_trace_id || input.conversation_id || '';
     var loopCount = input.loop_count || 0;
 
-    _wsKey = workspaceKey(workspaceRoots);
-    writeAgentContext(workspaceRoots, { traceId: traceId });
+    _wsKey = hookUtils.workspaceKey(workspaceRoots);
+    hookUtils.writeAgentContext(workspaceRoots, { traceId: traceId });
     var convId = (input.conversation_id || '').slice(0, 8);
     var genId = (input.generation_id || '').slice(0, 8);
     var isPassthrough = PASSTHROUGH_TOOLS.some(function (t) { return (toolName || '').toLowerCase() === t; });
     if (!isPassthrough) {
-        log(hook + ': tool=' + toolName + ' conv=' + convId + ' gen=' + genId + ' loop=' + loopCount);
+        var traceShort = traceId ? String(traceId).slice(0, 8) : '-';
+        hookUtils.log(hook + ': tool=' + toolName + ' trace=' + traceShort + ' conv=' + convId + ' gen=' + genId + ' loop=' + loopCount);
     }
 
     if (hook === 'stop') {
-        log('stop: noop — disabled to prevent followup_message loop (status=' + (input.status || '') + ')');
-        output({});
-        return;
+        hookUtils.log('stop: noop — disabled to prevent followup_message loop (status=' + (input.status || '') + ')');
+        hookUtils.output({});
+        return {};
     }
 
     if (isAllowlisted(toolName)) {
-        if (!isPassthrough) log('  allowlisted tool=' + toolName);
+        if (isInteractiveFeedbackTool(toolName)) {
+            var fbServer = hookUtils.findServer(workspaceRoots);
+            if (fbServer && traceId) {
+                var activeWait = await checkActiveFeedbackWait(fbServer.port, traceId);
+                if (shouldSkipRulesRefresh(activeWait)) {
+                    hookUtils.log('  event=hooks_feedback_tool trace=' + traceId + ' action=deny_duplicate');
+                    var deny = buildDuplicateFeedbackDeny();
+                    hookUtils.output(deny);
+                    return deny;
+                }
+            }
+        }
+        if (!isPassthrough) {
+            hookUtils.log('  allowlisted tool=' + toolName);
+            if (isInteractiveFeedbackTool(toolName)) {
+                hookUtils.log('  event=hooks_feedback_tool trace=' + (traceId || '-') + ' action=allow');
+            }
+        }
         updateCounter(toolName);
-        output({}, isPassthrough);
-        return;
+        hookUtils.output({}, isPassthrough);
+        return {};
     }
 
     var state = updateCounter(toolName);
-    log('  state: sinceF=' + (state.toolsSinceFeedback || 0) + ' lastTool=' + (state.lastTool || ''));
-    var server = findServer(workspaceRoots);
+    hookUtils.log('  state: sinceF=' + (state.toolsSinceFeedback || 0) + ' lastTool=' + (state.lastTool || ''));
+    var server = hookUtils.findServer(workspaceRoots);
     var port = server ? server.port : null;
+    var activeWaitForEnforcement = null;
+    if (port && traceId) {
+        activeWaitForEnforcement = await checkActiveFeedbackWait(port, traceId);
+    }
     if (!port) {
-        log('  no server found, checking enforcement');
-        checkEnforcement(state);
-        return;
+        hookUtils.log('  no server found, checking enforcement');
+        return checkEnforcement(state, { activeWait: activeWaitForEnforcement });
     }
 
     var pending = await consumePending(port);
     if (pending) {
-        log('  delivering pending via deny');
-        output({ permission: 'deny', user_message: fmtUser(pending), agent_message: fmtAgent(pending) });
-        return;
+        hookUtils.log('  delivering pending via deny');
+        var pendingDeny = { permission: 'deny', user_message: fmtUser(pending), agent_message: fmtAgent(pending) };
+        hookUtils.output(pendingDeny);
+        return pendingDeny;
     }
-    checkEnforcement(state);
+    return checkEnforcement(state, { activeWait: activeWaitForEnforcement });
 }
 
-function checkEnforcement(state) {
-    var cfg = readEnforcementConfig();
+function checkEnforcement(state, opts) {
+    opts = opts || {};
+    if (shouldSkipRulesRefresh(opts.activeWait)) {
+        hookUtils.log('  skip rules refresh: live feedback wait active');
+        hookUtils.output({});
+        return {};
+    }
+    var cfg = hookUtils.readEnforcementConfig();
     var count = state.toolsSinceFeedback || 0;
     var lastFeedback = state.lastFeedbackAt || 0;
     var minutesSince = lastFeedback ? (Date.now() - lastFeedback) / 60000 : Infinity;
@@ -119,19 +168,28 @@ function checkEnforcement(state) {
         || (lastFeedback && minutesSince >= cfg.maxMinutes);
 
     if (needsRefresh) {
-        log('  preToolUse: rules refresh (count=' + count + ', minutes=' + Math.round(minutesSince) + ')');
+        hookUtils.log('  preToolUse: rules refresh (count=' + count + ', minutes=' + Math.round(minutesSince) + ')');
         state.toolsSinceFeedback = 0;
         state.lastFeedbackAt = Date.now();
-        writeFeedbackState(state, _wsKey);
-        output({
+        hookUtils.writeFeedbackState(state, _wsKey);
+        var refreshDeny = {
             permission: 'deny',
             user_message: 'Rules refresh',
             agent_message: 'Long task checkpoint: call interactive_feedback to check in with the user, then continue.',
-        });
-        return;
+        };
+        hookUtils.output(refreshDeny);
+        return refreshDeny;
     }
 
-    output({});
+    hookUtils.output({});
+    return {};
 }
 
-main().catch(function (err) { log('FATAL: ' + err.message); output({}); });
+if (require.main === module) {
+    runHook(hookUtils.readStdin()).catch(function (err) {
+        hookUtils.log('FATAL: ' + err.message);
+        hookUtils.output({});
+    });
+}
+
+module.exports = { runHook };

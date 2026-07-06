@@ -25,6 +25,7 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, 'https://mock/panelStateMarkdown.js')
     .replace(/\{\{PANELSTATE_UX_URI\}\}/g, 'https://mock/panelStateUx.js')
     .replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, 'https://mock/panelStateTransport.js')
+    .replace(/\{\{PANEL_AGENT_RESUME_WATCH_URI\}\}/g, 'https://mock/panelAgentResumeWatch.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
     .replace(/\{\{PANELCONNECTION_URI\}\}/g, 'https://mock/panelConnection.js')
     .replace(/\{\{PANELAPP_URI\}\}/g, 'https://mock/panelApp.js')
@@ -34,6 +35,7 @@ const html = fs.readFileSync(target, 'utf-8')
 const panelStateMarkdownFile = path.join(__dirname, '..', 'out', 'webview', 'panelStateMarkdown.js');
 const panelStateUxFile = path.join(__dirname, '..', 'out', 'webview', 'panelStateUx.js');
 const panelStateTransportFile = path.join(__dirname, '..', 'out', 'webview', 'panelStateTransport.js');
+const panelAgentResumeWatchFile = path.join(__dirname, '..', 'out', 'webview', 'panelAgentResumeWatch.js');
 const panelStateFile = path.join(__dirname, '..', 'out', 'webview', 'panelState.js');
 const erudaPanelFile = path.join(__dirname, '..', 'out', 'webview', 'erudaPanel.js');
 const themeContrastFile = path.join(__dirname, '..', 'out', 'webview', 'themeContrast.js');
@@ -47,6 +49,9 @@ const panelStateUxCode = fs.existsSync(panelStateUxFile)
     : null;
 const panelStateTransportCode = fs.existsSync(panelStateTransportFile)
     ? fs.readFileSync(panelStateTransportFile, 'utf-8')
+    : null;
+const panelAgentResumeWatchCode = fs.existsSync(panelAgentResumeWatchFile)
+    ? fs.readFileSync(panelAgentResumeWatchFile, 'utf-8')
     : null;
 const panelStateCode = fs.existsSync(panelStateFile)
     ? fs.readFileSync(panelStateFile, 'utf-8')
@@ -246,6 +251,7 @@ for (const [label, code] of [
     ['panelStateMarkdown', panelStateMarkdownCode],
     ['panelStateUx', panelStateUxCode],
     ['panelStateTransport', panelStateTransportCode],
+    ['panelAgentResumeWatch', panelAgentResumeWatchCode],
 ]) {
     if (code) {
         try {

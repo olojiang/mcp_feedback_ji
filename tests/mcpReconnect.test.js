@@ -6,23 +6,21 @@ const require = createRequire(import.meta.url)
 const { createToolCallHandler } = require('../mcp-server/dist/toolHandlers.js')
 
 describe('MCP feedback reconnect', () => {
-  it('keeps waiting when extension discovery is temporarily empty after a closed connection', async () => {
+  it('returns connection_closed without retry when feedback wait ends on closed connection', async () => {
     const logs = []
     const server = { port: 48200, pid: 123, projectPath: '/repo', version: '1' }
-    const discoveries = [server, null, server]
     let connectCount = 0
     let requestCount = 0
 
     const handler = createToolCallHandler({
-      findExtensionServer: async () => discoveries.shift() ?? null,
+      findExtensionServer: async () => server,
       connectToExtension: async () => {
         connectCount++
         return { close() {} }
       },
       requestFeedback: async () => {
         requestCount++
-        if (requestCount === 1) throw new Error('Connection closed')
-        return { feedback: 'ok' }
+        throw new Error('Connection closed')
       },
       browserFallback: async () => {
         throw new Error('browser fallback should not run')
@@ -38,9 +36,10 @@ describe('MCP feedback reconnect', () => {
     })
 
     assert.equal(result.isError, undefined)
-    assert.match(result.content[0].text, /^ok/)
-    assert.equal(connectCount, 2)
-    assert.ok(logs.some((line) => line.includes('rediscover 1/2 found no extension')))
+    assert.match(result.content[0].text, /\[connection_closed\]/)
+    assert.equal(connectCount, 1)
+    assert.equal(requestCount, 1)
+    assert.ok(logs.some((line) => line.includes('not retrying')))
   })
 
   it('returns an extension unavailable error after rediscovery is exhausted', async () => {

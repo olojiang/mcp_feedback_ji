@@ -127,6 +127,21 @@ export interface AgentContextSnapshot {
     updatedAt?: number;
 }
 
+/** Prefer hubs whose live version matches MCP; fallback to all if none match. */
+export function preferVersionMatchedCandidates<T extends { version?: string }>(
+    candidates: T[],
+    wantVersion: string,
+): { kept: T[]; versionFiltered: boolean } {
+    if (!wantVersion || wantVersion === 'unknown') {
+        return { kept: candidates, versionFiltered: false };
+    }
+    const matched = candidates.filter((c) => c.version === wantVersion);
+    if (matched.length > 0) {
+        return { kept: matched, versionFiltered: true };
+    }
+    return { kept: candidates, versionFiltered: false };
+}
+
 export function resolveImplicitProjectDirectory(options: {
     envProjectDirectory?: string;
     cwd?: string;

@@ -245,6 +245,12 @@ class FeedbackFlow {
                 this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
                 this.deps.queueAsPending(resolved.feedback, resolved.images);
                 if (this.deps.broadcastFeedbackUndelivered) {
+                    this.deps.log((0, panelSubmitOutcome_1.feedbackUndeliveredBroadcastLogLine)({
+                        sessionId,
+                        traceId: this.deps.feedback.waitMetaForSession(sessionId)?.traceId,
+                        feedbackLen: resolved.feedback.length,
+                        detail: 'panel_reply_resolved_but_mcp_link_lost',
+                    }));
                     this.deps.broadcastFeedbackUndelivered(resolved.feedback, sessionId, 'Cursor Agent 链接已断 — 回复已存入队列，请 toggle MCP');
                 }
                 else {
@@ -259,8 +265,10 @@ class FeedbackFlow {
                 session_id: sessionId,
             });
             this.deps.log(`feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`);
+            const deliverTrace = this.deps.feedback.waitMetaForSession(sessionId)?.traceId;
             this.deps.log((0, panelSubmitOutcome_1.panelSubmitDeliveredLogLine)({
                 sessionId,
+                traceId: deliverTrace,
                 feedbackLen: resolved.feedback.length,
                 mcpWsReadyState: resolved.transport.readyState,
             }));
@@ -352,6 +360,11 @@ class FeedbackFlow {
             traceId: responseTraceId,
             pendingCount: this.deps.feedback.pendingCount(),
         });
+        this.deps.log((0, panelSubmitOutcome_1.feedbackSubmittedBroadcastLogLine)({
+            sessionId: res.session_id,
+            traceId: responseTraceId,
+            feedbackLen: res.feedback.length,
+        }));
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }

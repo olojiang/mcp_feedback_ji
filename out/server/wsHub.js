@@ -370,6 +370,7 @@ class WsHub {
             port: this.port,
             version: this.version,
             pending: this.pending,
+            feedback: this.feedback,
             log: wsLog,
         });
         if (handled)

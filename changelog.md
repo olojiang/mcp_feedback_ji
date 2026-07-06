@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.135] - 2026-07-06
+
+### Fix — hooks 拦截重复 feedback（减 Usage 浪费）
+
+- **`GET /feedback-active?trace_id=`** — hub 查询当前 trace 是否有 live MCP 等待
+- **`FeedbackManager.liveWaitForTrace`** — 供 hooks / HTTP 复用
+- **hooks `consume-pending`** — pending 时 **deny** 重复 `interactive_feedback`；有 live wait 时跳过 rules refresh 强推 feedback
+- **`feedback-guard.js`** — 纯函数 + 单测
+
+## [2.5.1-ji.134] - 2026-07-06
+
+### Fix — 容错兜底（MCP 断连 / 版本 skew / 重连）
+
+- **MCP discover**：同版本 hub 优先，减少连到旧 ji.126 hub
+- **MCP toolHandlers**：`Connection closed` / `extension_ws_close` 不再盲目 retry
+- **OutboundQueue**：队列满时优先丢弃非 `feedback_response`
+- **BridgeSessionGate**：重连后强制 `stateSync`
+- **面板**：Hub pid 变化时重新 hydrate；`feedback_submitted` 后 30s 无续跑提示
+
+## [2.5.1-ji.132] - 2026-07-06
+
+### Fix — hello 进 PENDING 但 Agent 仍在等（重连竞态）
+
+- **`getUIState`**：任一 tab `waiting` 时按钮显示 **Send**（不再误显示 Queue）
+- **`feedback_submitted`**：清除 `globalPendingQueue` 中重复文本，避免送达后 PENDING 残留
+
+## [2.5.1-ji.131] - 2026-07-06
+
+### Fix — P1 健壮性
+
+#### 面板
+- **`submitInFlight`**：防止双击 Send 重复 `feedback_response`；按钮显示 Sending...
+- **`snapshotServerGlobalPending` / `restoreServerGlobalPending`**：hydrate 时 server 全局 pending 优先于 localStorage
+
+#### MCP
+- **hard timeout 不 retry**：`cursor_hard_timeout_suspected` 时单次尝试即返回 End turn 文案
+- **noOp billing**：`released_duplicate` / keepalive 记录真实 `elapsed_ms`
+
+## [2.5.1-ji.130] - 2026-07-06
+
+### Fix — P0 健壮性（MCP settle guard / 面板 link-lost UX）
+
+#### MCP
+- **`extensionClient.ts`**：`requestFeedback` 增加 `settled` 守卫；resolve 后忽略 `ws.close` 误 reject，减少 retry 与 billing 噪音
+- **`toolHandlers.ts`**：每次 `requestFeedback` 后在 `finally` 关闭 WS，避免 orphan 连接引发 trace_steal 链
+
+#### 面板
+- **`panelState.js`**：`agent_turn_status` 刷新 `input` + `connection`；`cursor_ended` 不再误走 queue-pending；`_sessionLinkLost` 仅认 `mcpDetached`
+- **`panelApp.js`**：`exec` 支持 `connection` render target
+
+#### 日志
+- **`panelSubmitOutcome.ts`**：`feedback_submitted_broadcast` / `feedback_undelivered_broadcast`
+- **hooks**：`event=hooks_feedback_tool` + trace 字段；troubleshooting 增加 hooks↔MCP 关联 grep
+
 ## [2.5.1-ji.128] - 2026-07-06
 
 ### Fix — 面板重连后 waiting tab 被 localStorage 冲掉

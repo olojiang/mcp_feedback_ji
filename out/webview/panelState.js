@@ -97,6 +97,7 @@
       waiting: true,
       mcpDetached: false,
       cursorEnded: false,
+      submitInFlight: false,
       statusDetail: '',
       createdAt: Date.now(),
       projectDirectory: '',
@@ -273,7 +274,7 @@
 
     _sessionLinkLost(sess) {
       if (!sess || !sess.id || !sess.waiting) return false
-      if (sess.mcpDetached || sess.cursorEnded) return true
+      if (sess.mcpDetached) return true
       var hub = this.hubSnapshot
       if (!hub || !hub.mcp_detached_count) return false
       var ids = this.lastPendingSessionIds || []
@@ -401,9 +402,35 @@
       sess.waiting = true
       return [
         notify({ type: 'agent-turn-status', session_id: id, reason: msg.reason, detail: sess.statusDetail }),
-        render('connection', 'tabs', 'messages', 'pending'),
+        render('connection', 'tabs', 'messages', 'pending', 'input'),
         dom('save_state'),
       ]
+    }
+
+    /** Preserve Hub-authoritative global pending queue before localStorage restore. */
+    snapshotServerGlobalPending() {
+      return {
+        comments: (this.globalPendingQueue || []).slice(),
+        images: (this.globalPendingImages || []).slice(),
+      }
+    }
+
+    restoreServerGlobalPending(snap) {
+      if (!snap) return
+      var hasComments = snap.comments && snap.comments.length > 0
+      var hasImages = snap.images && snap.images.length > 0
+      if (!hasComments && !hasImages) return
+      this.globalPendingQueue = hasComments ? snap.comments.slice() : []
+      this.globalPendingImages = hasImages ? snap.images.slice() : []
+    }
+
+    _removeFromGlobalPending(text) {
+      if (!text || !this.globalPendingQueue || !this.globalPendingQueue.length) return
+      var trimmed = String(text).trim()
+      if (!trimmed) return
+      this.globalPendingQueue = this.globalPendingQueue.filter(function (c) {
+        return String(c).trim() !== trimmed
+      })
     }
 
     /** Preserve Hub-authoritative pending tabs before localStorage restore. */
@@ -572,7 +599,11 @@
         }
       }
       sess.waiting = false
-      return [render('tabs', 'messages', 'input', 'staged_images'), dom('save_state')]
+      sess.submitInFlight = false
+      if (msg.feedback) {
+        this._removeFromGlobalPending(msg.feedback)
+      }
+      return [render('tabs', 'messages', 'input', 'staged_images', 'pending'), dom('save_state')]
     }
 
     _onFeedbackUndelivered(msg) {
@@ -582,6 +613,7 @@
       sess.mcpDetached = true
       sess.cursorEnded = true
       sess.waiting = true
+      sess.submitInFlight = false
       if (msg.detail) sess.statusDetail = msg.detail
       return [
         notify({ type: 'agent-link-lost-queued', session_id: id, detail: sess.statusDetail }),
@@ -641,6 +673,7 @@
       var id = (opts && opts.session_id) || this.activeSessionId
       var sess = id ? this.sessions[id] : null
       if (!sess || !sess.waiting) return []
+      if (sess.submitInFlight) return []
 
       var pendingParts = sess.pendingQueue.slice()
       var pendingImgs = sess.pendingImages.slice()
@@ -657,7 +690,7 @@
         images: mergedImages.length > 0 ? mergedImages : undefined,
       })
 
-      if (sess.mcpDetached || sess.cursorEnded || this._sessionLinkLost(sess)) {
+      if (sess.mcpDetached || this._sessionLinkLost(sess)) {
         if (mergedText && mergedText.trim()) {
           this.globalPendingQueue.push(mergedText.trim())
         }
@@ -694,6 +727,7 @@
         }),
         render('tabs', 'messages', 'pending', 'input', 'staged_images'),
       ]
+      sess.submitInFlight = true
 
       if (!opts || !opts.preserveInput) {
         sess.stagedImages = []
@@ -865,11 +899,13 @@
     getUIState() {
       var active = this.getActiveSession()
       var waiting = !!(active && active.waiting)
+      var anyWaiting = this.waitingCount > 0
       var linkLost = !!(active && active.waiting && this._sessionLinkLost(active))
       return {
-        buttonMode: linkLost ? 'queue_lost' : (waiting ? 'send' : 'queue'),
-        isWaiting: waiting,
+        buttonMode: linkLost ? 'queue_lost' : ((waiting || anyWaiting) ? 'send' : 'queue'),
+        isWaiting: waiting || anyWaiting,
         linkLost: linkLost,
+        submitInFlight: !!(active && active.submitInFlight),
         waitingCount: this.waitingCount,
         activeSessionId: this.activeSessionId,
       }

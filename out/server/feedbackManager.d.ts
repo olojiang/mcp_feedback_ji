@@ -78,6 +78,11 @@ export declare class FeedbackManager {
         traceId?: string;
     } | undefined;
     mcpTransportForSession(sessionId: string): WebSocket | undefined;
+    /** Live MCP wait for hooks — blocks duplicate interactive_feedback on same trace. */
+    liveWaitForTrace(traceId: string | undefined): {
+        sessionId: string;
+        detached: boolean;
+    } | null;
     tryAttachHandlers(sessionId: string): boolean;
     rejectAll(error: Error): void;
 }

@@ -4144,6 +4144,17 @@ var FeedbackManager = class {
   mcpTransportForSession(sessionId) {
     return this.queue.find((item) => item.sessionId === sessionId)?.mcpClient;
   }
+  /** Live MCP wait for hooks — blocks duplicate interactive_feedback on same trace. */
+  liveWaitForTrace(traceId) {
+    if (!traceId) return null;
+    for (const entry of this.queue) {
+      if (entry.traceId !== traceId) continue;
+      if (entry.mcpDetached) continue;
+      if (!isMcpTransportOpen(entry.mcpClient)) continue;
+      return { sessionId: entry.sessionId, detached: false };
+    }
+    return null;
+  }
   tryAttachHandlers(sessionId) {
     const entry = this.queue.find((item) => item.sessionId === sessionId);
     if (!entry || entry.handlersAttached) return false;
@@ -4266,6 +4277,25 @@ function buildOpenApiSpec(deps) {
             }
           }
         }
+      },
+      "/feedback-active": {
+        get: {
+          summary: "Whether interactive_feedback is already waiting for this trace.",
+          parameters: [{
+            name: "trace_id",
+            in: "query",
+            required: true,
+            schema: { type: "string" }
+          }],
+          responses: {
+            "200": {
+              description: "A live feedback wait exists for the trace."
+            },
+            "404": {
+              description: "No live wait for this trace."
+            }
+          }
+        }
       }
     }
   };
@@ -4290,6 +4320,7 @@ function docsHtml(deps) {
     <li><code>GET /health</code> - server health, port, pid, and version.</li>
     <li><code>GET /pending</code> - read pending feedback.</li>
     <li><code>GET /pending?consume=1</code> - consume pending feedback.</li>
+    <li><code>GET /feedback-active?trace_id=...</code> - live feedback wait for hooks.</li>
     <li><code>GET /openapi.json</code> - OpenAPI 3.0 JSON.</li>
   </ul>
   <pre>curl http://127.0.0.1:${deps.port}/openapi.json</pre>
@@ -4331,6 +4362,18 @@ function handleHttpRoute(req, res, deps) {
     } else {
       res.writeHead(404);
       res.end(JSON.stringify({ error: "no_pending" }));
+    }
+    return true;
+  }
+  if (req.method === "GET" && pathname === "/feedback-active") {
+    const traceId = url2.searchParams.get("trace_id") || "";
+    const live = deps.feedback?.liveWaitForTrace(traceId) ?? null;
+    if (live) {
+      res.writeHead(200);
+      res.end(JSON.stringify({ active: true, ...live }));
+    } else {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "no_active_wait" }));
     }
     return true;
   }
@@ -4885,6 +4928,25 @@ function panelSubmitDeliveredLogLine(opts) {
   if (opts.mcpWsReadyState !== void 0) parts.push(`mcp_ws_ready_state=${opts.mcpWsReadyState}`);
   return parts.join(" ");
 }
+function feedbackSubmittedBroadcastLogLine(opts) {
+  const parts = [
+    "event=feedback_submitted_broadcast",
+    `session=${opts.sessionId || "-"}`,
+    `trace=${opts.traceId || "-"}`
+  ];
+  if (opts.feedbackLen !== void 0) parts.push(`feedback_len=${opts.feedbackLen}`);
+  return parts.join(" ");
+}
+function feedbackUndeliveredBroadcastLogLine(opts) {
+  const parts = [
+    "event=feedback_undelivered_broadcast",
+    `session=${opts.sessionId}`,
+    `trace=${opts.traceId || "-"}`
+  ];
+  if (opts.feedbackLen !== void 0) parts.push(`feedback_len=${opts.feedbackLen}`);
+  if (opts.detail) parts.push(`detail=${opts.detail}`);
+  return parts.join(" ");
+}
 
 // src/server/feedbackFlow.ts
 var FeedbackFlow = class {
@@ -5153,6 +5215,12 @@ var FeedbackFlow = class {
         this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
         this.deps.queueAsPending(resolved.feedback, resolved.images);
         if (this.deps.broadcastFeedbackUndelivered) {
+          this.deps.log(feedbackUndeliveredBroadcastLogLine({
+            sessionId,
+            traceId: this.deps.feedback.waitMetaForSession(sessionId)?.traceId,
+            feedbackLen: resolved.feedback.length,
+            detail: "panel_reply_resolved_but_mcp_link_lost"
+          }));
           this.deps.broadcastFeedbackUndelivered(
             resolved.feedback,
             sessionId,
@@ -5172,8 +5240,10 @@ var FeedbackFlow = class {
       this.deps.log(
         `feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`
       );
+      const deliverTrace = this.deps.feedback.waitMetaForSession(sessionId)?.traceId;
       this.deps.log(panelSubmitDeliveredLogLine({
         sessionId,
+        traceId: deliverTrace,
         feedbackLen: resolved.feedback.length,
         mcpWsReadyState: resolved.transport.readyState
       }));
@@ -5278,6 +5348,11 @@ var FeedbackFlow = class {
       traceId: responseTraceId,
       pendingCount: this.deps.feedback.pendingCount()
     });
+    this.deps.log(feedbackSubmittedBroadcastLogLine({
+      sessionId: res.session_id,
+      traceId: responseTraceId,
+      feedbackLen: res.feedback.length
+    }));
     this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
     this.deps.onFeedbackResolved?.();
   }
@@ -20704,6 +20779,7 @@ var WsHub = class {
       port: this.port,
       version: this.version,
       pending: this.pending,
+      feedback: this.feedback,
       log: wsLog
     });
     if (handled) return;
@@ -21476,6 +21552,9 @@ var FeedbackViewProvider = class {
     const panelStateTransportUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateTransport.js").with({ query: `v=${cacheKey}` })
     );
+    const panelAgentResumeWatchUri = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelAgentResumeWatch.js").with({ query: `v=${cacheKey}` })
+    );
     const panelStateUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelState.js").with({ query: `v=${cacheKey}` })
     );
@@ -21497,6 +21576,7 @@ var FeedbackViewProvider = class {
     html = html.replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, panelStateMarkdownUri.toString());
     html = html.replace(/\{\{PANELSTATE_UX_URI\}\}/g, panelStateUxUri.toString());
     html = html.replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, panelStateTransportUri.toString());
+    html = html.replace(/\{\{PANEL_AGENT_RESUME_WATCH_URI\}\}/g, panelAgentResumeWatchUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
     html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
     html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
@@ -22030,6 +22110,7 @@ var RULES_CONTENT = [
   "- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.",
   '- IMPORTANT: If interactive_feedback returns an error (e.g. "not connected", timeout), do NOT retry. End your turn normally. Retrying wastes Cursor requests.',
   "- If interactive_feedback returns [keepalive] or [released_duplicate] or [superseded], do NOT treat it as user input. End your turn immediately. Do NOT call interactive_feedback again.",
+  "- Hooks deny duplicate interactive_feedback while a live panel wait exists on the same trace \u2014 obey deny and end your turn.",
   "",
   "You have access to the interactive_feedback MCP tool for communicating with the user:",
   "- Use it to present results, ask questions, or check in with the user.",

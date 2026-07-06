@@ -167,4 +167,24 @@ describe('FeedbackManager', () => {
     assert.equal(fm.tryAttachHandlers(request.sessionId), true)
     assert.equal(fm.tryAttachHandlers(request.sessionId), false)
   })
+
+  it('liveWaitForTrace returns open mcp wait for matching trace', () => {
+    const fm = new FeedbackManager()
+    const trace = 'trace-live-wait'
+    const request = fm.enqueue({ readyState: 1 }, '/proj', 'summary', trace)
+    assert.deepEqual(fm.liveWaitForTrace(trace), {
+      sessionId: request.sessionId,
+      detached: false,
+    })
+  })
+
+  it('liveWaitForTrace ignores detached or missing trace waits', () => {
+    const fm = new FeedbackManager()
+    const ws = { readyState: 3 }
+    const trace = 'trace-detached'
+    fm.enqueue(ws, '/proj', 'summary', trace)
+    fm.detachMcpClient(ws)
+    assert.equal(fm.liveWaitForTrace(trace), null)
+    assert.equal(fm.liveWaitForTrace('other-trace'), null)
+  })
 })

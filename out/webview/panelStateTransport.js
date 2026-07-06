@@ -12,7 +12,22 @@
 
     enqueue(message) {
       if (!message || typeof message !== 'object') return 0
-      if (this.items.length >= this.limit) this.items.shift()
+      if (this.items.length >= this.limit) {
+        var dropIdx = -1
+        for (var i = this.items.length - 1; i >= 0; i--) {
+          if (this.items[i] && this.items[i].type !== 'feedback_response') {
+            dropIdx = i
+            break
+          }
+        }
+        if (dropIdx >= 0) {
+          this.items.splice(dropIdx, 1)
+        } else if (message.type !== 'feedback_response') {
+          this.items.shift()
+        } else {
+          return this.items.length
+        }
+      }
       this.items.push(message)
       return this.items.length
     }
@@ -67,12 +82,13 @@
       this.ready = false
       this.registered = false
       this.initialized = false
+      this.needsResync = false
     }
 
     resetForReconnect() {
+      if (this.initialized) this.needsResync = true
       this.ready = false
       this.registered = false
-      this.initialized = false
     }
 
     isReady() {
@@ -81,13 +97,13 @@
 
     onBridgeConnected() {
       this.ready = true
-      if (this.initialized) {
-        return { register: false, stateSync: false, labels: true }
-      }
-      this.initialized = true
-      var register = !this.registered
+      var isFirst = !this.initialized
+      if (isFirst) this.initialized = true
+      var stateSync = isFirst || this.needsResync
+      if (this.needsResync) this.needsResync = false
+      var register = isFirst
       if (register) this.registered = true
-      return { register: register, stateSync: true, labels: true }
+      return { register: register, stateSync: stateSync, labels: true }
     }
 
     shouldInitFromConnectionEstablished() {

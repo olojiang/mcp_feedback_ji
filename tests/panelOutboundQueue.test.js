@@ -18,12 +18,23 @@ describe('OutboundQueue', () => {
     assert.equal(q.size, 0)
   })
 
-  it('drops oldest entry when over capacity', () => {
+  it('drops newest non-feedback when over capacity', () => {
     const q = new OutboundQueue(2)
     q.enqueue({ type: 'a' })
     q.enqueue({ type: 'b' })
     q.enqueue({ type: 'c' })
-    assert.deepEqual(q.drain(), [{ type: 'b' }, { type: 'c' }])
+    assert.deepEqual(q.drain(), [{ type: 'a' }, { type: 'c' }])
+  })
+
+  it('keeps feedback_response when queue is full', () => {
+    const q = new OutboundQueue(2)
+    q.enqueue({ type: 'ping' })
+    q.enqueue({ type: 'status_update' })
+    q.enqueue({ type: 'feedback_response', feedback: 'hello' })
+    const drained = q.drain()
+    assert.equal(drained.length, 2)
+    assert.ok(drained.some((m) => m.type === 'feedback_response'))
+    assert.ok(!drained.some((m) => m.type === 'status_update'))
   })
 
   it('reports whether feedback responses are queued', () => {

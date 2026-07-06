@@ -3,6 +3,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.panelSubmitNoEffectLogLine = panelSubmitNoEffectLogLine;
 exports.panelSubmitDeliveredLogLine = panelSubmitDeliveredLogLine;
+exports.feedbackSubmittedBroadcastLogLine = feedbackSubmittedBroadcastLogLine;
+exports.feedbackUndeliveredBroadcastLogLine = feedbackUndeliveredBroadcastLogLine;
 function panelSubmitNoEffectLogLine(opts) {
     const parts = [
         'event=panel_submit_no_effect',
@@ -35,6 +37,28 @@ function panelSubmitDeliveredLogLine(opts) {
         parts.push(`wait_ms=${opts.waitMs}`);
     if (opts.mcpWsReadyState !== undefined)
         parts.push(`mcp_ws_ready_state=${opts.mcpWsReadyState}`);
+    return parts.join(' ');
+}
+function feedbackSubmittedBroadcastLogLine(opts) {
+    const parts = [
+        'event=feedback_submitted_broadcast',
+        `session=${opts.sessionId || '-'}`,
+        `trace=${opts.traceId || '-'}`,
+    ];
+    if (opts.feedbackLen !== undefined)
+        parts.push(`feedback_len=${opts.feedbackLen}`);
+    return parts.join(' ');
+}
+function feedbackUndeliveredBroadcastLogLine(opts) {
+    const parts = [
+        'event=feedback_undelivered_broadcast',
+        `session=${opts.sessionId}`,
+        `trace=${opts.traceId || '-'}`,
+    ];
+    if (opts.feedbackLen !== undefined)
+        parts.push(`feedback_len=${opts.feedbackLen}`);
+    if (opts.detail)
+        parts.push(`detail=${opts.detail}`);
     return parts.join(' ');
 }
 //# sourceMappingURL=panelSubmitOutcome.js.map

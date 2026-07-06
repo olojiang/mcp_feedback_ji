@@ -296,6 +296,18 @@ export class FeedbackManager {
         return this.queue.find((item) => item.sessionId === sessionId)?.mcpClient;
     }
 
+    /** Live MCP wait for hooks — blocks duplicate interactive_feedback on same trace. */
+    liveWaitForTrace(traceId: string | undefined): { sessionId: string; detached: boolean } | null {
+        if (!traceId) return null;
+        for (const entry of this.queue) {
+            if (entry.traceId !== traceId) continue;
+            if (entry.mcpDetached) continue;
+            if (!isMcpTransportOpen(entry.mcpClient)) continue;
+            return { sessionId: entry.sessionId, detached: false };
+        }
+        return null;
+    }
+
     tryAttachHandlers(sessionId: string): boolean {
         const entry = this.queue.find((item) => item.sessionId === sessionId);
         if (!entry || entry.handlersAttached) return false;

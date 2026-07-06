@@ -67,6 +67,25 @@ function buildOpenApiSpec(deps) {
                     },
                 },
             },
+            '/feedback-active': {
+                get: {
+                    summary: 'Whether interactive_feedback is already waiting for this trace.',
+                    parameters: [{
+                            name: 'trace_id',
+                            in: 'query',
+                            required: true,
+                            schema: { type: 'string' },
+                        }],
+                    responses: {
+                        '200': {
+                            description: 'A live feedback wait exists for the trace.',
+                        },
+                        '404': {
+                            description: 'No live wait for this trace.',
+                        },
+                    },
+                },
+            },
         },
     };
 }
@@ -90,6 +109,7 @@ function docsHtml(deps) {
     <li><code>GET /health</code> - server health, port, pid, and version.</li>
     <li><code>GET /pending</code> - read pending feedback.</li>
     <li><code>GET /pending?consume=1</code> - consume pending feedback.</li>
+    <li><code>GET /feedback-active?trace_id=...</code> - live feedback wait for hooks.</li>
     <li><code>GET /openapi.json</code> - OpenAPI 3.0 JSON.</li>
   </ul>
   <pre>curl http://127.0.0.1:${deps.port}/openapi.json</pre>
@@ -133,6 +153,19 @@ function handleHttpRoute(req, res, deps) {
         else {
             res.writeHead(404);
             res.end(JSON.stringify({ error: 'no_pending' }));
+        }
+        return true;
+    }
+    if (req.method === 'GET' && pathname === '/feedback-active') {
+        const traceId = url.searchParams.get('trace_id') || '';
+        const live = deps.feedback?.liveWaitForTrace(traceId) ?? null;
+        if (live) {
+            res.writeHead(200);
+            res.end(JSON.stringify({ active: true, ...live }));
+        }
+        else {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'no_active_wait' }));
         }
         return true;
     }

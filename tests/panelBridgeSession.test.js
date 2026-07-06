@@ -27,14 +27,14 @@ describe('BridgeSessionGate', () => {
     })
   })
 
-  it('reconnect resets and allows a fresh init cycle', () => {
+  it('reconnect resyncs without re-registering', () => {
     const gate = new BridgeSessionGate()
     gate.onBridgeConnected()
     gate.resetForReconnect()
     assert.equal(gate.isReady(), false)
-    assert.equal(gate.shouldInitFromConnectionEstablished(), true)
+    assert.equal(gate.shouldInitFromConnectionEstablished(), false)
     assert.deepEqual(gate.onBridgeConnected(), {
-      register: true,
+      register: false,
       stateSync: true,
       labels: true,
     })

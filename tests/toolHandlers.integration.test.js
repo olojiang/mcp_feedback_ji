@@ -56,7 +56,7 @@ describe('toolHandlers integration', () => {
     }
   })
 
-  it('retries extension connection then succeeds', async () => {
+  it('retries extension connection on timeout then succeeds', async () => {
     let attempts = 0
     const handler = createToolCallHandler({
       findExtensionServer: async () => ({
@@ -64,7 +64,7 @@ describe('toolHandlers integration', () => {
       }),
       connectToExtension: async () => {
         attempts++
-        if (attempts < 2) throw new Error('Connection closed')
+        if (attempts < 2) throw new Error('Connection timeout')
         return { close() {} }
       },
       requestFeedback: async () => ({ feedback: 'retry ok' }),

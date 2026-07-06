@@ -34,6 +34,12 @@ if (fs.existsSync(transportSrc)) {
     console.log('[generate-webview] Copied panelStateTransport.js to out/webview/ (loaded as external resource)');
 }
 
+const agentResumeWatchSrc = path.join(__dirname, '..', 'static', 'panelAgentResumeWatch.js');
+if (fs.existsSync(agentResumeWatchSrc)) {
+    fs.copyFileSync(agentResumeWatchSrc, path.join(outDir, 'panelAgentResumeWatch.js'));
+    console.log('[generate-webview] Copied panelAgentResumeWatch.js to out/webview/ (loaded as external resource)');
+}
+
 for (const split of ['panelStateMarkdown', 'panelStateUx']) {
     const splitSrc = path.join(__dirname, '..', 'static', split + '.js');
     if (fs.existsSync(splitSrc)) {

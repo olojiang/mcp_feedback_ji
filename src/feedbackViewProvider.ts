@@ -193,6 +193,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelStateTransport.js')
                 .with({ query: `v=${cacheKey}` })
         );
+        const panelAgentResumeWatchUri = view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelAgentResumeWatch.js')
+                .with({ query: `v=${cacheKey}` })
+        );
         const panelStateUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelState.js')
                 .with({ query: `v=${cacheKey}` })
@@ -219,6 +223,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         html = html.replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, panelStateMarkdownUri.toString());
         html = html.replace(/\{\{PANELSTATE_UX_URI\}\}/g, panelStateUxUri.toString());
         html = html.replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, panelStateTransportUri.toString());
+        html = html.replace(/\{\{PANEL_AGENT_RESUME_WATCH_URI\}\}/g, panelAgentResumeWatchUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
         html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
         html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());

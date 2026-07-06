@@ -10,10 +10,14 @@ describe('deploy mcpConfig', () => {
     const { planMcpConfigUpdate } = require('../out/deploy/mcpConfig.js')
     const ext = '/ext'
     const args = [path.join(ext, 'mcp-server', 'dist', 'index.js')]
-    const plan = planMcpConfigUpdate(ext, '2.5.1-ji.68', '/usr/bin/node', {
+    const plan = planMcpConfigUpdate(ext, '2.5.1-ji.135', '/usr/bin/node', {
       command: '/usr/bin/node',
       args,
-      env: { MCP_FEEDBACK_VERSION: '2.5.1-ji.68' },
+      env: {
+        MCP_FEEDBACK_VERSION: '2.5.1-ji.135',
+        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
+        MCP_FEEDBACK_CURSOR_PROGRESS_MS: '600000',
+      },
     })
     assert.equal(plan.changed, false)
   })

@@ -7,7 +7,11 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
+const CONFIG_DIR = (() => {
+    const override = process.env.MCP_FEEDBACK_CONFIG_DIR?.trim();
+    if (override) return override;
+    return path.join(os.homedir(), '.config', 'mcp-feedback-enhanced');
+})();
 const SERVERS_DIR = path.join(CONFIG_DIR, 'servers');
 const AGENT_CONTEXT_FILE = path.join(CONFIG_DIR, 'agent-context.json');
 const AGENT_CONTEXT_TTL_MS = 5 * 60 * 1000;

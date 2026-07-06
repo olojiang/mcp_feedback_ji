@@ -18,3 +18,14 @@ export declare function panelSubmitDeliveredLogLine(opts: {
     waitMs?: number;
     mcpWsReadyState?: number;
 }): string;
+export declare function feedbackSubmittedBroadcastLogLine(opts: {
+    sessionId?: string;
+    traceId?: string;
+    feedbackLen?: number;
+}): string;
+export declare function feedbackUndeliveredBroadcastLogLine(opts: {
+    sessionId: string;
+    traceId?: string;
+    feedbackLen?: number;
+    detail?: string;
+}): string;

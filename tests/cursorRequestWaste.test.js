@@ -147,3 +147,80 @@ describe('deploy/hooks — stop hook retired to prevent loop', () => {
     assert.equal(next.hooks.stop, undefined, 'stop must be retired')
   })
 })
+
+describe('toolHandlers — connection closed no retry', () => {
+  it('does not retry when MCP connection closed during wait', async () => {
+    let attempts = 0
+    const handler = createToolCallHandler({
+      findExtensionServer: async () => ({
+        port: 48201, pid: 1, projectPath: '/repo', version: '1',
+      }),
+      connectToExtension: async () => {
+        attempts++
+        return { close() {} }
+      },
+      requestFeedback: async () => {
+        throw new Error('Extension connection closed during feedback wait (reason=extension_ws_close) — reload')
+      },
+      browserFallback: async () => 'browser',
+      log: () => {},
+      readAgentContext: () => null,
+    })
+
+    const result = await handler('interactive_feedback', { summary: 'test' })
+    assert.equal(attempts, 1)
+    assert.match(result.content[0].text, /\[connection_closed\]/)
+  })
+})
+
+describe('toolHandlers — hard timeout no retry', () => {
+  it('does not retry when extension closes with cursor_hard_timeout_suspected', async () => {
+    const logs = []
+    let attempts = 0
+    const handler = createToolCallHandler({
+      findExtensionServer: async () => ({
+        port: 48201, pid: 1, projectPath: '/repo', version: '1',
+      }),
+      connectToExtension: async () => {
+        attempts++
+        return { close() {} }
+      },
+      requestFeedback: async () => {
+        throw new Error(
+          'Extension connection closed during feedback wait (reason=cursor_hard_timeout_suspected) — reload',
+        )
+      },
+      browserFallback: async () => 'browser',
+      log: (m) => logs.push(m),
+      readAgentContext: () => null,
+    })
+
+    const result = await handler('interactive_feedback', { summary: 'test' })
+    assert.equal(attempts, 1)
+    assert.match(result.content[0].text, /cursor_hard_timeout/)
+    assert.ok(logs.some((l) => l.includes('cursor_hard_timeout_suspected') && l.includes('not retrying')))
+  })
+})
+
+describe('toolHandlers — noOp billing elapsed', () => {
+  it('logs non-zero elapsed_ms for released_duplicate no-op', async () => {
+    const logs = []
+    const handler = createToolCallHandler({
+      findExtensionServer: async () => ({
+        port: 48201, pid: 1, projectPath: '/repo', version: '1',
+      }),
+      connectToExtension: async () => ({ close() {} }),
+      requestFeedback: async () => new Promise((resolve) => {
+        setTimeout(() => resolve({ status: 'released_duplicate', feedback: '', session_id: 'fb-x' }), 50)
+      }),
+      browserFallback: async () => 'browser',
+      log: (m) => logs.push(m),
+      readAgentContext: () => null,
+    })
+
+    await handler('interactive_feedback', { summary: 'test' })
+    const billing = logs.find((l) => l.includes('event=request_billing_risk') && l.includes('released_duplicate'))
+    assert.ok(billing)
+    assert.match(billing, /elapsed_ms=[1-9]\d*/)
+  })
+})

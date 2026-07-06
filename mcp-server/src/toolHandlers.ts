@@ -57,11 +57,12 @@ function noOpFeedbackResponse(
     deps: ToolHandlerDeps,
     reason: FeedbackNoOpReason,
     traceId?: string,
+    elapsedMs = 0,
 ): { content: ToolContent } {
     deps.log(requestWasteGuardLogLine(reason, traceId));
     deps.log(requestBillingRiskLogLine({
         reason: reason === 'keepalive' ? 'our_keepalive' : reason,
-        elapsedMs: 0,
+        elapsedMs,
         traceId,
         detail: 'tool_completed_no_user_input',
     }));
@@ -231,8 +232,10 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 if (!extensionServer) break;
 
+                let ws;
                 try {
-                    const ws = await deps.connectToExtension(extensionServer.port);
+                    ws = await deps.connectToExtension(extensionServer.port);
+                    const waitStartedAt = Date.now();
                     const result = await deps.requestFeedback(ws, summary, project_directory, traceId, {
                         onWaitTick: deps.stdioKeepaliveTick
                             ? () => deps.stdioKeepaliveTick!(traceId, project_directory)
@@ -250,7 +253,12 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                             `[MCP Feedback] ${result.status} auto-resolve `
                             + `trace=${traceId ?? '(none)'} project=${project_directory ?? '(none)'}`,
                         );
-                        return noOpFeedbackResponse(deps, result.status, traceId);
+                        return noOpFeedbackResponse(
+                            deps,
+                            result.status,
+                            traceId,
+                            Date.now() - waitStartedAt,
+                        );
                     }
                     if (result.status && result.status !== 'submitted' && result.status !== 'ok' && !result.feedback) {
                         return {
@@ -280,6 +288,28 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         `[MCP Feedback] Extension port=${extensionServer.port} `
                         + `pid=${extensionServer.pid} attempt ${attempt}/${maxAttempts} failed: ${errMsg}`
                     );
+                    if (errMsg.includes('Connection closed') || errMsg.includes('extension_ws_close')) {
+                        deps.log('[MCP Feedback] MCP connection closed during wait — not retrying');
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: '[connection_closed] MCP disconnected while waiting for feedback. '
+                                    + 'End your turn. Reload Window, toggle MCP, then reply in the panel.'
+                                    + feedbackSuffix(),
+                            }],
+                        };
+                    }
+                    if (errMsg.includes('cursor_hard_timeout_suspected')) {
+                        deps.log('[MCP Feedback] cursor_hard_timeout_suspected — not retrying');
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: '[cursor_hard_timeout] Interactive feedback wait ended near Cursor tool limit. '
+                                    + 'End your turn. Reply in the panel when ready.'
+                                    + feedbackSuffix(),
+                            }],
+                        };
+                    }
                     if (errMsg.includes('superseded')) {
                         deps.log('[MCP Feedback] Superseded by another MCP call — not retrying');
                         return noOpFeedbackResponse(deps, 'superseded', traceId);
@@ -292,6 +322,10 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         log,
                         { extended: extendedRediscover },
                     );
+                } finally {
+                    if (ws) {
+                        try { ws.close(); } catch { /* ignore */ }
+                    }
                 }
             }
 

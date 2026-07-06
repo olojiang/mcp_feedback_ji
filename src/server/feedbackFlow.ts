@@ -13,6 +13,8 @@ import { readAgentContext } from '../fileStore';
 import { buildSessionJournalRecord, type SessionJournalRecord } from '../sessionJournal';
 import {
     panelSubmitDeliveredLogLine,
+    feedbackSubmittedBroadcastLogLine,
+    feedbackUndeliveredBroadcastLogLine,
     panelSubmitNoEffectLogLine,
 } from '../panelSubmitOutcome';
 import type { AgentTurnStatusReason } from '../agentTurnStatus';
@@ -355,6 +357,12 @@ export class FeedbackFlow {
                 this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
                 this.deps.queueAsPending(resolved.feedback, resolved.images);
                 if (this.deps.broadcastFeedbackUndelivered) {
+                    this.deps.log(feedbackUndeliveredBroadcastLogLine({
+                        sessionId,
+                        traceId: this.deps.feedback.waitMetaForSession(sessionId)?.traceId,
+                        feedbackLen: resolved.feedback.length,
+                        detail: 'panel_reply_resolved_but_mcp_link_lost',
+                    }));
                     this.deps.broadcastFeedbackUndelivered(
                         resolved.feedback,
                         sessionId,
@@ -374,8 +382,10 @@ export class FeedbackFlow {
             this.deps.log(
                 `feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`,
             );
+            const deliverTrace = this.deps.feedback.waitMetaForSession(sessionId)?.traceId;
             this.deps.log(panelSubmitDeliveredLogLine({
                 sessionId,
+                traceId: deliverTrace,
                 feedbackLen: resolved.feedback.length,
                 mcpWsReadyState: resolved.transport.readyState,
             }));
@@ -492,6 +502,11 @@ export class FeedbackFlow {
             traceId: responseTraceId,
             pendingCount: this.deps.feedback.pendingCount(),
         });
+        this.deps.log(feedbackSubmittedBroadcastLogLine({
+            sessionId: res.session_id,
+            traceId: responseTraceId,
+            feedbackLen: res.feedback.length,
+        }));
         this.deps.broadcastFeedbackSubmitted(res.feedback, res.session_id);
         this.deps.onFeedbackResolved?.();
     }
