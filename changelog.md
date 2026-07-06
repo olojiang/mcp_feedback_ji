@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.147] - 2026-07-06
+
+### Fix — 测试隔离 + 前端 health timeout 降噪
+
+- **测试 Hub 隔离** — 新增 `tests/helpers/isolatedConfig.js`，所有启动 `WsHub` 的集成测试强制使用独立 `MCP_FEEDBACK_CONFIG_DIR`
+- **隔离守卫测试** — 新增 `tests/testIsolation.test.js`，防止未来测试进程再次写入真实用户的 Hub registry / pending 状态
+- **前端 health** — `panelConnection` 暴露最近 Hub protocol activity，`panelApp` 在判定 ping timeout 时同时参考真实消息活动，减少空闲或后台状态误报
+- **单测** — 增加 health timeout 误报覆盖；全量 **487** pass
+
+## [2.5.1-ji.146] - 2026-07-06
+
+### Fix — Reload 后 workspace 状态不串台
+
+- **陈旧 workspace 清理** — Extension reload / workspace 变化时清理不属于当前 workspace 的内存状态
+- **`state_sync` 加固** — 同步 payload 带 workspace hash，面板收到不同 workspace 的旧 payload 时不合并
+- **Panel storage key** — localStorage key 引入 workspace hash，避免不同 Cursor workspace 复用 drafts / pending / tab 状态
+- **Registry lock** — 记录并校验 project path，减少旧 Hub pid 或旧 registry 文件误导新窗口
+- **单测** — 覆盖 reload、workspace hash、panel state 隔离路径
+
+## [2.5.1-ji.145] - 2026-07-06
+
+### Fix — 多 Cursor workspace 运行时隔离
+
+- **per-workspace runtime 文件** — registry lock、pending session store、feedback state 都按 workspace hash 分片
+- **显式 project routing** — MCP discovery 更严格使用 `project_directory` / cwd / workspace hash 匹配目标 Hub，降低跨项目连错端口风险
+- **pending 文件命名** — pending session 文件名包含完整 workspace hash，避免 hash 前缀或 basename 碰撞
+- **测试覆盖** — 增加 server discovery、tool handler、pending store、架构约束测试
+
+## [2.5.1-ji.144] - 2026-07-06
+
+### Fix — Reload 后保持 live Cursor request 路由
+
+- **stale detached 防抢占** — Hub snapshot 不再把 detached session 当作健康 waiting session
+- **面板恢复顺序** — Webview restore 时保留 live Hub waiting tab，避免旧 detached tab 把按钮误导成 QUEUE
+- **health 可观测性** — 增加 connection health 测试，覆盖 `UI missing waiting tab` 的 false positive 场景
+- **目标** — 让用户在面板内继续反馈时尽量复用当前 live Cursor request，而不是被旧 pending 状态带偏
+
 ## [2.5.1-ji.136] - 2026-07-06
 
 ### Fix — 减少 Cursor Request 浪费 + zombie MCP 清理
