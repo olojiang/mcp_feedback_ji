@@ -170,6 +170,9 @@
       var hub = opts.hub || null
       var mcpServers = hub ? hub.mcp_servers : 0
       var pendingCount = hub ? hub.pending_count : (opts.pendingCount || 0)
+      var livePendingCount = hub && typeof hub.live_pending_count === 'number'
+        ? hub.live_pending_count
+        : Math.max(0, pendingCount - (hub ? hub.mcp_detached_count : 0))
       var mcpDetached = hub ? hub.mcp_detached_count : 0
       var staleLocal = opts.staleLocalWaiting || 0
 
@@ -186,8 +189,8 @@
         issues.push(staleLocal + ' local tab(s) not on server queue')
       }
       var localWaiting = typeof opts.localWaitingCount === 'number' ? opts.localWaitingCount : null
-      if (localWaiting !== null && pendingCount > 0 && localWaiting < pendingCount) {
-        issues.push('UI missing ' + (pendingCount - localWaiting) + ' waiting tab(s) — click Reconnect')
+      if (localWaiting !== null && livePendingCount > 0 && localWaiting < livePendingCount) {
+        issues.push('UI missing ' + (livePendingCount - localWaiting) + ' waiting tab(s) — click Reconnect')
       }
       if (opts.routingMismatchProject) {
         issues.push('Feedback routed to other workspace: ' + opts.routingMismatchProject)

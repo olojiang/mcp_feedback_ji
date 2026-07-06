@@ -24,6 +24,7 @@ describe('buildHubSnapshot', () => {
     assert.deepEqual(snap.workspaces, ['/Users/hunter/Workspace/spatial-smart-cc'])
     assert.equal(snap.mcp_servers, 1)
     assert.equal(snap.pending_count, 2)
+    assert.equal(snap.live_pending_count, 1)
     assert.equal(snap.mcp_detached_count, 1)
   })
 })

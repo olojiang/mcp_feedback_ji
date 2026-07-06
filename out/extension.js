@@ -20361,6 +20361,7 @@ function createWebviewBridge(postToPanel) {
 // src/hubSnapshot.ts
 function buildHubSnapshot(input) {
   const mcpDetachedCount = input.pendingSessions.filter((s) => s.mcp_detached === true).length;
+  const livePendingCount = Math.max(0, input.pendingCount - mcpDetachedCount);
   return {
     port: input.port,
     pid: input.pid,
@@ -20369,6 +20370,7 @@ function buildHubSnapshot(input) {
     webviews: input.webviews,
     mcp_servers: input.mcpServers,
     pending_count: input.pendingCount,
+    live_pending_count: livePendingCount,
     mcp_detached_count: mcpDetachedCount
   };
 }
@@ -21055,10 +21057,6 @@ var WsHub = class {
             pendingCount: this.feedback.pendingCount(),
             reason: "mcp_ws_registered"
           }));
-          const reattached = this.feedbackFlow.reattachDetachedOnMcpConnect(ws);
-          if (reattached.length) {
-            wsLog(`mcp_reattach: sessions=${reattached.join(",")}`);
-          }
         }
         if (clientType === "webview") {
           this._replayPendingSessions(ws);

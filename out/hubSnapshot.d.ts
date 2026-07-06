@@ -18,6 +18,7 @@ export interface HubSnapshot {
     webviews: number;
     mcp_servers: number;
     pending_count: number;
+    live_pending_count: number;
     mcp_detached_count: number;
 }
 export declare function buildHubSnapshot(input: HubSnapshotInput): HubSnapshot;

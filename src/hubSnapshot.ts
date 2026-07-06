@@ -17,11 +17,13 @@ export interface HubSnapshot {
     webviews: number;
     mcp_servers: number;
     pending_count: number;
+    live_pending_count: number;
     mcp_detached_count: number;
 }
 
 export function buildHubSnapshot(input: HubSnapshotInput): HubSnapshot {
     const mcpDetachedCount = input.pendingSessions.filter((s) => s.mcp_detached === true).length;
+    const livePendingCount = Math.max(0, input.pendingCount - mcpDetachedCount);
     return {
         port: input.port,
         pid: input.pid,
@@ -30,6 +32,7 @@ export function buildHubSnapshot(input: HubSnapshotInput): HubSnapshot {
         webviews: input.webviews,
         mcp_servers: input.mcpServers,
         pending_count: input.pendingCount,
+        live_pending_count: livePendingCount,
         mcp_detached_count: mcpDetachedCount,
     };
 }

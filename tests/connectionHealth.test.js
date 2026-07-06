@@ -48,6 +48,28 @@ describe('ConnectionHealth', () => {
     assert.ok(health.issues.some((i) => i.includes('Agent disconnected')))
   })
 
+  it('does not count detached-only pending sessions as missing live UI tabs', () => {
+    const health = ConnectionHealth.evaluate({
+      bridgeReady: true,
+      hub: {
+        port: 48201,
+        pid: 100,
+        workspaces: ['/Users/hunter/Workspace/agent_claude_evaluator'],
+        mcp_servers: 0,
+        pending_count: 1,
+        live_pending_count: 0,
+        mcp_detached_count: 1,
+      },
+      localWaitingCount: 0,
+      staleLocalWaiting: 0,
+      pingStale: false,
+      hubPidMismatch: false,
+    })
+    assert.equal(health.level, 'degraded')
+    assert.ok(health.issues.some((i) => i.includes('Agent disconnected')))
+    assert.equal(health.issues.some((i) => i.includes('UI missing')), false)
+  })
+
   it('flags stale local tabs not present on server queue', () => {
     const health = ConnectionHealth.evaluate({
       bridgeReady: true,

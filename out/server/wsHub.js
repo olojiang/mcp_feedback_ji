@@ -489,10 +489,6 @@ class WsHub {
                         pendingCount: this.feedback.pendingCount(),
                         reason: 'mcp_ws_registered',
                     }));
-                    const reattached = this.feedbackFlow.reattachDetachedOnMcpConnect(ws);
-                    if (reattached.length) {
-                        wsLog(`mcp_reattach: sessions=${reattached.join(',')}`);
-                    }
                 }
                 if (clientType === 'webview') {
                     this._replayPendingSessions(ws);
