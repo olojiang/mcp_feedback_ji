@@ -4059,7 +4059,11 @@ var FeedbackManager = class {
     for (const entry of this.queue) {
       if (entry.traceId !== traceId) continue;
       if (entry.mcpClient === mcpWs) {
-        return { action: "duplicate", sessionId: entry.sessionId };
+        return {
+          action: "duplicate",
+          sessionId: entry.sessionId,
+          enqueuedAt: entry.enqueuedAt
+        };
       }
       const supersededWs = entry.mcpClient;
       if (!isMcpTransportOpen(supersededWs)) {
@@ -5096,6 +5100,11 @@ function feedbackUndeliveredBroadcastLogLine(opts) {
 }
 
 // src/server/feedbackFlow.ts
+var DEFAULT_STALE_DUPLICATE_RELEASE_MS = 35 * 60 * 1e3;
+function staleDuplicateReleaseMs() {
+  const raw = Number(process.env.MCP_FEEDBACK_STALE_DUPLICATE_RELEASE_MS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_STALE_DUPLICATE_RELEASE_MS;
+}
 var FeedbackFlow = class {
   constructor(deps) {
     this.deps = deps;
@@ -5183,6 +5192,29 @@ var FeedbackFlow = class {
     const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
     if (traceReuse.action === "none") return false;
     if (traceReuse.action === "duplicate") {
+      const waitAgeMs = traceReuse.enqueuedAt ? Date.now() - traceReuse.enqueuedAt : 0;
+      const staleReleaseMs = staleDuplicateReleaseMs();
+      if (waitAgeMs >= staleReleaseMs) {
+        this._auditSession("trace_duplicate_blocked", {
+          sessionId: traceReuse.sessionId,
+          project: req.project_directory,
+          traceId,
+          mcpReadyState: mcpWs.readyState,
+          pendingCount: this.deps.feedback.pendingCount(),
+          reason: "stale_duplicate_release",
+          summaryPreview: req.summary
+        });
+        this.deps.log(
+          `feedbackRequest: stale_duplicate_release session=${traceReuse.sessionId ?? "unknown"} wait_ms=${waitAgeMs} threshold_ms=${staleReleaseMs}`
+        );
+        this.deps.sendResult(mcpWs, {
+          status: "released_duplicate",
+          feedback: "",
+          session_id: traceReuse.sessionId,
+          trace_id: traceId
+        });
+        return true;
+      }
       this._auditSession("trace_duplicate_blocked", {
         sessionId: traceReuse.sessionId,
         project: req.project_directory,
@@ -22212,7 +22244,7 @@ function planMcpConfigUpdate(extensionPath, version2, nodeBin, existing) {
     args: [localServerPath],
     env: {
       MCP_FEEDBACK_VERSION: version2,
-      MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: "0",
+      MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: "3000000",
       MCP_FEEDBACK_CURSOR_PROGRESS_MS: "25000"
     }
   };

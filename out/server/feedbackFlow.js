@@ -10,6 +10,13 @@ const sessionLifecycleLog_1 = require("../sessionLifecycleLog");
 const fileStore_1 = require("../fileStore");
 const sessionJournal_1 = require("../sessionJournal");
 const panelSubmitOutcome_1 = require("../panelSubmitOutcome");
+const DEFAULT_STALE_DUPLICATE_RELEASE_MS = 35 * 60 * 1000;
+function staleDuplicateReleaseMs() {
+    const raw = Number(process.env.MCP_FEEDBACK_STALE_DUPLICATE_RELEASE_MS);
+    return Number.isFinite(raw) && raw > 0
+        ? Math.floor(raw)
+        : DEFAULT_STALE_DUPLICATE_RELEASE_MS;
+}
 class FeedbackFlow {
     constructor(deps) {
         this.deps = deps;
@@ -101,6 +108,28 @@ class FeedbackFlow {
         if (traceReuse.action === 'none')
             return false;
         if (traceReuse.action === 'duplicate') {
+            const waitAgeMs = traceReuse.enqueuedAt ? Date.now() - traceReuse.enqueuedAt : 0;
+            const staleReleaseMs = staleDuplicateReleaseMs();
+            if (waitAgeMs >= staleReleaseMs) {
+                this._auditSession('trace_duplicate_blocked', {
+                    sessionId: traceReuse.sessionId,
+                    project: req.project_directory,
+                    traceId,
+                    mcpReadyState: mcpWs.readyState,
+                    pendingCount: this.deps.feedback.pendingCount(),
+                    reason: 'stale_duplicate_release',
+                    summaryPreview: req.summary,
+                });
+                this.deps.log(`feedbackRequest: stale_duplicate_release session=${traceReuse.sessionId ?? 'unknown'}`
+                    + ` wait_ms=${waitAgeMs} threshold_ms=${staleReleaseMs}`);
+                this.deps.sendResult(mcpWs, {
+                    status: 'released_duplicate',
+                    feedback: '',
+                    session_id: traceReuse.sessionId,
+                    trace_id: traceId,
+                });
+                return true;
+            }
             this._auditSession('trace_duplicate_blocked', {
                 sessionId: traceReuse.sessionId,
                 project: req.project_directory,

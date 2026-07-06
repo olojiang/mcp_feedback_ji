@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.149] - 2026-07-06
+
+### Fix — 断网/长等待后避免 duplicate feedback 续跑浪费
+
+- **stale duplicate release** — 同一 trace 的 duplicate `interactive_feedback` 如果已等待超过 35 分钟，不再返回 `already_pending` 继续订阅，而是返回 `released_duplicate`
+- **End-turn no-op** — MCP 收到 `released_duplicate` 后走现有 no-op 文案，要求 Agent 立即结束本轮，不再继续调用 feedback
+- **keepalive 默认恢复** — deploy 和 mcp config planner 都写入 `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS=3000000`，避免旧 progress-only 配置残留并撞 Cursor 后端硬超时
+- **诊断日志** — Hub 记录 `feedbackRequest: stale_duplicate_release ... wait_ms=... threshold_ms=...`，MCP 侧继续记录 `event=request_billing_risk reason=released_duplicate`
+- **TDD** — 新增回归测试覆盖 36 分钟 stale duplicate；更新 deploy mcpConfig 测试锁定 50min keepalive 默认
+
 ## [2.5.1-ji.147] - 2026-07-06
 
 ### Fix — 测试隔离 + 前端 health timeout 降噪

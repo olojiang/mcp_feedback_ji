@@ -92,6 +92,43 @@ describe('feedbackFlow — already_pending via sendResult', () => {
     assert.equal(results[0].feedback, '')
     assert.equal(errors.length, 0)
   })
+
+  it('releases stale duplicate waits so Cursor does not subscribe a new request forever', () => {
+    const feedback = new FeedbackManager()
+    const results = []
+    const logs = []
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => ['/proj'],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => {},
+      sendResult: (_ws, result) => { results.push(result) },
+      sendError: () => {},
+      log: (msg) => logs.push(msg),
+      getHubMeta: () => ({ port: 48201, pid: 1 }),
+    })
+
+    const realNow = Date.now
+    const ws = { readyState: 1 }
+    try {
+      Date.now = () => 1_000_000
+      flow.handleFeedbackRequest(ws, { summary: 'A', trace_id: 't-stale' })
+      Date.now = () => 1_000_000 + 36 * 60 * 1000
+      flow.handleFeedbackRequest(ws, { summary: 'B', trace_id: 't-stale' })
+    } finally {
+      Date.now = realNow
+    }
+
+    assert.equal(results.length, 1)
+    assert.equal(results[0].status, 'released_duplicate')
+    assert.equal(results[0].feedback, '')
+    assert.equal(feedback.pendingCount(), 1, 'original panel wait remains pending')
+    assert.ok(logs.some((l) => l.includes('stale_duplicate_release')))
+  })
 })
 
 describe('hook-utils — workspaceKey', () => {

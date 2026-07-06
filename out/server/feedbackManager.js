@@ -111,7 +111,11 @@ class FeedbackManager {
             if (entry.traceId !== traceId)
                 continue;
             if (entry.mcpClient === mcpWs) {
-                return { action: 'duplicate', sessionId: entry.sessionId };
+                return {
+                    action: 'duplicate',
+                    sessionId: entry.sessionId,
+                    enqueuedAt: entry.enqueuedAt,
+                };
             }
             const supersededWs = entry.mcpClient;
             if (!isMcpTransportOpen(supersededWs)) {

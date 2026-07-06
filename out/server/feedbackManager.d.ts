@@ -28,6 +28,7 @@ export type TransportUpdateResult = {
 export type TraceReuseResult = {
     action: 'none' | 'reuse' | 'steal' | 'duplicate';
     sessionId?: string;
+    enqueuedAt?: number;
     /** Closed prior MCP WebSocket replaced by reuse. Live steals keep old WS subscribed. */
     supersededWs?: WebSocket;
 };

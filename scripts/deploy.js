@@ -92,7 +92,7 @@ function syncMcpConfig(version) {
     entry.env = {
         ...(entry.env || {}),
         MCP_FEEDBACK_VERSION: version,
-        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
+        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '3000000',
         MCP_FEEDBACK_CURSOR_PROGRESS_MS: '25000',
     };
     mcpServers['mcp-feedback-enhanced'] = entry;

@@ -34,7 +34,13 @@ interface FeedbackFlowDeps {
     broadcastFeedbackUndelivered?: (feedback: string, sessionId: string, detail: string) => void;
     clearPending: () => void;
     queueAsPending: (feedback: string, images?: string[]) => void;
-    sendResult: (ws: WebSocket, result: { status?: string; feedback: string; images?: string[]; session_id?: string }) => void;
+    sendResult: (ws: WebSocket, result: {
+        status?: string;
+        feedback: string;
+        images?: string[];
+        session_id?: string;
+        trace_id?: string;
+    }) => void;
     sendSessionBound?: (ws: WebSocket, payload: { session_id: string; trace_id?: string }) => void;
     sendError: (ws: WebSocket, error: Error) => void;
     onFeedbackRequested?: () => void;
@@ -49,6 +55,15 @@ interface FeedbackFlowDeps {
         detail: string,
         traceId?: string,
     ) => void;
+}
+
+const DEFAULT_STALE_DUPLICATE_RELEASE_MS = 35 * 60 * 1000;
+
+function staleDuplicateReleaseMs(): number {
+    const raw = Number(process.env.MCP_FEEDBACK_STALE_DUPLICATE_RELEASE_MS);
+    return Number.isFinite(raw) && raw > 0
+        ? Math.floor(raw)
+        : DEFAULT_STALE_DUPLICATE_RELEASE_MS;
 }
 
 export class FeedbackFlow {
@@ -164,6 +179,30 @@ export class FeedbackFlow {
         const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
         if (traceReuse.action === 'none') return false;
         if (traceReuse.action === 'duplicate') {
+            const waitAgeMs = traceReuse.enqueuedAt ? Date.now() - traceReuse.enqueuedAt : 0;
+            const staleReleaseMs = staleDuplicateReleaseMs();
+            if (waitAgeMs >= staleReleaseMs) {
+                this._auditSession('trace_duplicate_blocked', {
+                    sessionId: traceReuse.sessionId,
+                    project: req.project_directory,
+                    traceId,
+                    mcpReadyState: mcpWs.readyState,
+                    pendingCount: this.deps.feedback.pendingCount(),
+                    reason: 'stale_duplicate_release',
+                    summaryPreview: req.summary,
+                });
+                this.deps.log(
+                    `feedbackRequest: stale_duplicate_release session=${traceReuse.sessionId ?? 'unknown'}`
+                    + ` wait_ms=${waitAgeMs} threshold_ms=${staleReleaseMs}`,
+                );
+                this.deps.sendResult(mcpWs, {
+                    status: 'released_duplicate',
+                    feedback: '',
+                    session_id: traceReuse.sessionId,
+                    trace_id: traceId,
+                });
+                return true;
+            }
             this._auditSession('trace_duplicate_blocked', {
                 sessionId: traceReuse.sessionId,
                 project: req.project_directory,

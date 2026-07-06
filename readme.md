@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.147`**
+**当前版本：`2.5.1-ji.149`**
 
 > **一句话**：让 Cursor Agent 在 IDE 里等你回复——**面板回复免费**，插件自身**不偷吃 Request**，多 workspace、断线重连、Hub 重启都尽量保持同一个 live request 的交互链路。
 
@@ -44,6 +44,7 @@
 | **Workspace 强隔离 (ji.145+)** | registry lock、pending 文件、feedback state、localStorage key 全部按 workspace hash 隔离 |
 | **Reload 状态隔离 (ji.146+)** | workspace 变更时清理陈旧内存状态，`state_sync` 带 workspace hash 防止旧 payload 污染新 UI |
 | **Health 误报抑制 (ji.147)** | 前端 health timeout 不只看 ping，也看最近 Hub protocol message，降低空闲或后台状态误报 |
+| **断网长等待防续跑 (ji.149)** | 同 trace duplicate 等待超过 35min 时释放为 `released_duplicate`，部署强制写入 50min keepalive，避免旧 progress-only 配置残留 |
 | **Request waste guard (ji.116+)** | `[keepalive]` / `[released_duplicate]` / `[superseded]` 返回明确 **End turn** 文案，Agent 规则同步，避免多扣 Request |
 | **面板投递可观测** | `panel_submit_delivered` / `panel_submit_no_effect`（含 `session_not_on_hub_queue`、`mcp_detached` 等 reason） |
 | **账单风险关联** | `event=request_billing_risk` 记录 keepalive / 硬超时 / WS 断连等结束原因，便于对照 Cursor Usage |
@@ -139,7 +140,7 @@ npm run deploy            # bump 版本 + 编译 + 同步到已安装扩展
 ## 面板一览
 
 ```
-v2.5.1-ji.147  ● Connected :48202 pid=44671   ↻
+v2.5.1-ji.149  ● Connected :48202 pid=44671   ↻
 Chat fb-abc123  |  Chat fb-def456
 ─────────────────────────────────────────────
   AI  请确认是否继续…
@@ -259,7 +260,7 @@ mcp_feedback_ji/
       "command": "/path/to/node",
       "args": ["/path/to/mcp-server/dist/index.js"],
       "env": {
-        "MCP_FEEDBACK_VERSION": "2.5.1-ji.147"
+        "MCP_FEEDBACK_VERSION": "2.5.1-ji.149"
       }
     }
   }

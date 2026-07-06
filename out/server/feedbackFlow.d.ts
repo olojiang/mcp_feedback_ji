@@ -18,6 +18,7 @@ interface FeedbackFlowDeps {
         feedback: string;
         images?: string[];
         session_id?: string;
+        trace_id?: string;
     }) => void;
     sendSessionBound?: (ws: WebSocket, payload: {
         session_id: string;

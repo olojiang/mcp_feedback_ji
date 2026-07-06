@@ -33,6 +33,7 @@ export type TransportUpdateResult = {
 export type TraceReuseResult = {
     action: 'none' | 'reuse' | 'steal' | 'duplicate';
     sessionId?: string;
+    enqueuedAt?: number;
     /** Closed prior MCP WebSocket replaced by reuse. Live steals keep old WS subscribed. */
     supersededWs?: WebSocket;
 };
@@ -170,7 +171,11 @@ export class FeedbackManager {
         for (const entry of this.queue) {
             if (entry.traceId !== traceId) continue;
             if (entry.mcpClient === mcpWs) {
-                return { action: 'duplicate', sessionId: entry.sessionId };
+                return {
+                    action: 'duplicate',
+                    sessionId: entry.sessionId,
+                    enqueuedAt: entry.enqueuedAt,
+                };
             }
             const supersededWs = entry.mcpClient;
             if (!isMcpTransportOpen(supersededWs)) {
