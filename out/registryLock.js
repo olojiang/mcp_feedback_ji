@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.canAcquireRegistryLock = canAcquireRegistryLock;
 exports.registryLockPath = registryLockPath;
+exports.staleWorkspaceHashes = staleWorkspaceHashes;
 exports.writeServersBatch = writeServersBatch;
 exports.releaseRegistryLockIfOwner = releaseRegistryLockIfOwner;
 /** Whether this hub instance may write registry files for the given workspaces. */
@@ -18,6 +19,12 @@ function canAcquireRegistryLock(existing, owner, isAlive, now, staleMs = 10000) 
 }
 function registryLockPath(serversDir, hash) {
     return hash ? `${serversDir}/_instance.${hash}.lock.json` : `${serversDir}/_instance.lock.json`;
+}
+function staleWorkspaceHashes(previousWorkspaces, nextWorkspaces, projectHash) {
+    const next = new Set(nextWorkspaces.map((workspace) => projectHash(workspace)));
+    return previousWorkspaces
+        .map((workspace) => projectHash(workspace))
+        .filter((hash) => !next.has(hash));
 }
 function writeServersBatch(deps) {
     const now = deps.now ?? Date.now();

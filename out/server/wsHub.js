@@ -180,8 +180,18 @@ class WsHub {
     }
     // ── Public API ──────────────────────────────────────────
     setWorkspaces(workspaces) {
-        this.workspaces = workspaces;
-        this.timeline.setWorkspaces(workspaces);
+        const previous = this.workspaces;
+        const next = workspaces.slice();
+        for (const hash of (0, registryLock_1.staleWorkspaceHashes)(previous, next, fileStore_1.projectHash)) {
+            (0, fileStore_1.deleteServerByHash)(hash);
+            if ((0, registryLock_1.releaseRegistryLockIfOwner)((0, fileStore_1.readRegistryLock)(hash), process.pid)) {
+                (0, fileStore_1.clearRegistryLock)(hash);
+            }
+        }
+        this.workspaces = next;
+        this.timeline.setWorkspaces(next);
+        this.stateSyncGenerations.clear();
+        this.stateSyncFingerprints.clear();
     }
     onFeedbackRequest(cb) {
         this.feedbackFlow.setOnFeedbackRequested(() => {

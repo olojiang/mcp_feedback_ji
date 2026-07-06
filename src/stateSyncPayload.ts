@@ -46,7 +46,8 @@ export function buildStateSyncPayload(input: StateSyncInput): Record<string, unk
     const hubFp = hubFingerprint(input.hub);
     const pendingUnchanged = incremental
         && input.lastPendingFingerprint !== undefined
-        && input.lastPendingFingerprint === pendingFp;
+        && input.lastPendingFingerprint === pendingFp
+        && (input.lastHubFingerprint === undefined || input.lastHubFingerprint === hubFp);
     const hubUnchanged = incremental
         && input.lastHubFingerprint !== undefined
         && input.lastHubFingerprint === hubFp;

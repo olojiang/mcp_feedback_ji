@@ -3,9 +3,16 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { PanelState } = require('../out/webview/panelState.js')
+const { PanelState, storageKeyForWorkspace } = require('../out/webview/panelState.js')
 
 describe('PanelState multi-session', () => {
+  it('uses collision-resistant storage keys for workspaces with the same suffix', () => {
+    const left = '/Users/hunter/Workspace/team-a/packages/shared/product-ui'
+    const right = '/Volumes/External/Workspace/team-b/packages/shared/product-ui'
+    assert.notEqual(storageKeyForWorkspace(left), storageKeyForWorkspace(right))
+    assert.equal(storageKeyForWorkspace(left), storageKeyForWorkspace(left))
+  })
+
   it('creates independent session tabs with session_id', () => {
     const state = new PanelState()
     const cmdsA = state.handleMessage({

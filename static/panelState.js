@@ -4,6 +4,22 @@
 (function (exports) {
   'use strict'
 
+  function fnv1a32(text) {
+    var hash = 0x811c9dc5
+    var input = String(text || '')
+    for (var i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i)
+      hash = Math.imul(hash, 0x01000193)
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0')
+  }
+
+  function storageKeyForWorkspace(projectPath) {
+    var raw = String(projectPath || '_default')
+    var suffix = raw.replace(/[^a-zA-Z0-9]/g, '-').slice(-30)
+    return 'mcp-fb-v5-multi-' + fnv1a32(raw) + '-' + suffix
+  }
+
   function loadTransport() {
     if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
       try {
@@ -1356,6 +1372,7 @@
   exports.TransportMetrics = TransportMetrics
   exports.BridgeSessionGate = BridgeSessionGate
   exports.transportSendWithQueue = transportSendWithQueue
+  exports.storageKeyForWorkspace = storageKeyForWorkspace
 
 
   PanelState.sessionsToMarkdown = function (state) {

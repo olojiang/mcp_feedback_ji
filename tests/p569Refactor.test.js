@@ -127,6 +127,34 @@ describe('P6-4 state sync deeper incremental', () => {
     assert.equal(inc.hub, undefined)
   })
 
+  it('resends pending_sessions when hub workspace changes during incremental sync', () => {
+    const {
+      pendingSessionsFingerprint,
+      hubFingerprint,
+      buildStateSyncPayload,
+    } = require('../out/stateSyncPayload.js')
+    const sessions = [{ id: 'fb-old', waiting: true, project_directory: '/ws/a' }]
+    const lastHub = { port: 48201, pid: 1, pending_count: 1, workspaces: ['/ws/a'] }
+    const nextHub = { port: 48201, pid: 1, pending_count: 1, workspaces: ['/ws/b'] }
+
+    const inc = buildStateSyncPayload({
+      messages: [],
+      syncGeneration: 1,
+      pendingComments: [],
+      pendingImages: [],
+      feedbackQueueSize: 1,
+      pendingSessions: sessions,
+      hub: nextHub,
+      lastPendingFingerprint: pendingSessionsFingerprint(sessions),
+      lastHubFingerprint: hubFingerprint(lastHub),
+      lastMessageCount: 0,
+    })
+
+    assert.deepEqual(inc.pending_sessions, sessions)
+    assert.equal(inc.pending_sessions_unchanged, undefined)
+    assert.deepEqual(inc.hub, nextHub)
+  })
+
   it('PanelState keeps pending sessions when pending_sessions_unchanged', () => {
     const { PanelState } = require('../out/webview/panelState.js')
     const state = new PanelState()

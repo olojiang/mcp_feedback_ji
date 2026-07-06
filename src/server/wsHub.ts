@@ -25,7 +25,7 @@ import {
     writeRegistryLock,
     clearRegistryLock,
 } from '../fileStore';
-import { writeServersBatch, releaseRegistryLockIfOwner } from '../registryLock';
+import { writeServersBatch, releaseRegistryLockIfOwner, staleWorkspaceHashes } from '../registryLock';
 import { buildTransportMetrics } from '../transportMetrics';
 import { FeedbackManager } from './feedbackManager';
 import { PendingManager } from './pendingManager';
@@ -200,8 +200,18 @@ export class WsHub {
     // ── Public API ──────────────────────────────────────────
 
     setWorkspaces(workspaces: string[]): void {
-        this.workspaces = workspaces;
-        this.timeline.setWorkspaces(workspaces);
+        const previous = this.workspaces;
+        const next = workspaces.slice();
+        for (const hash of staleWorkspaceHashes(previous, next, projectHash)) {
+            deleteServerByHash(hash);
+            if (releaseRegistryLockIfOwner(readRegistryLock(hash), process.pid)) {
+                clearRegistryLock(hash);
+            }
+        }
+        this.workspaces = next;
+        this.timeline.setWorkspaces(next);
+        this.stateSyncGenerations.clear();
+        this.stateSyncFingerprints.clear();
     }
 
     onFeedbackRequest(cb: () => void): void {

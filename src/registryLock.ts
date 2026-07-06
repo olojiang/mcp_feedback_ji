@@ -24,6 +24,17 @@ export function registryLockPath(serversDir: string, hash?: string): string {
     return hash ? `${serversDir}/_instance.${hash}.lock.json` : `${serversDir}/_instance.lock.json`;
 }
 
+export function staleWorkspaceHashes(
+    previousWorkspaces: string[],
+    nextWorkspaces: string[],
+    projectHash: (workspacePath: string) => string,
+): string[] {
+    const next = new Set(nextWorkspaces.map((workspace) => projectHash(workspace)));
+    return previousWorkspaces
+        .map((workspace) => projectHash(workspace))
+        .filter((hash) => !next.has(hash));
+}
+
 export interface WriteServersBatchDeps {
     workspaces: string[];
     info: { port: number; pid: number; version: string; started_at: number };

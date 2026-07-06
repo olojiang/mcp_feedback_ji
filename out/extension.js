@@ -3901,6 +3901,10 @@ function canAcquireRegistryLock(existing, owner, isAlive, now, staleMs = 1e4) {
   if (now - existing.acquired_at > staleMs) return true;
   return false;
 }
+function staleWorkspaceHashes(previousWorkspaces, nextWorkspaces, projectHash2) {
+  const next = new Set(nextWorkspaces.map((workspace3) => projectHash2(workspace3)));
+  return previousWorkspaces.map((workspace3) => projectHash2(workspace3)).filter((hash2) => !next.has(hash2));
+}
 function writeServersBatch(deps) {
   const now = deps.now ?? Date.now();
   const entries = deps.workspaces.map((workspace3) => ({
@@ -20509,7 +20513,7 @@ function buildStateSyncPayload(input) {
   const incremental = input.syncGeneration > 0;
   const pendingFp = pendingSessionsFingerprint(input.pendingSessions);
   const hubFp = hubFingerprint(input.hub);
-  const pendingUnchanged = incremental && input.lastPendingFingerprint !== void 0 && input.lastPendingFingerprint === pendingFp;
+  const pendingUnchanged = incremental && input.lastPendingFingerprint !== void 0 && input.lastPendingFingerprint === pendingFp && (input.lastHubFingerprint === void 0 || input.lastHubFingerprint === hubFp);
   const hubUnchanged = incremental && input.lastHubFingerprint !== void 0 && input.lastHubFingerprint === hubFp;
   const payload = {
     type: "state_sync",
@@ -20757,8 +20761,18 @@ var WsHub = class {
   }
   // ── Public API ──────────────────────────────────────────
   setWorkspaces(workspaces) {
-    this.workspaces = workspaces;
-    this.timeline.setWorkspaces(workspaces);
+    const previous = this.workspaces;
+    const next = workspaces.slice();
+    for (const hash2 of staleWorkspaceHashes(previous, next, projectHash)) {
+      deleteServerByHash(hash2);
+      if (releaseRegistryLockIfOwner(readRegistryLock(hash2), process.pid)) {
+        clearRegistryLock(hash2);
+      }
+    }
+    this.workspaces = next;
+    this.timeline.setWorkspaces(next);
+    this.stateSyncGenerations.clear();
+    this.stateSyncFingerprints.clear();
   }
   onFeedbackRequest(cb) {
     this.feedbackFlow.setOnFeedbackRequested(() => {

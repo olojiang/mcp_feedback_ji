@@ -104,6 +104,12 @@ describe('registryLock', () => {
     assert.equal(written.length, 1)
     assert.equal(locks[0].hash, 'h2')
   })
+
+  it('plans stale workspace registry deletion when workspace set changes', () => {
+    const { staleWorkspaceHashes } = require('../out/registryLock.js')
+    const deleted = staleWorkspaceHashes(['/ws/a', '/ws/c'], ['/ws/b'], (p) => 'hash-' + p.slice(-1))
+    assert.deepEqual(deleted, ['hash-a', 'hash-c'])
+  })
 })
 
 describe('ClientRegistry transportCounts', () => {

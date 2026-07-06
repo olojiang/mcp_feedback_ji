@@ -670,7 +670,10 @@
 
     // ── Persistence ─────────────────────────────────────
 
-    var STORAGE_KEY = 'mcp-fb-v4-multi-' + PROJECT_PATH.replace(/[^a-zA-Z0-9]/g, '-').slice(-30);
+    var STORAGE_KEY = PS.storageKeyForWorkspace
+        ? PS.storageKeyForWorkspace(PROJECT_PATH)
+        : ('mcp-fb-v4-multi-' + PROJECT_PATH.replace(/[^a-zA-Z0-9]/g, '-').slice(-30));
+    var LEGACY_STORAGE_KEY = 'mcp-fb-v4-multi-' + PROJECT_PATH.replace(/[^a-zA-Z0-9]/g, '-').slice(-30);
 
     function saveState() {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.serialize())); } catch (e) { /* ignore */ }
@@ -1827,7 +1830,9 @@
 
     if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
     bootstrapErudaPanel();
-    try { pendingLocalRestore = localStorage.getItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+    try {
+        pendingLocalRestore = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
+    } catch (e) { /* ignore */ }
     var storedPaneH = null;
     try { storedPaneH = localStorage.getItem('mcp-feedback-input-pane-height'); } catch (_e) { /* ignore */ }
     applyInputPaneHeight(storedPaneH || state.inputPaneHeight || 220);
