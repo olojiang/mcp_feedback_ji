@@ -3,7 +3,11 @@ import * as path from 'node:path';
 export interface McpServerEntry {
     command: string;
     args: string[];
-    env: { MCP_FEEDBACK_VERSION: string };
+    env: {
+        MCP_FEEDBACK_VERSION: string;
+        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS?: string;
+        MCP_FEEDBACK_CURSOR_PROGRESS_MS?: string;
+    };
 }
 
 export interface McpConfigPlan {
@@ -23,12 +27,18 @@ export function planMcpConfigUpdate(
     const entry: McpServerEntry = {
         command: nodeBin,
         args: [localServerPath],
-        env: { MCP_FEEDBACK_VERSION: version },
+        env: {
+            MCP_FEEDBACK_VERSION: version,
+            MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
+            MCP_FEEDBACK_CURSOR_PROGRESS_MS: '600000',
+        },
     };
     const existingEnv = (existing?.env || {}) as Record<string, string>;
     const unchanged = existing?.command === entry.command
         && JSON.stringify(existing?.args) === JSON.stringify(entry.args)
-        && existingEnv.MCP_FEEDBACK_VERSION === version;
+        && existingEnv.MCP_FEEDBACK_VERSION === version
+        && existingEnv.MCP_FEEDBACK_CURSOR_KEEPALIVE_MS === entry.env.MCP_FEEDBACK_CURSOR_KEEPALIVE_MS
+        && existingEnv.MCP_FEEDBACK_CURSOR_PROGRESS_MS === entry.env.MCP_FEEDBACK_CURSOR_PROGRESS_MS;
     return {
         changed: !unchanged,
         entry,

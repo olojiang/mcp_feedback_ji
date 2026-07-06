@@ -7,6 +7,8 @@ import { connectToExtension, requestFeedback, type RequestFeedbackDeps } from '.
 import { browserFallback } from './browserFallback.js';
 import { runPostFeedbackHooks } from './postFeedbackHooks.js';
 import { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
+import { feedbackNoOpToolText, requestWasteGuardLogLine, type FeedbackNoOpReason } from './feedbackNoOp.js';
+import { requestBillingRiskLogLine } from './requestBillingRisk.js';
 import { mcpLog } from './logger.js';
 
 export { isFinishedMessage, sessionTailForFeedback } from './feedbackSession.js';
@@ -49,6 +51,26 @@ function loadRegisteredInstructions(): string {
 
 function feedbackSuffix(userFeedback = '') {
     return FEEDBACK_REMINDER + loadRegisteredInstructions() + sessionTailForFeedback(userFeedback);
+}
+
+function noOpFeedbackResponse(
+    deps: ToolHandlerDeps,
+    reason: FeedbackNoOpReason,
+    traceId?: string,
+): { content: ToolContent } {
+    deps.log(requestWasteGuardLogLine(reason, traceId));
+    deps.log(requestBillingRiskLogLine({
+        reason: reason === 'keepalive' ? 'our_keepalive' : reason,
+        elapsedMs: 0,
+        traceId,
+        detail: 'tool_completed_no_user_input',
+    }));
+    return {
+        content: [{
+            type: 'text',
+            text: feedbackNoOpToolText(reason) + feedbackSuffix(),
+        }],
+    };
 }
 
 type ToolContent = Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
@@ -223,20 +245,12 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         + `pid=${extensionServer.pid} status=${result.status ?? 'submitted'}`
                         + ` session=${result.session_id ?? '-'}`,
                     );
-                    if (result.status === 'keepalive') {
+                    if (result.status === 'keepalive' || result.status === 'released_duplicate') {
                         deps.log(
-                            `[MCP Feedback] keepalive auto-resolve message="${result.feedback}" `
+                            `[MCP Feedback] ${result.status} auto-resolve `
                             + `trace=${traceId ?? '(none)'} project=${project_directory ?? '(none)'}`,
                         );
-                        return {
-                            content: [{
-                                type: 'text',
-                                text: '[keepalive] Auto-released before Cursor tool timeout (no user reply yet). '
-                                    + 'Do NOT treat the placeholder text as user input. '
-                                    + 'Call interactive_feedback again immediately to continue waiting.'
-                                    + feedbackSuffix(),
-                            }],
-                        };
+                        return noOpFeedbackResponse(deps, result.status, traceId);
                     }
                     if (result.status && result.status !== 'submitted' && result.status !== 'ok' && !result.feedback) {
                         return {
@@ -268,14 +282,7 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                     );
                     if (errMsg.includes('superseded')) {
                         deps.log('[MCP Feedback] Superseded by another MCP call — not retrying');
-                        return {
-                            content: [{
-                                type: 'text',
-                                text: 'This interactive_feedback call was superseded by a newer invocation. '
-                                    + 'The feedback session is still active in the panel. '
-                                    + 'Do NOT call interactive_feedback again — the active call will deliver the result.',
-                            }],
-                        };
+                        return noOpFeedbackResponse(deps, 'superseded', traceId);
                     }
                     const extendedRediscover = errMsg.includes('extension_ws_close')
                         || errMsg.includes('Connection timeout');

@@ -4,9 +4,17 @@ import { mcpLog } from './logger.js';
 import {
     CURSOR_KEEPALIVE_MESSAGE,
     CURSOR_KEEPALIVE_MS,
+    CURSOR_PROGRESS_INTERVAL_MS,
+    CURSOR_PROGRESS_TOTAL_MIN,
     createProgressSender,
     cursorKeepaliveLogLine,
 } from './cursorKeepalive.js';
+import {
+    classifyWsCloseBillingRisk,
+    CURSOR_HARD_TIMEOUT_SUSPECT_MS,
+    elapsedWaitMs,
+    requestBillingRiskLogLine,
+} from './requestBillingRisk.js';
 import { FEEDBACK_WAIT_HEARTBEAT_MS, feedbackWaitHeartbeatLine, shouldLogHeartbeat, STDIO_KEEPALIVE_MS } from './feedbackWait.js';
 
 export { formatExtensionCloseError } from './extensionErrors.js';
@@ -16,8 +24,8 @@ export {
     CURSOR_KEEPALIVE_MS,
     CURSOR_KEEPALIVE_TOTAL_MIN,
     CURSOR_PROGRESS_INTERVAL_MS,
+    CURSOR_PROGRESS_TOTAL_MIN,
     cursorKeepaliveLogLine,
-    cursorProgressLogLine,
     createProgressSender,
     elapsedWaitMinutes,
 } from './cursorKeepalive.js';
@@ -88,6 +96,7 @@ export function requestFeedback(
     const cursorKeepaliveMs = deps?.cursorKeepaliveMs ?? CURSOR_KEEPALIVE_MS;
     const cursorKeepaliveMessage = deps?.cursorKeepaliveMessage ?? CURSOR_KEEPALIVE_MESSAGE;
     const startedAt = Date.now();
+    let boundSessionId = '-';
 
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -96,18 +105,29 @@ export function requestFeedback(
             resolve({ status: 'timeout', feedback: '' });
         }, 86_400_000);
 
-        const cursorKeepalive = setTimeout(() => {
-            cleanup();
-            ws.off('message', handler);
-            log(cursorKeepaliveLogLine({
-                traceId,
-                projectDirectory,
-                elapsedMs: Date.now() - startedAt,
-                message: cursorKeepaliveMessage,
-            }));
-            try { ws.close(); } catch { /* ignore */ }
-            resolve({ status: 'keepalive', feedback: cursorKeepaliveMessage });
-        }, cursorKeepaliveMs);
+        const cursorKeepalive = cursorKeepaliveMs > 0
+            ? setTimeout(() => {
+                const elapsedMs = elapsedWaitMs(startedAt);
+                cleanup();
+                ws.off('message', handler);
+                log(cursorKeepaliveLogLine({
+                    traceId,
+                    projectDirectory,
+                    elapsedMs,
+                    message: cursorKeepaliveMessage,
+                }));
+                log(requestBillingRiskLogLine({
+                    reason: 'our_keepalive',
+                    elapsedMs,
+                    traceId,
+                    projectDirectory,
+                    keepaliveMs: cursorKeepaliveMs,
+                    detail: 'tool_will_complete_end_turn_no_retry',
+                }));
+                try { ws.close(); } catch { /* ignore */ }
+                resolve({ status: 'keepalive', feedback: cursorKeepaliveMessage });
+            }, cursorKeepaliveMs)
+            : undefined;
 
         let heartbeatTick = 0;
         const waitHeartbeat = setInterval(() => {
@@ -133,12 +153,34 @@ export function requestFeedback(
             traceId,
             projectDirectory,
             startedAt,
+            getSessionId: () => boundSessionId === '-' ? undefined : boundSessionId,
+            getWsReadyState: () => ws.readyState,
         });
         progress.start();
 
+        const logWaitLifecycle = (event: string, extra: Record<string, string | number | undefined> = {}) => {
+            const elapsedMs = elapsedWaitMs(startedAt);
+            const parts = [
+                `event=wait_lifecycle`,
+                `phase=${event}`,
+                `elapsed_ms=${elapsedMs}`,
+                `elapsed_min=${Math.floor(elapsedMs / 60_000)}`,
+                `progress_ticks=${progress.tickCount()}`,
+                `progress_token=${deps?.progressToken ?? '-'}`,
+                `session=${boundSessionId}`,
+                `ws_ready_state=${ws.readyState}`,
+                `trace=${traceId || '-'}`,
+                `project=${projectDirectory || '-'}`,
+            ];
+            for (const [k, v] of Object.entries(extra)) {
+                if (v !== undefined) parts.push(`${k}=${v}`);
+            }
+            log(parts.join(' '));
+        };
+
         const cleanup = () => {
             clearTimeout(timeout);
-            clearTimeout(cursorKeepalive);
+            if (cursorKeepalive) clearTimeout(cursorKeepalive);
             clearInterval(waitHeartbeat);
             if (stdioKeepalive) clearInterval(stdioKeepalive);
             progress.stop();
@@ -159,8 +201,27 @@ export function requestFeedback(
                         );
                         return;
                     }
+                    if (msg.status === 'released_duplicate') {
+                        cleanup();
+                        ws.off('message', handler);
+                        log(
+                            '[requestFeedback] released_duplicate session='
+                            + (msg.session_id || '-')
+                            + ' trace=' + (msg.trace_id || traceId || '-'),
+                        );
+                        resolve({
+                            status: 'released_duplicate',
+                            feedback: '',
+                            session_id: msg.session_id,
+                        });
+                        return;
+                    }
                     cleanup();
                     ws.off('message', handler);
+                    logWaitLifecycle('resolve', {
+                        status: msg.status || 'submitted',
+                        feedback_len: (msg.feedback || '').length,
+                    });
                     log(
                         '[requestFeedback] resolved status=' + (msg.status || 'submitted')
                         + ' session=' + (msg.session_id || '-')
@@ -173,8 +234,9 @@ export function requestFeedback(
                         session_id: msg.session_id,
                     });
                 } else if (msg.type === 'session_bound') {
+                    boundSessionId = msg.session_id || '-';
                     log(
-                        '[requestFeedback] session_bound session=' + (msg.session_id || '-')
+                        '[requestFeedback] session_bound session=' + boundSessionId
                         + ' trace=' + (msg.trace_id || traceId || '-'),
                     );
                 } else if (msg.type === 'feedback_error') {
@@ -191,8 +253,21 @@ export function requestFeedback(
 
         ws.on('message', handler);
         ws.once('close', () => {
+            const elapsedMs = elapsedWaitMs(startedAt);
+            const risk = classifyWsCloseBillingRisk(elapsedMs);
             cleanup();
             ws.off('message', handler);
+            logWaitLifecycle('ws_close', { billing_risk: risk });
+            log(requestBillingRiskLogLine({
+                reason: risk,
+                elapsedMs,
+                traceId,
+                projectDirectory,
+                keepaliveMs: cursorKeepaliveMs || 0,
+                detail: risk === 'cursor_hard_timeout_suspected'
+                    ? 'ws_closed_near_cursor_hard_limit_check_usage'
+                    : 'ws_closed_before_keepalive',
+            }));
             log('[requestFeedback] WS closed during feedback wait — rejecting');
             reject(new Error(formatExtensionCloseError('feedback wait')));
         });
@@ -206,8 +281,12 @@ export function requestFeedback(
         log(`[requestFeedback] feedback_request_sent trace=${traceId || '-'} summary_len=${summary.length}`);
 
         log(
-            `[requestFeedback] armed cursor_keepalive_ms=${cursorKeepaliveMs} `
+            '[requestFeedback] wait_config '
+            + `keepalive_ms=${cursorKeepaliveMs || 'disabled'} `
+            + `progress_interval_ms=${CURSOR_PROGRESS_INTERVAL_MS} `
+            + `progress_total_min=${CURSOR_PROGRESS_TOTAL_MIN} `
             + `progress=${deps?.progressToken ? 'enabled' : 'disabled'} `
+            + `hard_timeout_suspect_ms=${CURSOR_HARD_TIMEOUT_SUSPECT_MS} `
             + `trace=${traceId || '-'} project=${projectDirectory || '-'}`,
         );
     });

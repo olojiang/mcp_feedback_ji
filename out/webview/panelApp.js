@@ -62,13 +62,19 @@
         var size = outboundQueue.enqueue(message);
         debugLog('queueOutbound type=' + (message && message.type) + ' size=' + size);
         if (message && message.type === 'feedback_response') {
+            debugLog('event=panel_submit_no_effect reason=transport_queued session='
+                + (message.session_id || '(none)') + ' queue_size=' + size);
             showToast('Reconnecting — feedback queued');
+        }
+        if (message && message.type === 'queue-pending') {
+            debugLog('event=panel_submit_detached_queue comments=' + ((message.comments || []).length));
         }
     }
 
     function execWsSend(message) {
         if (message && message.type === 'feedback_response') {
-            debugLog('feedback_response send session=' + (message.session_id || '(none)')
+            debugLog('event=panel_submit_attempt session=' + (message.session_id || '(none)')
+                + ' feedback_len=' + ((message.feedback || '').length)
                 + ' queued=' + (!transportReady()));
         }
         return PS.transportSendWithQueue(
@@ -590,6 +596,12 @@
                     if (cmd.message) {
                         if (cmd.message.type === 'feedback-arrived') playFeedbackChime();
                         if (cmd.message.type === 'routing-mismatch') showRoutingBanner(cmd.message.project);
+                        if (cmd.message.type === 'agent-turn-status') {
+                            showToast(cmd.message.detail || 'Cursor Agent 已结束 — 回复将存入队列');
+                        }
+                        if (cmd.message.type === 'agent-link-lost-queued') {
+                            showToast(cmd.message.detail || 'Agent link lost — saved to queue. Toggle MCP off/on.');
+                        }
                     }
                     if (vscode && cmd.message) vscode.postMessage(cmd.message);
                     break;
@@ -640,6 +652,11 @@
         if (bootHydratedFromServer) return;
         bootHydratedFromServer = true;
         debugLog('hydrateAfterStateSync localRestore=' + (pendingLocalRestore ? 'yes' : 'no'));
+        var serverPending = state.snapshotServerPendingSessions();
+        if (serverPending.length) {
+            debugLog('hydrateAfterStateSync server_pending_snapshot n=' + serverPending.length
+                + ' ids=' + serverPending.map(function (p) { return p.id; }).join(','));
+        }
         if (pendingLocalRestore) {
             try {
                 var d = JSON.parse(pendingLocalRestore);
@@ -647,6 +664,9 @@
             } catch (e) { /* ignore */ }
             pendingLocalRestore = null;
         }
+        state.restoreServerPendingSessions(serverPending);
+        debugLog('hydrateAfterStateSync restored waiting_count=' + state.waitingCount
+            + ' active=' + (state.activeSessionId || '(none)'));
         exec(state.reconcileLocalAfterServerSync());
         renderTabs();
         renderMessages();

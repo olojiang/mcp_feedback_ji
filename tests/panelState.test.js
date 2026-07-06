@@ -226,6 +226,46 @@ describe('PanelState multi-session', () => {
     assert.equal(state.activeSessionId, 'fb-live')
   })
 
+  it('localStorage restore after state_sync keeps server pending waiting tab', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-live', label: 'live', summary: 'Live question', waiting: true },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 1,
+      messages: [],
+    })
+    const serverPending = state.snapshotServerPendingSessions()
+    state.deserialize({
+      sessions: {
+        'fb-old': {
+          id: 'fb-old',
+          label: 'old',
+          summary: 'Old resolved',
+          messages: [{ role: 'ai', content: 'Old', timestamp: '2026-01-01T00:00:00.000Z' }],
+          pendingQueue: [],
+          pendingImages: [],
+          inputDraft: '',
+          stagedImages: [],
+          waiting: false,
+          createdAt: 1,
+        },
+      },
+      sessionOrder: ['fb-old'],
+      activeSessionId: 'fb-old',
+    })
+    state.restoreServerPendingSessions(serverPending)
+    state.reconcileLocalAfterServerSync()
+
+    assert.equal(state.sessions['fb-live'].waiting, true)
+    assert.equal(state.sessions['fb-old'].waiting, false)
+    assert.equal(state.activeSessionId, 'fb-live')
+    assert.equal(state.waitingCount, 1)
+  })
+
   it('smartSend routes Continue to latest waiting session when active tab is resolved', () => {
     const state = new PanelState()
     state.handleMessage({ type: 'session_updated', session_id: 'fb-old', summary: 'Old' })
@@ -316,4 +356,46 @@ describe('PanelState multi-session', () => {
         assert.equal(PanelState.isValidWsUrl('{{SERVER_URL}}'), false)
         assert.equal(PanelState.isValidWsUrl(''), false)
     })
+
+  it('submitFeedback on mcpDetached session queues to global pending', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [{
+        id: 'fb-detached',
+        label: 'd',
+        summary: 'wait',
+        waiting: true,
+        mcp_detached: true,
+      }],
+      pending_comments: [],
+      pending_images: [],
+      hub: { workspaces: ['/proj'] },
+    })
+    const cmds = state.submitFeedback('hello', [])
+    const qp = cmds.find((c) => c.type === 'ws_send' && c.message.type === 'queue-pending')
+    assert.ok(qp)
+    assert.ok(qp.message.comments.includes('hello'))
+    assert.ok(cmds.some((c) => c.type === 'notify' && c.message.type === 'agent-link-lost-queued'))
+    assert.equal(state.sessions['fb-detached'].mcpDetached, true)
+  })
+
+  it('agent_turn_status marks session cursorEnded and keeps waiting', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-end',
+      summary: 'Question',
+    })
+    const cmds = state.handleMessage({
+      type: 'agent_turn_status',
+      session_id: 'fb-end',
+      reason: 'link_lost',
+      detail: 'Cursor Agent 已断开',
+    })
+    assert.equal(state.sessions['fb-end'].cursorEnded, true)
+    assert.equal(state.sessions['fb-end'].mcpDetached, true)
+    assert.equal(state.sessions['fb-end'].waiting, true)
+    assert.ok(cmds.some((c) => c.type === 'notify' && c.message.type === 'agent-turn-status'))
+  })
 })

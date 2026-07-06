@@ -45,6 +45,8 @@ export declare class FeedbackManager {
     resolveFirst(result: FeedbackResult): boolean;
     resolveBySessionId(sessionId: string, result: FeedbackResult): boolean;
     updateTransport(newWs: WebSocket, projectDir?: string, summary?: string): TransportUpdateResult;
+    /** Reattach detached pending sessions when MCP WS reconnects to hub. */
+    reattachDetachedForHub(newWs: WebSocket, hubWorkspaces: string[]): string[];
     /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
     reuseByTraceId(mcpWs: WebSocket, traceId: string | undefined, summary?: string): TraceReuseResult;
     explainNewSession(mcpWs: WebSocket, projectDir?: string): string;
@@ -69,6 +71,13 @@ export declare class FeedbackManager {
     }): boolean;
     detachMcpClient(ws: WebSocket): string[];
     isMcpDetached(sessionId: string): boolean;
+    waitMetaForSession(sessionId: string): {
+        enqueuedAt?: number;
+        mcpDetached: boolean;
+        wsReadyState?: number;
+        traceId?: string;
+    } | undefined;
+    mcpTransportForSession(sessionId: string): WebSocket | undefined;
     tryAttachHandlers(sessionId: string): boolean;
     rejectAll(error: Error): void;
 }

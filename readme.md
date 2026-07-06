@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.115`**
+**当前版本：`2.5.1-ji.128`**
 
 > **一句话**：让 Cursor Agent 在 IDE 里等你回复——**面板回复免费**，插件自身**不偷吃 Request**，Hub 重启 / 多窗口也不会左右互等。
 
@@ -16,6 +16,9 @@
 | Agent 结束就丢上下文 | `stop` hook 零成本提醒再调一次 feedback，不用 `deny` |
 | 多窗口 MCP 连错 Hub | 隐式工作区路由 + 6×1s 重发现，避免连到别的项目端口 |
 | Hub 重启后左右都在等 | Pending **磁盘持久化**，启动自动 restore + 面板 hydrate |
+| 面板重连后 Send 变 QUEUE | **server pending snapshot/restore**，localStorage 不再冲掉 Hub waiting tab |
+| 莫名多扣 Cursor Request | **Request waste guard**：keepalive / supersede 完成工具后 **End turn**，禁止连环调 feedback |
+| 面板发了 Agent 没反应 | **`panel_submit_no_effect`** 结构化日志 + reason 对照表，秒级定位断点 |
 | 断网重连级联重试 | Supersede 熔断 + `already_pending` 忽略重复调用 |
 | 排查困难 | 统一日轮转日志 + [`troubleshooting.md`](local_docs/troubleshooting.md) |
 
@@ -33,6 +36,11 @@
 | **剪贴板与截图** | 面板内复制/粘贴；macOS 支持截图 Cmd+V 读图（Extension Host 侧 `pbpaste` + NSPasteboard） |
 | **Pending / Draft** | 无等待会话时可先攒草稿；Send 时合并 pending 队列并清空 PENDING 条 |
 | **Pending 磁盘恢复** | Hub 重启后从 `pending-sessions/` 恢复未决 session；面板 boot 先 `state_sync` 再合并 localStorage，避免陈旧 PENDING |
+| **Hydrate 防覆盖 (ji.128)** | `snapshotServerPendingSessions` → localStorage restore → `restoreServerPendingSessions`；重连后 waiting tab 不丢失 |
+| **Request waste guard (ji.116+)** | `[keepalive]` / `[released_duplicate]` / `[superseded]` 返回明确 **End turn** 文案，Agent 规则同步，避免多扣 Request |
+| **面板投递可观测** | `panel_submit_delivered` / `panel_submit_no_effect`（含 `session_not_on_hub_queue`、`mcp_detached` 等 reason） |
+| **账单风险关联** | `event=request_billing_risk` 记录 keepalive / 硬超时 / WS 断连等结束原因，便于对照 Cursor Usage |
+| **Agent 链路状态** | `agent_turn_status` 广播 link_lost / cursor_ended；面板 toast 提示回复将入队 |
 | **Hub 路由加固** | 无 `project_directory` 时用 agent 隐式工作区过滤，避免连错端口（多窗口死锁） |
 | **排查文档** | [`local_docs/troubleshooting.md`](local_docs/troubleshooting.md)：死锁、pending 持久化、↻ 手动恢复、grep 命令 |
 | **统一日轮转日志** | extension / mcp-server / webview / hooks 四大子系统统一按天轮转 + 7 天清理；heartbeat 对数节流；passthrough 工具静默 |
@@ -49,14 +57,14 @@
 |----------|------|
 | **`already_pending` 忽略** | 重复的 `interactive_feedback` 调用不完成工具调用，Cursor 不启动新 Agent 轮次 |
 | **`stop` hook + followup_message** | Agent 结束前零成本提醒调用 `interactive_feedback`，不使用 `deny`（deny 会消耗 1 request） |
-| **Supersede 熔断** | 断网重连时新 MCP 进程 supersede 旧进程，旧进程立即返回不重试，阻断级联消耗 |
+| **No-op End turn (ji.116+)** | `[keepalive]` / `[released_duplicate]` / `[superseded]` 完成工具后禁止 Agent 再调 feedback |
 | **超时 resolve** | MCP 等待超时返回结果而非抛错，避免 Agent 进入错误处理循环 |
 | **高阈值 enforcement** | 安全网阈值 50 次工具调用 / 15 分钟，正常使用不触发 |
 | **per-workspace 计数** | 多窗口独立计数，互不干扰 |
 | **Supersede 防护** | 断网重连时旧 MCP 进程检测到 `superseded` 立即退出，不触发重试级联 |
 | **粘贴韧性** | Bridge 异常时自动降级原生粘贴（Cmd+V），3s 超时检测 + 重连恢复 |
 | **Sleep 检测** | macOS 合盖恢复时检测并警告用户 |
-| **Cursor keepalive** | 默认 50min 自动释放 + progress 通知，缓解 Cursor ~60min 工具硬超时 |
+| **Cursor keepalive** | 默认 50min 自动释放；可设 `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS=0` 仅靠 progress 撑到硬超时；`request_billing_risk` 记日志 |
 | **Session 可追踪** | MCP 日志打印 `session_bound` / `session_id`，便于按 session 或 trace grep |
 
 ---
@@ -109,7 +117,7 @@ npm run deploy            # bump 版本 + 编译 + 同步到已安装扩展
 ## 面板一览
 
 ```
-v2.5.1-ji.115  ● Connected :48201 pid=20071   ↻
+v2.5.1-ji.128  ● Connected :48202 pid=44671   ↻
 Chat fb-abc123  |  Chat fb-def456
 ─────────────────────────────────────────────
   AI  请确认是否继续…
@@ -119,6 +127,7 @@ Chat fb-abc123  |  Chat fb-def456
 ```
 
 - **绿点 / 橙点**：Tab 等待回复 vs 已结束
+- **Degraded**：点击状态栏查看 `UI missing waiting tab` / `Agent disconnected` 等 reason
 - **Close resolved**：批量关闭已回复 Tab
 - **DBG**：导出 debug report；含 MCP 日志 tail、trace 过滤
 - **Quick replies**：Continue / Looks good / Fix / Finished 等（可通过设置覆盖文案）
@@ -140,7 +149,7 @@ Chat fb-abc123  |  Chat fb-def456
 | cwd 推断 | 未传 `project_directory` 时从 MCP cwd + agent 隐式工作区匹配已注册 Hub |
 | Rediscovery | 扩展 WS 断连时 6×1s 重发现，等待 Hub 重启 |
 | Pending 持久化 | Hub shutdown / enqueue / mcp_detach 写入磁盘；启动时 restore 并 replay 到面板 |
-| 面板 hydrate | boot 先 `state_sync`，再 `reconcileLocalAfterServerSync`，resolved session 不会被 localStorage 重开 |
+| 面板 hydrate | boot 先 `state_sync`，再 snapshot → localStorage → restore；`server_pending_snapshot` / `restored waiting_count` 可 grep 验证 |
 | 禁用 browser fallback | 默认不弹浏览器；需 `MCP_FEEDBACK_BROWSER_FALLBACK=1` |
 | Stale webview 修复 | Reload 后强制刷新 panel HTML；early boot + bridge 广播 dedupe |
 
@@ -160,16 +169,18 @@ Chat fb-abc123  |  Chat fb-def456
 | 截图粘贴 | macOS Extension 读图；paste 去重 |
 | 链接粘贴两遍 | 单路径 keydown → WS |
 
-### 5. 死锁自动恢复（ji.115）
+### 5. 死锁与断连恢复（ji.115–ji.128）
 
-当 Agent 显示 `waiting for user feedback`、面板却卡在 `PENDING` 时，通常是 **Hub 连错端口**、**Hub 重启丢内存** 或 **面板 localStorage 陈旧**。
+当 Agent 显示 `waiting for user feedback`、面板却卡在 `PENDING` 或按钮变成 **QUEUE** 时，通常是 **Hub 连错端口**、**Hub 重启丢内存**、**面板重连冲掉 waiting tab** 或 **MCP 断连**。
 
 | 机制 | 行为 |
 |------|------|
 | `pending-sessions/*.json` | enqueue / mcp_detach / shutdown 时落盘 |
 | Hub `start()` restore | 重启后 `pending_restore` 回放 `session_updated` 到面板 |
-| 面板 boot 顺序 | 先 `state_sync`，再合并 localStorage；resolved 不会被重开 |
-| 手动 ↻ | 触发 `forceReconnect` + `requestStateSync`，无需 Reload 即可尝试恢复 |
+| 面板 hydrate（ji.128） | `state_sync` → `server_pending_snapshot` → localStorage → `restored waiting_count` |
+| `agent_turn_status` | MCP 断连时面板 toast「Agent link lost」，回复进队列 |
+| `panel_submit_no_effect` | 结构化 reason，对照 troubleshooting 表 |
+| 手动 ↻ | 触发 `forceReconnect` + `requestStateSync` |
 | 排查 | 见 [`local_docs/troubleshooting.md`](local_docs/troubleshooting.md) |
 
 ### 6. 日志与诊断
@@ -222,7 +233,7 @@ mcp_feedback_ji/
       "command": "/path/to/node",
       "args": ["/path/to/mcp-server/dist/index.js"],
       "env": {
-        "MCP_FEEDBACK_VERSION": "2.5.1-ji.115"
+        "MCP_FEEDBACK_VERSION": "2.5.1-ji.128"
       }
     }
   }
@@ -237,8 +248,9 @@ mcp_feedback_ji/
 | `MCP_FEEDBACK_PROJECT_DIRECTORY` | 未设置 | MCP 侧显式项目目录 |
 | `MCP_FEEDBACK_VERSION` | deploy 写入 | 启动日志打印版本 |
 | `MCP_FEEDBACK_KILL_MCP_ON_DEPLOY` | 未设置 | deploy 时 SIGTERM 旧 MCP 进程 |
-| `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | 3000000 (50min) | MCP 侧 keepalive，缓解 Cursor ~60min 硬超时 |
-| `MCP_FEEDBACK_CURSOR_PROGRESS_MS` | 20000 | MCP 等待期间 progress 通知间隔 |
+| `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | 3000000 (50min) | 设为 `0` = 仅靠 progress 等待；否则超时自动 resolve |
+| `MCP_FEEDBACK_CURSOR_HARD_TIMEOUT_SUSPECT_MS` | 2100000 (35min) | 等待超过此值且 WS 关闭 → 记为硬超时嫌疑 |
+| `MCP_FEEDBACK_CURSOR_PROGRESS_MS` | 600000 (10min) | MCP 等待期间 progress 通知间隔 |
 | `MCP_FEEDBACK_PENDING_MAX_AGE_MS` | 86400000 (24h) | 磁盘 pending session 过期时间 |
 
 ---
@@ -246,7 +258,7 @@ mcp_feedback_ji/
 ## 测试
 
 ```bash
-npm test                  # 全量（409 tests）
+npm test                  # 全量单测
 npm run test:coverage     # 覆盖率 gate
 npm run test:e2e          # Playwright
 ```
@@ -259,7 +271,8 @@ npm run test:e2e          # Playwright
 
 | 现象 | 处理 |
 |------|------|
-| 左右都在等（Agent waiting + 面板 PENDING） | 多为 Hub 连错端口或版本 skew；**Reload Window**（每个窗口）；MCP 关开；点 ↻ 触发 `state_sync` |
+| 左右都在等（Agent waiting + 面板 PENDING/QUEUE） | 查 `hydrateAfterStateSync` / `UI missing waiting tab`；**Reload Window** + ↻；ji.128+ 已修 hydrate |
+| 面板发了 Cursor 无响应 | grep `panel_submit_no_effect` 看 reason |
 | 面板 Disconnected | **Reload Window** 或点 ↻；查 `extension.log` |
 | Connected 但 Panel 空 | 多为旧 webview 缓存；Reload；查 `webview.log` 的 `bootReport` |
 | 版本号不更新 | ↻ 不够；需 **Developer: Reload Window**；多窗口各 Reload 一次 |

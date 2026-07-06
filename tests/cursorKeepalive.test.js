@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url)
 const {
   CURSOR_KEEPALIVE_MESSAGE,
   CURSOR_KEEPALIVE_TOTAL_MIN,
+  CURSOR_PROGRESS_TOTAL_MIN,
   createProgressSender,
   cursorKeepaliveLogLine,
   elapsedWaitMinutes,
@@ -28,22 +29,45 @@ describe('cursorKeepalive helpers', () => {
     assert.match(line, /message=hello/)
   })
 
-  it('sends minute-based progress (e.g. 0/50)', async () => {
+  it('sends minute-based progress (e.g. 12/30)', async () => {
     const sent = []
+    const logs = []
     const startedAt = Date.now() - 12 * 60_000
     const progress = createProgressSender({
       progressToken: 'tok-1',
       sendNotification: async (n) => { sent.push(n) },
+      log: (m) => logs.push(m),
       intervalMs: 20,
       startedAt,
+      getSessionId: () => 'fb-test-session',
+      getWsReadyState: () => 1,
     })
     progress.start()
     await new Promise((r) => setTimeout(r, 30))
     progress.stop()
     assert.ok(sent.length >= 1)
     assert.equal(sent[0].params.progress, 12)
-    assert.equal(sent[0].params.total, CURSOR_KEEPALIVE_TOTAL_MIN)
+    assert.equal(sent[0].params.total, CURSOR_PROGRESS_TOTAL_MIN)
     assert.equal(elapsedWaitMinutes(startedAt), 12)
+    assert.ok(logs.some((l) => String(l).includes('event=progress_send_ok')))
+    assert.ok(logs.some((l) => String(l).includes('session=fb-test-session')))
+    assert.ok(logs.some((l) => String(l).includes('ws_ready_state=1')))
+  })
+
+  it('logs progress_send_fail when notification rejects', async () => {
+    const logs = []
+    const progress = createProgressSender({
+      progressToken: 'tok-2',
+      sendNotification: async () => { throw new Error('cursor rejected') },
+      log: (m) => logs.push(m),
+      intervalMs: 20,
+      startedAt: Date.now(),
+    })
+    progress.start()
+    await new Promise((r) => setTimeout(r, 30))
+    progress.stop()
+    assert.ok(logs.some((l) => String(l).includes('event=progress_send_fail')))
+    assert.ok(logs.some((l) => String(l).includes('error=cursor rejected')))
   })
 })
 
@@ -103,7 +127,8 @@ describe('toolHandlers keepalive status', () => {
 
     const result = await handler('interactive_feedback', { summary: 'wait' })
     assert.match(result.content[0].text, /\[keepalive\]/)
-    assert.match(result.content[0].text, /Do NOT treat the placeholder text as user input/)
-    assert.ok(logs.some((l) => String(l).includes('keepalive auto-resolve')))
+    assert.match(result.content[0].text, /End your turn immediately/)
+    assert.match(result.content[0].text, /Do NOT call interactive_feedback again/)
+    assert.ok(logs.some((l) => String(l).includes('request_waste_guard')))
   })
 })

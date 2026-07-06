@@ -157,6 +157,6 @@ describe('pipeline logging — keepalive handler', () => {
 
     const result = await handler('interactive_feedback', { summary: 'wait' })
     assert.match(result.content[0].text, /\[keepalive\]/)
-    assert.ok(logs.some((l) => l.includes('keepalive auto-resolve')))
+    assert.ok(logs.some((l) => l.includes('request_waste_guard')))
   })
 })

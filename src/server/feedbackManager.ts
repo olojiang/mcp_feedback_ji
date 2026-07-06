@@ -107,10 +107,11 @@ export class FeedbackManager {
         projectDir?: string,
         summary?: string,
     ): TransportUpdateResult {
-        if (!projectDir) return { updated: false, skipReason: 'no_project' };
+        const matchProject = projectDir || undefined;
+        if (!matchProject) return { updated: false, skipReason: 'no_project' };
         let blockedSessionId: string | undefined;
         for (const entry of this.queue) {
-            if (entry.projectDir !== projectDir) continue;
+            if (entry.projectDir !== matchProject) continue;
             if (!isMcpTransportOpen(entry.mcpClient)) {
                 entry.mcpClient = newWs;
                 entry.mcpDetached = false;
@@ -123,6 +124,26 @@ export class FeedbackManager {
             return { updated: false, skipReason: 'live_mcp_still_open', blockedSessionId };
         }
         return { updated: false, skipReason: 'no_pending' };
+    }
+
+    /** Reattach detached pending sessions when MCP WS reconnects to hub. */
+    reattachDetachedForHub(newWs: WebSocket, hubWorkspaces: string[]): string[] {
+        const reattached: string[] = [];
+        const soleWorkspace = hubWorkspaces.length === 1 ? hubWorkspaces[0] : undefined;
+        for (const entry of this.queue) {
+            if (!entry.mcpDetached) continue;
+            const projectMatch = entry.projectDir
+                ? hubWorkspaces.includes(entry.projectDir)
+                : soleWorkspace !== undefined;
+            if (!projectMatch) continue;
+            entry.mcpClient = newWs;
+            entry.mcpDetached = false;
+            if (!entry.projectDir && soleWorkspace) {
+                entry.projectDir = soleWorkspace;
+            }
+            reattached.push(entry.sessionId);
+        }
+        return reattached;
     }
 
     /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
@@ -253,6 +274,26 @@ export class FeedbackManager {
     isMcpDetached(sessionId: string): boolean {
         const entry = this.queue.find((item) => item.sessionId === sessionId);
         return entry?.mcpDetached === true;
+    }
+
+    waitMetaForSession(sessionId: string): {
+        enqueuedAt?: number;
+        mcpDetached: boolean;
+        wsReadyState?: number;
+        traceId?: string;
+    } | undefined {
+        const entry = this.queue.find((item) => item.sessionId === sessionId);
+        if (!entry) return undefined;
+        return {
+            enqueuedAt: entry.enqueuedAt,
+            mcpDetached: entry.mcpDetached === true,
+            wsReadyState: entry.mcpClient.readyState,
+            traceId: entry.traceId,
+        };
+    }
+
+    mcpTransportForSession(sessionId: string): WebSocket | undefined {
+        return this.queue.find((item) => item.sessionId === sessionId)?.mcpClient;
     }
 
     tryAttachHandlers(sessionId: string): boolean {

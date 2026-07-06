@@ -79,5 +79,6 @@ export declare class WsHub {
     private _send;
     private _broadcastSessionUpdated;
     private _replayPendingSessions;
+    private _emitAgentTurnStatus;
     private _broadcastToWebviews;
 }

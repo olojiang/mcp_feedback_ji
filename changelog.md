@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.128] - 2026-07-06
+
+### Fix — 面板重连后 waiting tab 被 localStorage 冲掉
+
+修复面板 webview 重连时 `hydrateAfterStateSync` 用 localStorage 覆盖 Hub pending session，导致 **Send 变 QUEUE**、回复进 PENDING 但 Agent 收不到的问题。
+
+#### 面板 hydrate（ji.127–ji.128）
+- **`panelState.js`**：`snapshotServerPendingSessions` / `restoreServerPendingSessions`；`reconcileLocalAfterServerSync` 显式恢复 waiting；`_trackPendingSessionId` 跟踪 sessionReplay
+- **`panelApp.js`**：hydrate 顺序改为 snapshot → deserialize → restore；新增 `server_pending_snapshot` / `restored waiting_count` 诊断日志
+
+### Feature — Request 浪费防护与可观测性（ji.116+）
+
+#### MCP 侧
+- **`feedbackNoOp.ts`**：`[keepalive]` / `[released_duplicate]` / `[superseded]` 返回 **End turn** 文案，禁止 Agent 连环调 feedback
+- **`requestBillingRisk.ts`**：`event=request_billing_risk` 记录 keepalive / 硬超时 / WS 断连，便于对照 Cursor Usage
+- **`cursorKeepalive.ts`** / **`extensionClient.ts`**：支持 `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS=0` progress-only 等待；`progress_send_ok/fail` 日志
+
+#### Hub / 面板
+- **`panelSubmitOutcome.ts`**：`panel_submit_delivered` / `panel_submit_no_effect` 结构化 reason
+- **`agentTurnStatus.ts`**：MCP 断连时广播 `agent_turn_status`，面板 toast 提示
+- **`feedbackFlow.ts`** / **`feedbackManager.ts`**：投递路径细化 logging
+
+#### Agent 规则
+- **`deploy/rules.ts`**：同步 no-op 结束语义到 Cursor rules
+
+### Docs
+- **`troubleshooting.md`**：hydrate grep、`panel_submit_no_effect` / `request_billing_risk` reason 表
+- **`readme.md`**：亮点表、死锁恢复、环境变量更新至 ji.128
+
+### Test
+- 新增 `feedbackNoOp.test.js`、`requestBillingRisk.test.js`、`panelSubmitOutcome.test.js`、`agentTurnStatus.test.js`
+- 扩展 `panelState.test.js`（hydrate snapshot/restore）、`feedbackFlow.test.js`、`cursorKeepalive.test.js`
+
 ## [2.5.1-ji.115] - 2026-07-05
 
 ### Fix — 左右都在等的死锁恢复

@@ -42,12 +42,18 @@ function planMcpConfigUpdate(extensionPath, version, nodeBin, existing) {
     const entry = {
         command: nodeBin,
         args: [localServerPath],
-        env: { MCP_FEEDBACK_VERSION: version },
+        env: {
+            MCP_FEEDBACK_VERSION: version,
+            MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
+            MCP_FEEDBACK_CURSOR_PROGRESS_MS: '600000',
+        },
     };
     const existingEnv = (existing?.env || {});
     const unchanged = existing?.command === entry.command
         && JSON.stringify(existing?.args) === JSON.stringify(entry.args)
-        && existingEnv.MCP_FEEDBACK_VERSION === version;
+        && existingEnv.MCP_FEEDBACK_VERSION === version
+        && existingEnv.MCP_FEEDBACK_CURSOR_KEEPALIVE_MS === entry.env.MCP_FEEDBACK_CURSOR_KEEPALIVE_MS
+        && existingEnv.MCP_FEEDBACK_CURSOR_PROGRESS_MS === entry.env.MCP_FEEDBACK_CURSOR_PROGRESS_MS;
     return {
         changed: !unchanged,
         entry,

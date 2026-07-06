@@ -89,7 +89,12 @@ function syncMcpConfig(version) {
 
     const serverPath = path.join(EXTENSION_DIR, 'mcp-server', 'dist', 'index.js');
     entry.args = [serverPath];
-    entry.env = { ...(entry.env || {}), MCP_FEEDBACK_VERSION: version };
+    entry.env = {
+        ...(entry.env || {}),
+        MCP_FEEDBACK_VERSION: version,
+        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
+        MCP_FEEDBACK_CURSOR_PROGRESS_MS: '600000',
+    };
     mcpServers['mcp-feedback-enhanced'] = entry;
     config.mcpServers = mcpServers;
     fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2) + '\n', 'utf8');

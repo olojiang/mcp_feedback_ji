@@ -144,6 +144,21 @@ describe('FeedbackManager', () => {
     assert.equal(fm.isMcpDetached(request.sessionId), false)
   })
 
+  it('reattachDetachedForHub binds null-project session to sole hub workspace', () => {
+    const fm = new FeedbackManager()
+    const ws = { id: 'ws-new', readyState: 1 }
+    const hubWs = ['/Users/hunter/Workspace/spatial-smart-apps']
+    fm.restoreDetachedSession({
+      sessionId: 'fb-null-project',
+      summary: 'waiting',
+      traceId: 'trace-1',
+    })
+    const reattached = fm.reattachDetachedForHub(ws, hubWs)
+    assert.deepEqual(reattached, ['fb-null-project'])
+    assert.equal(fm.isMcpDetached('fb-null-project'), false)
+    assert.equal(fm.pendingSessions()[0].projectDir, hubWs[0])
+  })
+
   it('tryAttachHandlers only allows one handler attachment per session', () => {
     const fm = new FeedbackManager()
     const project = '/Users/hunter/Workspace/llm-gateway'

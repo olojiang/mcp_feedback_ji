@@ -2,6 +2,7 @@ import { WebSocket } from 'ws';
 import type { ConversationMessage } from '../types';
 import { FeedbackManager } from './feedbackManager';
 import { type SessionJournalRecord } from '../sessionJournal';
+import type { AgentTurnStatusReason } from '../agentTurnStatus';
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
     getHubWorkspaces: () => string[];
@@ -31,6 +32,7 @@ interface FeedbackFlowDeps {
         pid: number;
     };
     appendSessionJournal?: (record: SessionJournalRecord) => void;
+    broadcastAgentTurnStatus?: (sessionId: string, reason: AgentTurnStatusReason, detail: string, traceId?: string) => void;
 }
 export declare class FeedbackFlow {
     private readonly deps;
@@ -38,6 +40,11 @@ export declare class FeedbackFlow {
     setOnFeedbackRequested(cb?: () => void): void;
     setOnFeedbackResolved(cb?: () => void): void;
     setOnFeedbackError(cb?: (reason: string) => void): void;
+    /** Attach delivery handlers for sessions restored from disk (mcp detached). */
+    attachRestoredSessionHandlers(sessionId: string): void;
+    /** When MCP WS registers, re-bind detached pending sessions for this hub. */
+    reattachDetachedOnMcpConnect(mcpWs: WebSocket): string[];
+    private _notifyAgentTurnEnded;
     private _releaseSupersededMcp;
     private _auditSession;
     handleFeedbackRequest(mcpWs: WebSocket, req: {

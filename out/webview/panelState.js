@@ -95,6 +95,9 @@
       inputDraft: '',
       stagedImages: [],
       waiting: true,
+      mcpDetached: false,
+      cursorEnded: false,
+      statusDetail: '',
       createdAt: Date.now(),
       projectDirectory: '',
     }
@@ -248,11 +251,21 @@
           return this._onPendingDelivered(msg)
         case 'pending_synced':
           return this._onPendingSynced(msg)
+        case 'agent_turn_status':
+          return this._onAgentTurnStatus(msg)
         case 'pong':
         case 'status_update':
           return []
         default:
           return []
+      }
+    }
+
+    _trackPendingSessionId(id) {
+      if (!id) return
+      var ids = this.lastPendingSessionIds || []
+      if (ids.indexOf(id) < 0) {
+        this.lastPendingSessionIds = ids.concat([id])
       }
     }
 
@@ -322,6 +335,10 @@
         acceptedPending.push(p)
         this.ensureSession(p.id, p.label, p.summary, p.trace_id || p.traceId, { markWaiting: true })
         latestPendingId = p.id || latestPendingId
+        var sessPending = this.sessions[p.id]
+        if (sessPending) {
+          sessPending.mcpDetached = p.mcp_detached === true
+        }
         if (p.summary) {
           var sess = this.sessions[p.id]
           if (!sess.messages.length || sess.messages[sess.messages.length - 1].role !== 'ai') {
@@ -346,13 +363,80 @@
       return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
     }
 
+    _onAgentTurnStatus(msg) {
+      var id = msg.session_id
+      if (!id || !this.sessions[id]) return []
+      var sess = this.sessions[id]
+      sess.cursorEnded = msg.reason === 'link_lost' || msg.reason === 'cursor_ended' || msg.reason === 'cursor_maybe_idle'
+      if (msg.reason === 'link_lost') sess.mcpDetached = true
+      sess.statusDetail = msg.detail || ''
+      sess.waiting = true
+      return [
+        notify({ type: 'agent-turn-status', session_id: id, reason: msg.reason, detail: sess.statusDetail }),
+        render('connection', 'tabs', 'messages', 'pending'),
+        dom('save_state'),
+      ]
+    }
+
+    /** Preserve Hub-authoritative pending tabs before localStorage restore. */
+    snapshotServerPendingSessions() {
+      var ids = this.lastPendingSessionIds || []
+      var out = []
+      for (var i = 0; i < ids.length; i++) {
+        var id = ids[i]
+        var sess = this.sessions[id]
+        if (sess) {
+          out.push({ id: id, session: JSON.parse(JSON.stringify(sess)) })
+        }
+      }
+      return out
+    }
+
+    /** Re-apply Hub pending tabs after localStorage restore (server wins). */
+    restoreServerPendingSessions(snapshot) {
+      if (!snapshot || !snapshot.length) return
+      var latestId = null
+      for (var i = 0; i < snapshot.length; i++) {
+        var item = snapshot[i]
+        if (!item || !item.id || !item.session) continue
+        var id = item.id
+        var restored = item.session
+        restored.waiting = true
+        if (!this.sessions[id]) {
+          this.sessions[id] = restored
+          if (this.sessionOrder.indexOf(id) < 0) this.sessionOrder.push(id)
+        } else {
+          var local = this.sessions[id]
+          local.waiting = true
+          if (restored.summary) local.summary = restored.summary
+          if (restored.label) local.label = restored.label
+          if (restored.traceId) local.traceId = restored.traceId
+          if (restored.projectDirectory) local.projectDirectory = restored.projectDirectory
+          if (restored.mcpDetached) local.mcpDetached = restored.mcpDetached
+          if (restored.messages && restored.messages.length) {
+            var localMsgs = local.messages || []
+            if (!localMsgs.length || restored.messages.length > localMsgs.length) {
+              local.messages = restored.messages
+            }
+          }
+        }
+        latestId = id
+      }
+      if (latestId && this.sessions[latestId] && this.sessions[latestId].waiting) {
+        this.activeSessionId = latestId
+      }
+    }
+
     /** After server state_sync + optional localStorage merge, drop stale waiting flags. */
     reconcileLocalAfterServerSync() {
-      this._reconcileWaitingWithServer(
-        (this.lastPendingSessionIds || []).map(function (id) {
-          return { id: id, waiting: true }
-        }),
-      )
+      var pendingList = (this.lastPendingSessionIds || []).map(function (id) {
+        return { id: id, waiting: true }
+      })
+      for (var i = 0; i < pendingList.length; i++) {
+        var sid = pendingList[i].id
+        if (this.sessions[sid]) this.sessions[sid].waiting = true
+      }
+      this._reconcileWaitingWithServer(pendingList)
       return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
     }
 
@@ -376,6 +460,7 @@
 
       var sess = this.ensureSession(id, msg.session_label, msg.summary, msg.trace_id, { markWaiting: true })
       if (msg.project_directory) sess.projectDirectory = msg.project_directory
+      this._trackPendingSessionId(id)
       this.activeSessionId = id
       var sumText = msg.summary || ''
       var lastMsg = sess.messages.length ? sess.messages[sess.messages.length - 1] : null
@@ -525,6 +610,34 @@
         timestamp: new Date().toISOString(),
         images: mergedImages.length > 0 ? mergedImages : undefined,
       })
+
+      if (sess.mcpDetached || sess.cursorEnded) {
+        if (mergedText && mergedText.trim()) {
+          this.globalPendingQueue.push(mergedText.trim())
+        }
+        if (mergedImages.length > 0) {
+          this.globalPendingImages = this.globalPendingImages.concat(mergedImages)
+        }
+        sess.waiting = false
+        var detachedCmds = [
+          wsSend({
+            type: 'queue-pending',
+            comments: this.globalPendingQueue.slice(),
+            images: this.globalPendingImages.slice(),
+          }),
+          notify({ type: 'agent-link-lost-queued', session_id: id, detail: sess.statusDetail }),
+          render('tabs', 'messages', 'pending', 'input', 'staged_images'),
+        ]
+        if (!opts || !opts.preserveInput) {
+          sess.stagedImages = []
+          sess.inputDraft = ''
+          detachedCmds.push(dom('clear_input'))
+          detachedCmds.push(dom('clear_staged_images'))
+        }
+        detachedCmds.push(dom('save_state'))
+        return detachedCmds
+      }
+
       sess.waiting = false
 
       var cmds = [

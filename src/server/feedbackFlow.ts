@@ -11,7 +11,11 @@ import { resolveTraceId } from '../traceContext';
 import { formatSessionLifecycleLine, type SessionLifecycleEvent, type SessionLifecycleFields } from '../sessionLifecycleLog';
 import { readAgentContext } from '../fileStore';
 import { buildSessionJournalRecord, type SessionJournalRecord } from '../sessionJournal';
-import { DUPLICATE_FEEDBACK_SUPERSEDED_MSG } from '../feedbackSuperseded';
+import {
+    panelSubmitDeliveredLogLine,
+    panelSubmitNoEffectLogLine,
+} from '../panelSubmitOutcome';
+import type { AgentTurnStatusReason } from '../agentTurnStatus';
 
 interface FeedbackFlowDeps {
     feedback: FeedbackManager;
@@ -36,6 +40,12 @@ interface FeedbackFlowDeps {
     log: (msg: string) => void;
     getHubMeta?: () => { port: number; pid: number };
     appendSessionJournal?: (record: SessionJournalRecord) => void;
+    broadcastAgentTurnStatus?: (
+        sessionId: string,
+        reason: AgentTurnStatusReason,
+        detail: string,
+        traceId?: string,
+    ) => void;
 }
 
 export class FeedbackFlow {
@@ -57,15 +67,60 @@ export class FeedbackFlow {
         this.deps.onFeedbackError = cb;
     }
 
+    /** Attach delivery handlers for sessions restored from disk (mcp detached). */
+    attachRestoredSessionHandlers(sessionId: string): void {
+        const transport = this.deps.feedback.mcpTransportForSession(sessionId);
+        if (!transport) return;
+        const meta = this.deps.feedback.waitMetaForSession(sessionId);
+        this.deps.log([
+            'event=restored_session_handlers',
+            `session=${sessionId}`,
+            `mcp_detached=${meta?.mcpDetached === true}`,
+            `ws_ready_state=${transport.readyState}`,
+            `trace=${meta?.traceId || '-'}`,
+        ].join(' '));
+        this._attachMcpPromiseHandlers(transport, sessionId);
+    }
 
+    /** When MCP WS registers, re-bind detached pending sessions for this hub. */
+    reattachDetachedOnMcpConnect(mcpWs: WebSocket): string[] {
+        const reattached = this.deps.feedback.reattachDetachedForHub(
+            mcpWs,
+            this.deps.getHubWorkspaces(),
+        );
+        if (!reattached.length) return reattached;
+        this.deps.log([
+            'event=mcp_reattach_detached',
+            `sessions=${reattached.join(',')}`,
+            `ws_ready_state=${mcpWs.readyState}`,
+        ].join(' '));
+        for (const sessionId of reattached) {
+            this._attachMcpPromiseHandlers(mcpWs, sessionId);
+        }
+        return reattached;
+    }
+
+    private _notifyAgentTurnEnded(
+        sessionId: string | undefined,
+        reason: AgentTurnStatusReason,
+        detail: string,
+        traceId?: string,
+    ): void {
+        if (!sessionId) return;
+        this.deps.broadcastAgentTurnStatus?.(sessionId, reason, detail, traceId);
+    }
 
     private _releaseSupersededMcp(supersededWs: WebSocket | undefined, sessionId?: string, traceId?: string): void {
         if (!supersededWs || supersededWs.readyState !== WebSocket.OPEN) return;
         this.deps.log(
-            `feedbackRequest: superseded duplicate mcp ws session=${sessionId ?? '(unknown)'}`
+            `feedbackRequest: released_duplicate mcp ws session=${sessionId ?? '(unknown)'}`
             + (traceId ? ` trace=${traceId}` : ''),
         );
-        this.deps.sendError(supersededWs, new Error(DUPLICATE_FEEDBACK_SUPERSEDED_MSG));
+        this.deps.sendResult(supersededWs, {
+            status: 'released_duplicate',
+            feedback: '',
+            session_id: sessionId,
+        });
     }
 
     private _auditSession(
@@ -221,7 +276,6 @@ export class FeedbackFlow {
             this.deps.log(
                 `feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`,
             );
-            this._releaseSupersededMcp(traceReuse.supersededWs, traceReuse.sessionId, traceId);
             this.deps.addMessage({
                 role: 'ai',
                 content: req.summary,
@@ -239,6 +293,7 @@ export class FeedbackFlow {
                 session_id: traceReuse.sessionId!,
                 trace_id: traceId,
             });
+            this._releaseSupersededMcp(traceReuse.supersededWs, traceReuse.sessionId, traceId);
             return;
         }
 
@@ -279,6 +334,23 @@ export class FeedbackFlow {
         if (!promise) return;
         promise.then((resolved) => {
             if (!this._canDeliverToMcp(resolved.transport, sessionId)) {
+                const detached = this.deps.feedback.isMcpDetached(sessionId);
+                const wsState = resolved.transport.readyState;
+                this.deps.log(panelSubmitNoEffectLogLine({
+                    reason: detached ? 'mcp_detached' : 'mcp_ws_not_open',
+                    sessionId,
+                    feedbackLen: resolved.feedback.length,
+                    mcpWsReadyState: wsState,
+                    detail: detached
+                        ? 'panel_reply_resolved_but_mcp_link_lost'
+                        : 'panel_reply_resolved_but_mcp_ws_closed',
+                }));
+                this._notifyAgentTurnEnded(
+                    sessionId,
+                    'link_lost',
+                    'Cursor Agent 链接已断，回复已存入队列 — Settings → MCP toggle off/on',
+                    this.deps.feedback.waitMetaForSession(sessionId)?.traceId,
+                );
                 this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
                 this.deps.queueAsPending(resolved.feedback, resolved.images);
                 this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
@@ -293,6 +365,11 @@ export class FeedbackFlow {
             this.deps.log(
                 `feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`,
             );
+            this.deps.log(panelSubmitDeliveredLogLine({
+                sessionId,
+                feedbackLen: resolved.feedback.length,
+                mcpWsReadyState: resolved.transport.readyState,
+            }));
         }).catch((err) => {
             const reason = err instanceof Error ? err.message : 'Feedback error';
             this.deps.log(`feedbackRequest failed: ${reason}`);
@@ -317,6 +394,12 @@ export class FeedbackFlow {
         const project = this._resolveProject(res);
         if (res.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), res.project_directory)) {
             this.deps.log(projectMismatchLogLine(res.project_directory, this.deps.getHubWorkspaces()));
+            this.deps.log(panelSubmitNoEffectLogLine({
+                reason: 'project_mismatch',
+                sessionId: res.session_id,
+                project: res.project_directory,
+                feedbackLen: res.feedback.length,
+            }));
             this.deps.log('feedbackResponse: rejected project_mismatch from panel');
             return;
         }
@@ -348,11 +431,32 @@ export class FeedbackFlow {
             images: res.images ?? undefined,
         };
         let resolved = false;
-        if (res.session_id) {
-            resolved = this.deps.feedback.resolveBySessionId(res.session_id, payload);
+        const targetSessionId = res.session_id;
+        const waitMeta = targetSessionId
+            ? this.deps.feedback.waitMetaForSession(targetSessionId)
+            : undefined;
+        if (targetSessionId) {
+            if (!waitMeta) {
+                this.deps.log(panelSubmitNoEffectLogLine({
+                    reason: 'session_not_on_hub_queue',
+                    sessionId: targetSessionId,
+                    traceId: responseTraceId,
+                    project,
+                    feedbackLen: res.feedback.length,
+                    pendingCount: this.deps.feedback.pendingCount(),
+                    detail: 'panel_tab_waiting_locally_but_hub_has_no_matching_pending',
+                }));
+                this._notifyAgentTurnEnded(
+                    targetSessionId,
+                    'cursor_ended',
+                    'Cursor 侧可能已结束 — 此 tab 在 Hub 无 pending，回复将存入队列',
+                    responseTraceId,
+                );
+            }
+            resolved = this.deps.feedback.resolveBySessionId(targetSessionId, payload);
             if (!resolved && this.deps.feedback.pendingCount() === 1) {
                 this.deps.log(
-                    `feedbackResponse: stale session_id=${res.session_id}, fallback to sole pending session`,
+                    `feedbackResponse: stale session_id=${targetSessionId}, fallback to sole pending session`,
                 );
                 resolved = this.deps.feedback.resolveFirst(payload);
             }
@@ -360,6 +464,15 @@ export class FeedbackFlow {
             resolved = this.deps.feedback.resolveFirst(payload);
         }
         if (!resolved) {
+            this.deps.log(panelSubmitNoEffectLogLine({
+                reason: 'no_pending_session',
+                sessionId: targetSessionId,
+                traceId: responseTraceId,
+                project,
+                feedbackLen: res.feedback.length,
+                pendingCount: this.deps.feedback.pendingCount(),
+                detail: 'routed_to_global_pending_queue_agent_will_not_see',
+            }));
             this.deps.log('feedbackResponse: no pending session, routing to pending queue');
             this.deps.queueAsPending(res.feedback, res.images);
             return;

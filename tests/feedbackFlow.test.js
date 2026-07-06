@@ -248,4 +248,65 @@ describe('FeedbackFlow stale session_id fallback', () => {
     assert.equal(queued, true)
     assert.ok(logs.some((l) => l.includes('mcp gone')))
   })
+
+  it('restored detached session delivers via handlers or queues on panel reply', async () => {
+    const feedback = new FeedbackManager()
+    const logs = []
+    let queued = false
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => ['/proj'],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => { queued = true },
+      sendResult: () => {},
+      sendError: () => {},
+      log: (msg) => logs.push(msg),
+    })
+    feedback.restoreDetachedSession({
+      sessionId: 'fb-restored',
+      summary: 'waiting',
+      projectDir: '/proj',
+      traceId: 'trace-restored',
+    })
+    flow.attachRestoredSessionHandlers('fb-restored')
+    flow.handleFeedbackResponse({ session_id: 'fb-restored', feedback: 'hello' })
+    await new Promise((r) => setTimeout(r, 20))
+    assert.equal(queued, true)
+    assert.ok(logs.some((l) => l.includes('restored_session_handlers')))
+    assert.ok(logs.some((l) => l.includes('panel_submit_no_effect') || l.includes('mcp gone')))
+  })
+
+  it('reattachDetachedOnMcpConnect re-binds restored sessions', () => {
+    const feedback = new FeedbackManager()
+    const logs = []
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => ['/proj'],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => {},
+      sendResult: () => {},
+      sendError: () => {},
+      log: (msg) => logs.push(msg),
+    })
+    feedback.restoreDetachedSession({
+      sessionId: 'fb-detached',
+      summary: 'wait',
+      projectDir: '/proj',
+      traceId: 'trace-x',
+    })
+    flow.attachRestoredSessionHandlers('fb-detached')
+    const mcpWs = { readyState: 1 }
+    const reattached = flow.reattachDetachedOnMcpConnect(mcpWs)
+    assert.deepEqual(reattached, ['fb-detached'])
+    assert.equal(feedback.isMcpDetached('fb-detached'), false)
+    assert.ok(logs.some((l) => l.includes('event=mcp_reattach_detached')))
+  })
 })

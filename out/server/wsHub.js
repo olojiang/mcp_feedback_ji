@@ -68,6 +68,7 @@ const sessionLifecycleLog_js_1 = require("../sessionLifecycleLog.js");
 const sessionJournal_js_1 = require("../sessionJournal.js");
 const pipelineContracts_js_1 = require("../pipelineContracts.js");
 const pendingSessionStore_js_1 = require("../pendingSessionStore.js");
+const agentTurnStatus_js_1 = require("../agentTurnStatus.js");
 function wsLog(msg) {
     (0, extensionFileLog_js_1.hubLog)(msg);
 }
@@ -159,6 +160,9 @@ class WsHub {
             log: wsLog,
             getHubMeta: () => ({ port: this.port, pid: process.pid }),
             appendSessionJournal: (record) => (0, sessionJournal_js_1.appendSessionJournalRecord)(record),
+            broadcastAgentTurnStatus: (sessionId, reason, detail, traceId) => {
+                this._emitAgentTurnStatus(sessionId, reason, detail, traceId);
+            },
         });
         this.pending.onPendingDelivered((delivery) => {
             this._onPendingDelivered(delivery.comments, delivery.images);
@@ -328,8 +332,10 @@ class WsHub {
                 summary: s.summary,
                 enqueuedAt: s.enqueuedAt,
             });
-            if (ok)
+            if (ok) {
                 restored++;
+                this.feedbackFlow.attachRestoredSessionHandlers(s.id);
+            }
         }
         wsLog(`pending_restore: restored=${restored} skipped=${skipped} savedAt=${snap.savedAt}`
             + ` sessions=${snap.sessions.map((s) => s.id).join(',')}`);
@@ -429,6 +435,10 @@ class WsHub {
                         detail: detached.join(','),
                         pendingCount: this.feedback.pendingCount(),
                     }));
+                    for (const sid of detached) {
+                        const snap = this.feedback.pendingSessions().find((s) => s.id === sid);
+                        this._emitAgentTurnStatus(sid, 'link_lost', 'Cursor Agent 已断开 — 面板输入将存入队列，请 toggle MCP', snap?.traceId);
+                    }
                     this._persistPendingSessions('mcp_detach');
                 }
                 this.clients.remove(ws);
@@ -468,6 +478,10 @@ class WsHub {
                         pendingCount: this.feedback.pendingCount(),
                         reason: 'mcp_ws_registered',
                     }));
+                    const reattached = this.feedbackFlow.reattachDetachedOnMcpConnect(ws);
+                    if (reattached.length) {
+                        wsLog(`mcp_reattach: sessions=${reattached.join(',')}`);
+                    }
                 }
                 if (clientType === 'webview') {
                     this._replayPendingSessions(ws);
@@ -672,6 +686,15 @@ class WsHub {
                 ...(session.traceId ? { trace_id: session.traceId } : {}),
             });
         }
+    }
+    _emitAgentTurnStatus(sessionId, reason, detail, traceId) {
+        wsLog((0, agentTurnStatus_js_1.agentTurnStatusLogLine)({ sessionId, reason, detail }));
+        this._broadcastToWebviews((0, agentTurnStatus_js_1.agentTurnStatusPayload)({
+            sessionId,
+            reason,
+            detail,
+            traceId,
+        }));
     }
     _broadcastToWebviews(data) {
         let count = 0;

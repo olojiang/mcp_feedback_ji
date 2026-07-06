@@ -3,6 +3,8 @@ export interface McpServerEntry {
     args: string[];
     env: {
         MCP_FEEDBACK_VERSION: string;
+        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS?: string;
+        MCP_FEEDBACK_CURSOR_PROGRESS_MS?: string;
     };
 }
 export interface McpConfigPlan {

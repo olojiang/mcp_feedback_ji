@@ -3993,10 +3993,11 @@ var FeedbackManager = class {
     return true;
   }
   updateTransport(newWs, projectDir, summary) {
-    if (!projectDir) return { updated: false, skipReason: "no_project" };
+    const matchProject = projectDir || void 0;
+    if (!matchProject) return { updated: false, skipReason: "no_project" };
     let blockedSessionId;
     for (const entry of this.queue) {
-      if (entry.projectDir !== projectDir) continue;
+      if (entry.projectDir !== matchProject) continue;
       if (!isMcpTransportOpen(entry.mcpClient)) {
         entry.mcpClient = newWs;
         entry.mcpDetached = false;
@@ -4009,6 +4010,23 @@ var FeedbackManager = class {
       return { updated: false, skipReason: "live_mcp_still_open", blockedSessionId };
     }
     return { updated: false, skipReason: "no_pending" };
+  }
+  /** Reattach detached pending sessions when MCP WS reconnects to hub. */
+  reattachDetachedForHub(newWs, hubWorkspaces) {
+    const reattached = [];
+    const soleWorkspace = hubWorkspaces.length === 1 ? hubWorkspaces[0] : void 0;
+    for (const entry of this.queue) {
+      if (!entry.mcpDetached) continue;
+      const projectMatch = entry.projectDir ? hubWorkspaces.includes(entry.projectDir) : soleWorkspace !== void 0;
+      if (!projectMatch) continue;
+      entry.mcpClient = newWs;
+      entry.mcpDetached = false;
+      if (!entry.projectDir && soleWorkspace) {
+        entry.projectDir = soleWorkspace;
+      }
+      reattached.push(entry.sessionId);
+    }
+    return reattached;
   }
   /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
   reuseByTraceId(mcpWs, traceId, summary) {
@@ -4112,6 +4130,19 @@ var FeedbackManager = class {
   isMcpDetached(sessionId) {
     const entry = this.queue.find((item) => item.sessionId === sessionId);
     return entry?.mcpDetached === true;
+  }
+  waitMetaForSession(sessionId) {
+    const entry = this.queue.find((item) => item.sessionId === sessionId);
+    if (!entry) return void 0;
+    return {
+      enqueuedAt: entry.enqueuedAt,
+      mcpDetached: entry.mcpDetached === true,
+      wsReadyState: entry.mcpClient.readyState,
+      traceId: entry.traceId
+    };
+  }
+  mcpTransportForSession(sessionId) {
+    return this.queue.find((item) => item.sessionId === sessionId)?.mcpClient;
   }
   tryAttachHandlers(sessionId) {
     const entry = this.queue.find((item) => item.sessionId === sessionId);
@@ -4827,8 +4858,33 @@ function appendSessionJournalRecord(record2, logDir = getLogsDir()) {
 `, "utf8");
 }
 
-// src/feedbackSuperseded.ts
-var DUPLICATE_FEEDBACK_SUPERSEDED_MSG = "Duplicate interactive_feedback superseded (same cursor trace). Use the existing panel tab; this MCP call was released to avoid a hung wait.";
+// src/panelSubmitOutcome.ts
+function panelSubmitNoEffectLogLine(opts) {
+  const parts = [
+    "event=panel_submit_no_effect",
+    `reason=${opts.reason}`,
+    `session=${opts.sessionId || "-"}`,
+    `trace=${opts.traceId || "-"}`
+  ];
+  if (opts.project) parts.push(`project=${opts.project}`);
+  if (opts.feedbackLen !== void 0) parts.push(`feedback_len=${opts.feedbackLen}`);
+  if (opts.waitMs !== void 0) parts.push(`wait_ms=${opts.waitMs}`);
+  if (opts.mcpWsReadyState !== void 0) parts.push(`mcp_ws_ready_state=${opts.mcpWsReadyState}`);
+  if (opts.pendingCount !== void 0) parts.push(`pending_count=${opts.pendingCount}`);
+  if (opts.detail) parts.push(`detail=${opts.detail}`);
+  return parts.join(" ");
+}
+function panelSubmitDeliveredLogLine(opts) {
+  const parts = [
+    "event=panel_submit_delivered",
+    `session=${opts.sessionId}`,
+    `trace=${opts.traceId || "-"}`,
+    `feedback_len=${opts.feedbackLen}`
+  ];
+  if (opts.waitMs !== void 0) parts.push(`wait_ms=${opts.waitMs}`);
+  if (opts.mcpWsReadyState !== void 0) parts.push(`mcp_ws_ready_state=${opts.mcpWsReadyState}`);
+  return parts.join(" ");
+}
 
 // src/server/feedbackFlow.ts
 var FeedbackFlow = class {
@@ -4844,12 +4900,51 @@ var FeedbackFlow = class {
   setOnFeedbackError(cb) {
     this.deps.onFeedbackError = cb;
   }
+  /** Attach delivery handlers for sessions restored from disk (mcp detached). */
+  attachRestoredSessionHandlers(sessionId) {
+    const transport = this.deps.feedback.mcpTransportForSession(sessionId);
+    if (!transport) return;
+    const meta3 = this.deps.feedback.waitMetaForSession(sessionId);
+    this.deps.log([
+      "event=restored_session_handlers",
+      `session=${sessionId}`,
+      `mcp_detached=${meta3?.mcpDetached === true}`,
+      `ws_ready_state=${transport.readyState}`,
+      `trace=${meta3?.traceId || "-"}`
+    ].join(" "));
+    this._attachMcpPromiseHandlers(transport, sessionId);
+  }
+  /** When MCP WS registers, re-bind detached pending sessions for this hub. */
+  reattachDetachedOnMcpConnect(mcpWs) {
+    const reattached = this.deps.feedback.reattachDetachedForHub(
+      mcpWs,
+      this.deps.getHubWorkspaces()
+    );
+    if (!reattached.length) return reattached;
+    this.deps.log([
+      "event=mcp_reattach_detached",
+      `sessions=${reattached.join(",")}`,
+      `ws_ready_state=${mcpWs.readyState}`
+    ].join(" "));
+    for (const sessionId of reattached) {
+      this._attachMcpPromiseHandlers(mcpWs, sessionId);
+    }
+    return reattached;
+  }
+  _notifyAgentTurnEnded(sessionId, reason, detail, traceId) {
+    if (!sessionId) return;
+    this.deps.broadcastAgentTurnStatus?.(sessionId, reason, detail, traceId);
+  }
   _releaseSupersededMcp(supersededWs, sessionId, traceId) {
     if (!supersededWs || supersededWs.readyState !== import_websocket.default.OPEN) return;
     this.deps.log(
-      `feedbackRequest: superseded duplicate mcp ws session=${sessionId ?? "(unknown)"}` + (traceId ? ` trace=${traceId}` : "")
+      `feedbackRequest: released_duplicate mcp ws session=${sessionId ?? "(unknown)"}` + (traceId ? ` trace=${traceId}` : "")
     );
-    this.deps.sendError(supersededWs, new Error(DUPLICATE_FEEDBACK_SUPERSEDED_MSG));
+    this.deps.sendResult(supersededWs, {
+      status: "released_duplicate",
+      feedback: "",
+      session_id: sessionId
+    });
   }
   _auditSession(event, input) {
     const agentCtx = readAgentContext();
@@ -4985,7 +5080,6 @@ var FeedbackFlow = class {
       this.deps.log(
         `feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? "unknown"}`
       );
-      this._releaseSupersededMcp(traceReuse.supersededWs, traceReuse.sessionId, traceId);
       this.deps.addMessage({
         role: "ai",
         content: req.summary,
@@ -5003,6 +5097,7 @@ var FeedbackFlow = class {
         session_id: traceReuse.sessionId,
         trace_id: traceId
       });
+      this._releaseSupersededMcp(traceReuse.supersededWs, traceReuse.sessionId, traceId);
       return;
     }
     this.deps.addMessage({
@@ -5040,6 +5135,21 @@ var FeedbackFlow = class {
     if (!promise2) return;
     promise2.then((resolved) => {
       if (!this._canDeliverToMcp(resolved.transport, sessionId)) {
+        const detached = this.deps.feedback.isMcpDetached(sessionId);
+        const wsState = resolved.transport.readyState;
+        this.deps.log(panelSubmitNoEffectLogLine({
+          reason: detached ? "mcp_detached" : "mcp_ws_not_open",
+          sessionId,
+          feedbackLen: resolved.feedback.length,
+          mcpWsReadyState: wsState,
+          detail: detached ? "panel_reply_resolved_but_mcp_link_lost" : "panel_reply_resolved_but_mcp_ws_closed"
+        }));
+        this._notifyAgentTurnEnded(
+          sessionId,
+          "link_lost",
+          "Cursor Agent \u94FE\u63A5\u5DF2\u65AD\uFF0C\u56DE\u590D\u5DF2\u5B58\u5165\u961F\u5217 \u2014 Settings \u2192 MCP toggle off/on",
+          this.deps.feedback.waitMetaForSession(sessionId)?.traceId
+        );
         this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
         this.deps.queueAsPending(resolved.feedback, resolved.images);
         this.deps.broadcastFeedbackSubmitted(resolved.feedback, sessionId);
@@ -5054,6 +5164,11 @@ var FeedbackFlow = class {
       this.deps.log(
         `feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`
       );
+      this.deps.log(panelSubmitDeliveredLogLine({
+        sessionId,
+        feedbackLen: resolved.feedback.length,
+        mcpWsReadyState: resolved.transport.readyState
+      }));
     }).catch((err) => {
       const reason = err instanceof Error ? err.message : "Feedback error";
       this.deps.log(`feedbackRequest failed: ${reason}`);
@@ -5071,6 +5186,12 @@ var FeedbackFlow = class {
     const project = this._resolveProject(res);
     if (res.project_directory && !hubAcceptsProject(this.deps.getHubWorkspaces(), res.project_directory)) {
       this.deps.log(projectMismatchLogLine(res.project_directory, this.deps.getHubWorkspaces()));
+      this.deps.log(panelSubmitNoEffectLogLine({
+        reason: "project_mismatch",
+        sessionId: res.session_id,
+        project: res.project_directory,
+        feedbackLen: res.feedback.length
+      }));
       this.deps.log("feedbackResponse: rejected project_mismatch from panel");
       return;
     }
@@ -5099,11 +5220,30 @@ var FeedbackFlow = class {
       images: res.images ?? void 0
     };
     let resolved = false;
-    if (res.session_id) {
-      resolved = this.deps.feedback.resolveBySessionId(res.session_id, payload);
+    const targetSessionId = res.session_id;
+    const waitMeta = targetSessionId ? this.deps.feedback.waitMetaForSession(targetSessionId) : void 0;
+    if (targetSessionId) {
+      if (!waitMeta) {
+        this.deps.log(panelSubmitNoEffectLogLine({
+          reason: "session_not_on_hub_queue",
+          sessionId: targetSessionId,
+          traceId: responseTraceId,
+          project,
+          feedbackLen: res.feedback.length,
+          pendingCount: this.deps.feedback.pendingCount(),
+          detail: "panel_tab_waiting_locally_but_hub_has_no_matching_pending"
+        }));
+        this._notifyAgentTurnEnded(
+          targetSessionId,
+          "cursor_ended",
+          "Cursor \u4FA7\u53EF\u80FD\u5DF2\u7ED3\u675F \u2014 \u6B64 tab \u5728 Hub \u65E0 pending\uFF0C\u56DE\u590D\u5C06\u5B58\u5165\u961F\u5217",
+          responseTraceId
+        );
+      }
+      resolved = this.deps.feedback.resolveBySessionId(targetSessionId, payload);
       if (!resolved && this.deps.feedback.pendingCount() === 1) {
         this.deps.log(
-          `feedbackResponse: stale session_id=${res.session_id}, fallback to sole pending session`
+          `feedbackResponse: stale session_id=${targetSessionId}, fallback to sole pending session`
         );
         resolved = this.deps.feedback.resolveFirst(payload);
       }
@@ -5111,6 +5251,15 @@ var FeedbackFlow = class {
       resolved = this.deps.feedback.resolveFirst(payload);
     }
     if (!resolved) {
+      this.deps.log(panelSubmitNoEffectLogLine({
+        reason: "no_pending_session",
+        sessionId: targetSessionId,
+        traceId: responseTraceId,
+        project,
+        feedbackLen: res.feedback.length,
+        pendingCount: this.deps.feedback.pendingCount(),
+        detail: "routed_to_global_pending_queue_agent_will_not_see"
+      }));
       this.deps.log("feedbackResponse: no pending session, routing to pending queue");
       this.deps.queueAsPending(res.feedback, res.images);
       return;
@@ -20215,6 +20364,25 @@ function clearPersistedPendingSessions(workspaces) {
   writePersistedPendingSessions(workspaces, []);
 }
 
+// src/agentTurnStatus.ts
+function agentTurnStatusPayload(opts) {
+  return {
+    type: "agent_turn_status",
+    session_id: opts.sessionId,
+    reason: opts.reason,
+    detail: opts.detail,
+    ...opts.traceId ? { trace_id: opts.traceId } : {}
+  };
+}
+function agentTurnStatusLogLine(opts) {
+  return [
+    "event=agent_turn_status",
+    `session=${opts.sessionId}`,
+    `reason=${opts.reason}`,
+    `detail=${opts.detail}`
+  ].join(" ");
+}
+
 // src/server/wsHub.ts
 function wsLog(msg) {
   hubLog(msg);
@@ -20313,7 +20481,10 @@ var WsHub = class {
       onFeedbackResolved: void 0,
       log: wsLog,
       getHubMeta: () => ({ port: this.port, pid: process.pid }),
-      appendSessionJournal: (record2) => appendSessionJournalRecord(record2)
+      appendSessionJournal: (record2) => appendSessionJournalRecord(record2),
+      broadcastAgentTurnStatus: (sessionId, reason, detail, traceId) => {
+        this._emitAgentTurnStatus(sessionId, reason, detail, traceId);
+      }
     });
     this.pending.onPendingDelivered((delivery) => {
       this._onPendingDelivered(delivery.comments, delivery.images);
@@ -20481,7 +20652,10 @@ var WsHub = class {
         summary: s.summary,
         enqueuedAt: s.enqueuedAt
       });
-      if (ok) restored++;
+      if (ok) {
+        restored++;
+        this.feedbackFlow.attachRestoredSessionHandlers(s.id);
+      }
     }
     wsLog(
       `pending_restore: restored=${restored} skipped=${skipped} savedAt=${snap.savedAt} sessions=${snap.sessions.map((s) => s.id).join(",")}`
@@ -20584,6 +20758,15 @@ var WsHub = class {
             detail: detached.join(","),
             pendingCount: this.feedback.pendingCount()
           }));
+          for (const sid of detached) {
+            const snap = this.feedback.pendingSessions().find((s) => s.id === sid);
+            this._emitAgentTurnStatus(
+              sid,
+              "link_lost",
+              "Cursor Agent \u5DF2\u65AD\u5F00 \u2014 \u9762\u677F\u8F93\u5165\u5C06\u5B58\u5165\u961F\u5217\uFF0C\u8BF7 toggle MCP",
+              snap?.traceId
+            );
+          }
           this._persistPendingSessions("mcp_detach");
         }
         this.clients.remove(ws);
@@ -20623,6 +20806,10 @@ var WsHub = class {
             pendingCount: this.feedback.pendingCount(),
             reason: "mcp_ws_registered"
           }));
+          const reattached = this.feedbackFlow.reattachDetachedOnMcpConnect(ws);
+          if (reattached.length) {
+            wsLog(`mcp_reattach: sessions=${reattached.join(",")}`);
+          }
         }
         if (clientType === "webview") {
           this._replayPendingSessions(ws);
@@ -20821,6 +21008,15 @@ var WsHub = class {
         ...session.traceId ? { trace_id: session.traceId } : {}
       });
     }
+  }
+  _emitAgentTurnStatus(sessionId, reason, detail, traceId) {
+    wsLog(agentTurnStatusLogLine({ sessionId, reason, detail }));
+    this._broadcastToWebviews(agentTurnStatusPayload({
+      sessionId,
+      reason,
+      detail,
+      traceId
+    }));
   }
   _broadcastToWebviews(data) {
     let count = 0;
@@ -21716,10 +21912,14 @@ function planMcpConfigUpdate(extensionPath, version2, nodeBin, existing) {
   const entry = {
     command: nodeBin,
     args: [localServerPath],
-    env: { MCP_FEEDBACK_VERSION: version2 }
+    env: {
+      MCP_FEEDBACK_VERSION: version2,
+      MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: "0",
+      MCP_FEEDBACK_CURSOR_PROGRESS_MS: "600000"
+    }
   };
   const existingEnv = existing?.env || {};
-  const unchanged = existing?.command === entry.command && JSON.stringify(existing?.args) === JSON.stringify(entry.args) && existingEnv.MCP_FEEDBACK_VERSION === version2;
+  const unchanged = existing?.command === entry.command && JSON.stringify(existing?.args) === JSON.stringify(entry.args) && existingEnv.MCP_FEEDBACK_VERSION === version2 && existingEnv.MCP_FEEDBACK_CURSOR_KEEPALIVE_MS === entry.env.MCP_FEEDBACK_CURSOR_KEEPALIVE_MS && existingEnv.MCP_FEEDBACK_CURSOR_PROGRESS_MS === entry.env.MCP_FEEDBACK_CURSOR_PROGRESS_MS;
   return {
     changed: !unchanged,
     entry,
@@ -21805,7 +22005,7 @@ var RULES_CONTENT = [
   "- MUST use interactive_feedback as your LAST tool call when wrapping up (hand off, summarize, or ask the user).",
   "- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.",
   '- IMPORTANT: If interactive_feedback returns an error (e.g. "not connected", timeout), do NOT retry. End your turn normally. Retrying wastes Cursor requests.',
-  "- If interactive_feedback returns [keepalive], do NOT treat it as user input. Call interactive_feedback again immediately to keep waiting.",
+  "- If interactive_feedback returns [keepalive] or [released_duplicate] or [superseded], do NOT treat it as user input. End your turn immediately. Do NOT call interactive_feedback again.",
   "",
   "You have access to the interactive_feedback MCP tool for communicating with the user:",
   "- Use it to present results, ask questions, or check in with the user.",
