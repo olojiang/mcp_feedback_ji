@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.136] - 2026-07-06
+
+### Fix — 减少 Cursor Request 浪费 + zombie MCP 清理
+
+- **hooks `consume-pending`** — `Rules refresh` checkpoint 与 pending 投递改用 **`followup_message`**（不再 `permission: deny` 触发新 Request）
+- **`feedback-guard.buildFollowupMessage`** — 零成本 hook 注入辅助函数
+- **`ClientRegistry.sweepStale`** — orphan MCP idle > 90s 关闭；active wait 保护至 35min；超时 zombie 强制 `close`
+- **`FeedbackManager.activeMcpClients`** — 供 stale sweep 识别 live wait
+- **单测** — stale / hooks followup 覆盖；全量 **465** pass
+
 ## [2.5.1-ji.135] - 2026-07-06
 
 ### Fix — hooks 拦截重复 feedback（减 Usage 浪费）

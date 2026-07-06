@@ -38,9 +38,19 @@ function sessionDisplayedLogLine(sessionId, projectDirectory, traceId) {
 function feedbackRequestAcceptedLogLine(sessionId, projectDirectory, traceId) {
     return `feedbackRequest: accepted session=${sessionId} project=${projectDirectory ?? '(none)'}${(0, traceContext_1.traceLogSuffix)(traceId)}`;
 }
-function feedbackResponseLogLine(sessionId, projectDirectory, feedbackPreview, traceId) {
+function feedbackResponseLogLine(sessionId, projectDirectory, feedback, traceId, imageCount = 0) {
     const project = projectDirectory ? ` project=${projectDirectory}` : '';
-    return `feedbackResponse: session=${sessionId}${project}${(0, traceContext_1.traceLogSuffix)(traceId)} feedback=${feedbackPreview}`;
+    const includePreview = process.env.MCP_FEEDBACK_LOG_FEEDBACK_PREVIEW === '1';
+    const parts = [
+        `feedbackResponse: session=${sessionId}${project}${(0, traceContext_1.traceLogSuffix)(traceId)}`,
+        `feedback_len=${feedback.length}`,
+        `image_count=${imageCount}`,
+        `preview_redacted=${includePreview ? 'false' : 'true'}`,
+    ];
+    if (includePreview) {
+        parts.push(`feedback_preview=${feedback.replace(/\s+/g, ' ').slice(0, 80)}`);
+    }
+    return parts.join(' ');
 }
 /** Panel shows no waiting tabs but server still has pending feedback. */
 function detectUiSyncMismatch(input) {

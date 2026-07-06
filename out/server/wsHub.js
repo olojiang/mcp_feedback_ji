@@ -76,6 +76,8 @@ const PORT_RANGE_START = 48200;
 const PORT_RANGE_END = 48300;
 const HEARTBEAT_INTERVAL = 30000;
 const CLIENT_TIMEOUT = 90000;
+/** Close MCP WS idle past this even when tied to a live feedback wait (zombie). */
+const MCP_ZOMBIE_SWEEP_MS = 35 * 60 * 1000;
 const MESSAGE_CAP = 500;
 class WsHub {
     constructor(version = '0.0.0', options = {}) {
@@ -213,7 +215,7 @@ class WsHub {
         if (process.env.MCP_FEEDBACK_TEST_HOOKS !== '1') {
             throw new Error('staleSweepAt is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)');
         }
-        this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
+        this._sweepStaleClients(now);
     }
     /** Integration tests: age a connected client's last pong. */
     setClientLastPong(ws, ts) {
@@ -648,9 +650,16 @@ class WsHub {
                     this.onSleepResumeWithPending?.(minutesSleep);
                 }
             }
-            this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
+            this._sweepStaleClients(now);
             this._ensureServerRegistration();
         }, HEARTBEAT_INTERVAL);
+    }
+    _sweepStaleClients(now) {
+        const protectedMcp = new Set(this.feedback.activeMcpClients());
+        this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { }, {
+            protectedMcpWs: protectedMcp,
+            mcpZombieMs: MCP_ZOMBIE_SWEEP_MS,
+        });
     }
     _ensureServerRegistration() {
         if (this.workspaces.length === 0 || this.port === 0)
@@ -705,7 +714,7 @@ class WsHub {
         }
     }
     _emitAgentTurnStatus(sessionId, reason, detail, traceId) {
-        wsLog((0, agentTurnStatus_js_1.agentTurnStatusLogLine)({ sessionId, reason, detail }));
+        wsLog((0, agentTurnStatus_js_1.agentTurnStatusLogLine)({ sessionId, reason, detail, traceId }));
         this._broadcastToWebviews((0, agentTurnStatus_js_1.agentTurnStatusPayload)({
             sessionId,
             reason,

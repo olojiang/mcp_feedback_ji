@@ -16,7 +16,7 @@ function fakeWs() {
 }
 
 describe('ClientRegistry mcp stale policy', () => {
-  it('does not sweep mcp-server clients on idle timeout', () => {
+  it('sweeps orphan mcp-server clients on idle timeout', () => {
     const reg = new ClientRegistry()
     const ws = fakeWs()
     const client = reg.add(ws)
@@ -25,6 +25,24 @@ describe('ClientRegistry mcp stale policy', () => {
 
     const stale = []
     reg.sweepStale(Date.now(), 90_000, (w) => stale.push(w))
+
+    assert.equal(stale.length, 1)
+    assert.equal(reg.counts().mcpServers, 0)
+    assert.equal(ws.closed, true)
+  })
+
+  it('skips protected mcp-server with active wait until zombie threshold', () => {
+    const reg = new ClientRegistry()
+    const ws = fakeWs()
+    const client = reg.add(ws)
+    reg.setClientType(ws, 'mcp-server')
+    client.lastPong = Date.now() - 120_000
+
+    const stale = []
+    reg.sweepStale(Date.now(), 90_000, (w) => stale.push(w), {
+      protectedMcpWs: new Set([ws]),
+      mcpZombieMs: 35 * 60 * 1000,
+    })
 
     assert.equal(stale.length, 0)
     assert.equal(reg.counts().mcpServers, 1)

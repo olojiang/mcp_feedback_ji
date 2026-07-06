@@ -148,8 +148,8 @@ describe('deploy/hooks — stop hook retired to prevent loop', () => {
   })
 })
 
-describe('toolHandlers — connection closed no retry', () => {
-  it('does not retry when MCP connection closed during wait', async () => {
+describe('toolHandlers — connection closed retry', () => {
+  it('retries once when MCP connection closed during wait', async () => {
     let attempts = 0
     const handler = createToolCallHandler({
       findExtensionServer: async () => ({
@@ -160,7 +160,10 @@ describe('toolHandlers — connection closed no retry', () => {
         return { close() {} }
       },
       requestFeedback: async () => {
-        throw new Error('Extension connection closed during feedback wait (reason=extension_ws_close) — reload')
+        if (attempts === 1) {
+          throw new Error('Extension connection closed during feedback wait (reason=extension_ws_close) — reload')
+        }
+        return { status: 'submitted', feedback: 'recovered' }
       },
       browserFallback: async () => 'browser',
       log: () => {},
@@ -168,8 +171,8 @@ describe('toolHandlers — connection closed no retry', () => {
     })
 
     const result = await handler('interactive_feedback', { summary: 'test' })
-    assert.equal(attempts, 1)
-    assert.match(result.content[0].text, /\[connection_closed\]/)
+    assert.equal(attempts, 2)
+    assert.match(result.content[0].text, /recovered/)
   })
 })
 

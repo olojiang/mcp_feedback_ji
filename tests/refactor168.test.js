@@ -16,7 +16,7 @@ describe('deploy mcpConfig', () => {
       env: {
         MCP_FEEDBACK_VERSION: '2.5.1-ji.135',
         MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
-        MCP_FEEDBACK_CURSOR_PROGRESS_MS: '600000',
+        MCP_FEEDBACK_CURSOR_PROGRESS_MS: '25000',
       },
     })
     assert.equal(plan.changed, false)

@@ -62,11 +62,22 @@ export function feedbackRequestAcceptedLogLine(
 export function feedbackResponseLogLine(
     sessionId: string,
     projectDirectory: string | undefined,
-    feedbackPreview: string,
+    feedback: string,
     traceId?: string,
+    imageCount = 0,
 ): string {
     const project = projectDirectory ? ` project=${projectDirectory}` : '';
-    return `feedbackResponse: session=${sessionId}${project}${traceLogSuffix(traceId)} feedback=${feedbackPreview}`;
+    const includePreview = process.env.MCP_FEEDBACK_LOG_FEEDBACK_PREVIEW === '1';
+    const parts = [
+        `feedbackResponse: session=${sessionId}${project}${traceLogSuffix(traceId)}`,
+        `feedback_len=${feedback.length}`,
+        `image_count=${imageCount}`,
+        `preview_redacted=${includePreview ? 'false' : 'true'}`,
+    ];
+    if (includePreview) {
+        parts.push(`feedback_preview=${feedback.replace(/\s+/g, ' ').slice(0, 80)}`);
+    }
+    return parts.join(' ');
 }
 
 export interface UiSyncMismatchInput {

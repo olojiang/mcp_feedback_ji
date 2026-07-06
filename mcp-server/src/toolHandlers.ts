@@ -288,17 +288,6 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         `[MCP Feedback] Extension port=${extensionServer.port} `
                         + `pid=${extensionServer.pid} attempt ${attempt}/${maxAttempts} failed: ${errMsg}`
                     );
-                    if (errMsg.includes('Connection closed') || errMsg.includes('extension_ws_close')) {
-                        deps.log('[MCP Feedback] MCP connection closed during wait — not retrying');
-                        return {
-                            content: [{
-                                type: 'text',
-                                text: '[connection_closed] MCP disconnected while waiting for feedback. '
-                                    + 'End your turn. Reload Window, toggle MCP, then reply in the panel.'
-                                    + feedbackSuffix(),
-                            }],
-                        };
-                    }
                     if (errMsg.includes('cursor_hard_timeout_suspected')) {
                         deps.log('[MCP Feedback] cursor_hard_timeout_suspected — not retrying');
                         return {
@@ -314,14 +303,32 @@ export function createToolCallHandler(deps: ToolHandlerDeps) {
                         deps.log('[MCP Feedback] Superseded by another MCP call — not retrying');
                         return noOpFeedbackResponse(deps, 'superseded', traceId);
                     }
-                    const extendedRediscover = errMsg.includes('extension_ws_close')
-                        || errMsg.includes('Connection timeout');
+                    const closedDuringWait = errMsg.includes('Connection closed')
+                        || errMsg.includes('extension_ws_close');
+                    const extendedRediscover = closedDuringWait || errMsg.includes('Connection timeout');
+                    if (closedDuringWait && attempt < maxAttempts) {
+                        deps.log('[MCP Feedback] MCP connection closed during wait — rediscovering before retry');
+                    }
                     extensionServer = await rediscoverExtensionServer(
                         deps,
                         project_directory,
                         log,
                         { extended: extendedRediscover },
                     );
+                    if (closedDuringWait) {
+                        if (attempt < maxAttempts && extensionServer) {
+                            continue;
+                        }
+                        deps.log('[MCP Feedback] MCP connection closed during wait — retry exhausted');
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: '[connection_closed] MCP disconnected while waiting for feedback. '
+                                    + 'End your turn. Reload Window, toggle MCP, then reply in the panel.'
+                                    + feedbackSuffix(),
+                            }],
+                        };
+                    }
                 } finally {
                     if (ws) {
                         try { ws.close(); } catch { /* ignore */ }

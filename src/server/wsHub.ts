@@ -71,6 +71,8 @@ const PORT_RANGE_START = 48200;
 const PORT_RANGE_END = 48300;
 const HEARTBEAT_INTERVAL = 30_000;
 const CLIENT_TIMEOUT = 90_000;
+/** Close MCP WS idle past this even when tied to a live feedback wait (zombie). */
+const MCP_ZOMBIE_SWEEP_MS = 35 * 60 * 1000;
 const MESSAGE_CAP = 500;
 
 export interface WsHubOptions {
@@ -238,7 +240,7 @@ export class WsHub {
         if (process.env.MCP_FEEDBACK_TEST_HOOKS !== '1') {
             throw new Error('staleSweepAt is test-only (set MCP_FEEDBACK_TEST_HOOKS=1)');
         }
-        this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
+        this._sweepStaleClients(now);
     }
 
     /** Integration tests: age a connected client's last pong. */
@@ -599,7 +601,12 @@ export class WsHub {
         this.feedbackFlow.handleFeedbackRequest(mcpWs, req);
     }
 
-    private _handleFeedbackResponse(res: { feedback: string; images?: string[]; session_id?: string }): void {
+    private _handleFeedbackResponse(res: {
+        feedback: string;
+        images?: string[];
+        session_id?: string;
+        project_directory?: string;
+    }): void {
         this.feedbackFlow.handleFeedbackResponse(res);
     }
 
@@ -736,9 +743,17 @@ export class WsHub {
                 }
             }
 
-            this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { });
+            this._sweepStaleClients(now);
             this._ensureServerRegistration();
         }, HEARTBEAT_INTERVAL);
+    }
+
+    private _sweepStaleClients(now: number): void {
+        const protectedMcp = new Set(this.feedback.activeMcpClients());
+        this.clients.sweepStale(now, CLIENT_TIMEOUT, () => { }, {
+            protectedMcpWs: protectedMcp,
+            mcpZombieMs: MCP_ZOMBIE_SWEEP_MS,
+        });
     }
 
     private _ensureServerRegistration(): void {
@@ -808,7 +823,7 @@ export class WsHub {
         detail: string,
         traceId?: string,
     ): void {
-        wsLog(agentTurnStatusLogLine({ sessionId, reason, detail }));
+        wsLog(agentTurnStatusLogLine({ sessionId, reason, detail, traceId }));
         this._broadcastToWebviews(agentTurnStatusPayload({
             sessionId,
             reason,

@@ -3,7 +3,7 @@
  * FIFO queue of pending feedback requests.
  *
  * On MCP disconnect, sessions stay alive so the panel can respond.
- * On reconnect for the same project (dead MCP ws), transport is swapped via updateTransport().
+ * On reconnect for the same trace/project (dead MCP ws), transport is swapped via updateTransport().
  * A live MCP connection for the same project always creates a new session tab.
  * resolve returns the *current* transport (not the one captured at enqueue time).
  */
@@ -38,7 +38,7 @@ class FeedbackManager {
         if (!entry)
             return false;
         this.promises.delete(entry.sessionId);
-        entry.resolve({ ...result, transport: entry.mcpClient });
+        entry.resolve(this._resolvedFeedback(entry, result));
         return true;
     }
     resolveBySessionId(sessionId, result) {
@@ -47,16 +47,18 @@ class FeedbackManager {
             return false;
         const entry = this.queue.splice(idx, 1)[0];
         this.promises.delete(sessionId);
-        entry.resolve({ ...result, transport: entry.mcpClient });
+        entry.resolve(this._resolvedFeedback(entry, result));
         return true;
     }
-    updateTransport(newWs, projectDir, summary) {
+    updateTransport(newWs, projectDir, summary, traceId) {
         const matchProject = projectDir || undefined;
         if (!matchProject)
             return { updated: false, skipReason: 'no_project' };
         let blockedSessionId;
         for (const entry of this.queue) {
             if (entry.projectDir !== matchProject)
+                continue;
+            if (!this._traceCompatible(entry.traceId, traceId))
                 continue;
             if (!isMcpTransportOpen(entry.mcpClient)) {
                 entry.mcpClient = newWs;
@@ -73,25 +75,33 @@ class FeedbackManager {
         return { updated: false, skipReason: 'no_pending' };
     }
     /** Reattach detached pending sessions when MCP WS reconnects to hub. */
-    reattachDetachedForHub(newWs, hubWorkspaces) {
-        const reattached = [];
+    reattachDetachedForHub(newWs, hubWorkspaces, traceId) {
+        if (!traceId)
+            return [];
         const soleWorkspace = hubWorkspaces.length === 1 ? hubWorkspaces[0] : undefined;
+        const candidates = [];
         for (const entry of this.queue) {
             if (!entry.mcpDetached)
+                continue;
+            if (entry.traceId !== traceId)
                 continue;
             const projectMatch = entry.projectDir
                 ? hubWorkspaces.includes(entry.projectDir)
                 : soleWorkspace !== undefined;
             if (!projectMatch)
                 continue;
-            entry.mcpClient = newWs;
-            entry.mcpDetached = false;
-            if (!entry.projectDir && soleWorkspace) {
-                entry.projectDir = soleWorkspace;
-            }
-            reattached.push(entry.sessionId);
+            candidates.push(entry);
         }
-        return reattached;
+        if (candidates.length !== 1) {
+            return [];
+        }
+        const entry = candidates[0];
+        entry.mcpClient = newWs;
+        entry.mcpDetached = false;
+        if (!entry.projectDir && soleWorkspace) {
+            entry.projectDir = soleWorkspace;
+        }
+        return [entry.sessionId];
     }
     /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
     reuseByTraceId(mcpWs, traceId, summary) {
@@ -117,9 +127,10 @@ class FeedbackManager {
             }
             entry.mcpClient = mcpWs;
             entry.mcpDetached = false;
+            this._addSubscriber(entry, supersededWs);
             if (summary)
                 entry.summary = summary;
-            return { action: 'steal', sessionId: entry.sessionId, supersededWs };
+            return { action: 'steal', sessionId: entry.sessionId };
         }
         return { action: 'none' };
     }
@@ -189,7 +200,17 @@ class FeedbackManager {
     detachMcpClient(ws) {
         const detached = [];
         for (const entry of this.queue) {
+            if (entry.subscriberClients?.delete(ws)) {
+                continue;
+            }
             if (entry.mcpClient === ws) {
+                const replacement = this._firstOpenSubscriber(entry);
+                if (replacement) {
+                    entry.subscriberClients?.delete(replacement);
+                    entry.mcpClient = replacement;
+                    entry.mcpDetached = false;
+                    continue;
+                }
                 entry.mcpDetached = true;
                 detached.push(entry.sessionId);
             }
@@ -223,11 +244,29 @@ class FeedbackManager {
                 continue;
             if (entry.mcpDetached)
                 continue;
-            if (!isMcpTransportOpen(entry.mcpClient))
+            if (!this._hasOpenTransport(entry))
                 continue;
             return { sessionId: entry.sessionId, detached: false };
         }
         return null;
+    }
+    /** MCP transports with live (non-detached) pending sessions — protected from normal stale sweep. */
+    activeMcpClients() {
+        const seen = new Set();
+        const out = [];
+        for (const entry of this.queue) {
+            if (entry.mcpDetached)
+                continue;
+            for (const ws of this._transportsFor(entry)) {
+                if (!isMcpTransportOpen(ws))
+                    continue;
+                if (seen.has(ws))
+                    continue;
+                seen.add(ws);
+                out.push(ws);
+            }
+        }
+        return out;
     }
     tryAttachHandlers(sessionId) {
         const entry = this.queue.find((item) => item.sessionId === sessionId);
@@ -245,6 +284,55 @@ class FeedbackManager {
         }
         this.queue = [];
         this.promises.clear();
+    }
+    _addSubscriber(entry, ws) {
+        if (entry.mcpClient === ws)
+            return;
+        if (!entry.subscriberClients)
+            entry.subscriberClients = new Set();
+        entry.subscriberClients.add(ws);
+    }
+    _transportsFor(entry) {
+        const out = [];
+        const seen = new Set();
+        const add = (ws) => {
+            if (!ws || seen.has(ws))
+                return;
+            seen.add(ws);
+            out.push(ws);
+        };
+        add(entry.mcpClient);
+        for (const ws of entry.subscriberClients ?? [])
+            add(ws);
+        return out;
+    }
+    _firstOpenSubscriber(entry) {
+        for (const ws of entry.subscriberClients ?? []) {
+            if (isMcpTransportOpen(ws))
+                return ws;
+        }
+        return undefined;
+    }
+    _hasOpenTransport(entry) {
+        return this._transportsFor(entry).some((ws) => isMcpTransportOpen(ws));
+    }
+    _traceCompatible(existingTraceId, nextTraceId) {
+        if (!existingTraceId && !nextTraceId)
+            return true;
+        if (existingTraceId && nextTraceId)
+            return existingTraceId === nextTraceId;
+        return false;
+    }
+    _resolvedFeedback(entry, result) {
+        return {
+            ...result,
+            transport: entry.mcpClient,
+            transports: this._transportsFor(entry),
+            projectDir: entry.projectDir,
+            traceId: entry.traceId,
+            enqueuedAt: entry.enqueuedAt,
+            mcpDetached: entry.mcpDetached === true,
+        };
     }
 }
 exports.FeedbackManager = FeedbackManager;

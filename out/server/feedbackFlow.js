@@ -39,8 +39,8 @@ class FeedbackFlow {
         this._attachMcpPromiseHandlers(transport, sessionId);
     }
     /** When MCP WS registers, re-bind detached pending sessions for this hub. */
-    reattachDetachedOnMcpConnect(mcpWs) {
-        const reattached = this.deps.feedback.reattachDetachedForHub(mcpWs, this.deps.getHubWorkspaces());
+    reattachDetachedOnMcpConnect(mcpWs, traceId) {
+        const reattached = this.deps.feedback.reattachDetachedForHub(mcpWs, this.deps.getHubWorkspaces(), traceId);
         if (!reattached.length)
             return reattached;
         this.deps.log([
@@ -57,17 +57,6 @@ class FeedbackFlow {
         if (!sessionId)
             return;
         this.deps.broadcastAgentTurnStatus?.(sessionId, reason, detail, traceId);
-    }
-    _releaseSupersededMcp(supersededWs, sessionId, traceId) {
-        if (!supersededWs || supersededWs.readyState !== ws_1.WebSocket.OPEN)
-            return;
-        this.deps.log(`feedbackRequest: released_duplicate mcp ws session=${sessionId ?? '(unknown)'}`
-            + (traceId ? ` trace=${traceId}` : ''));
-        this.deps.sendResult(supersededWs, {
-            status: 'released_duplicate',
-            feedback: '',
-            session_id: sessionId,
-        });
     }
     _auditSession(event, input) {
         const agentCtx = (0, fileStore_1.readAgentContext)();
@@ -107,6 +96,56 @@ class FeedbackFlow {
             }));
         }
     }
+    _handleTraceReuse(mcpWs, req, traceId) {
+        const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
+        if (traceReuse.action === 'none')
+            return false;
+        if (traceReuse.action === 'duplicate') {
+            this._auditSession('trace_duplicate_blocked', {
+                sessionId: traceReuse.sessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+                reason: 'same_mcp_ws_same_trace',
+                summaryPreview: req.summary,
+            });
+            this.deps.log(`feedbackRequest: already_pending session=${traceReuse.sessionId ?? 'unknown'}`);
+            this.deps.sendResult(mcpWs, {
+                status: 'already_pending',
+                feedback: '',
+                session_id: traceReuse.sessionId,
+            });
+            return true;
+        }
+        this._auditSession(traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse', {
+            sessionId: traceReuse.sessionId,
+            project: req.project_directory,
+            traceId,
+            mcpReadyState: mcpWs.readyState,
+            pendingCount: this.deps.feedback.pendingCount(),
+            reason: traceReuse.action,
+            summaryPreview: req.summary,
+        });
+        this.deps.log(`feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`);
+        this.deps.addMessage({
+            role: 'ai',
+            content: req.summary,
+            timestamp: new Date().toISOString(),
+        });
+        this.deps.broadcastSessionUpdated(req.summary, traceReuse.sessionId, req.project_directory, traceId);
+        this.deps.onFeedbackRequested?.();
+        this._attachMcpPromiseHandlers(mcpWs, traceReuse.sessionId);
+        this.deps.sendSessionBound?.(mcpWs, {
+            session_id: traceReuse.sessionId,
+            trace_id: traceId,
+        });
+        if (traceReuse.action === 'steal') {
+            this.deps.log(`feedbackRequest: trace steal subscribed prior mcp session=${traceReuse.sessionId ?? 'unknown'}`
+                + (traceId ? ` trace=${traceId}` : ''));
+        }
+        return true;
+    }
     handleFeedbackRequest(mcpWs, req) {
         if (req.project_directory && !(0, workspaceMatch_1.hubAcceptsProject)(this.deps.getHubWorkspaces(), req.project_directory)) {
             this.deps.log((0, workspaceMatch_1.projectMismatchLogLine)(req.project_directory, this.deps.getHubWorkspaces()));
@@ -117,7 +156,10 @@ class FeedbackFlow {
         const traceId = (0, traceContext_1.resolveTraceId)(req.trace_id, (0, fileStore_1.readAgentContext)()?.traceId);
         this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.MCP_REQUEST, `trace=${traceId ?? '-'} project=${req.project_directory ?? '(none)'}`));
         this.deps.log(`feedbackRequest: project=${req.project_directory ?? '(none)'} summary=${req.summary.slice(0, 80)}`);
-        const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary);
+        if (this._handleTraceReuse(mcpWs, req, traceId)) {
+            return;
+        }
+        const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary, traceId);
         if (transport.updated && transport.sessionId) {
             this.deps.log(`feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`);
             this._auditSession('transport_reuse', {
@@ -153,51 +195,6 @@ class FeedbackFlow {
                 summaryPreview: req.summary,
             });
         }
-        const traceReuse = this.deps.feedback.reuseByTraceId(mcpWs, traceId, req.summary);
-        if (traceReuse.action === 'duplicate') {
-            this._auditSession('trace_duplicate_blocked', {
-                sessionId: traceReuse.sessionId,
-                project: req.project_directory,
-                traceId,
-                mcpReadyState: mcpWs.readyState,
-                pendingCount: this.deps.feedback.pendingCount(),
-                reason: 'same_mcp_ws_same_trace',
-                summaryPreview: req.summary,
-            });
-            this.deps.log(`feedbackRequest: already_pending session=${traceReuse.sessionId ?? 'unknown'}`);
-            this.deps.sendResult(mcpWs, {
-                status: 'already_pending',
-                feedback: '',
-                session_id: traceReuse.sessionId,
-            });
-            return;
-        }
-        if (traceReuse.action === 'reuse' || traceReuse.action === 'steal') {
-            this._auditSession(traceReuse.action === 'steal' ? 'trace_steal' : 'trace_reuse', {
-                sessionId: traceReuse.sessionId,
-                project: req.project_directory,
-                traceId,
-                mcpReadyState: mcpWs.readyState,
-                pendingCount: this.deps.feedback.pendingCount(),
-                reason: traceReuse.action,
-                summaryPreview: req.summary,
-            });
-            this.deps.log(`feedbackRequest: trace ${traceReuse.action} session=${traceReuse.sessionId ?? 'unknown'}`);
-            this.deps.addMessage({
-                role: 'ai',
-                content: req.summary,
-                timestamp: new Date().toISOString(),
-            });
-            this.deps.broadcastSessionUpdated(req.summary, traceReuse.sessionId, req.project_directory, traceId);
-            this.deps.onFeedbackRequested?.();
-            this._attachMcpPromiseHandlers(mcpWs, traceReuse.sessionId);
-            this.deps.sendSessionBound?.(mcpWs, {
-                session_id: traceReuse.sessionId,
-                trace_id: traceId,
-            });
-            this._releaseSupersededMcp(traceReuse.supersededWs, traceReuse.sessionId, traceId);
-            return;
-        }
         this.deps.addMessage({
             role: 'ai',
             content: req.summary,
@@ -229,25 +226,42 @@ class FeedbackFlow {
         if (!promise)
             return;
         promise.then((resolved) => {
-            if (!this._canDeliverToMcp(resolved.transport, sessionId)) {
-                const detached = this.deps.feedback.isMcpDetached(sessionId);
+            const resolvedTrace = resolved.traceId ?? this.deps.feedback.waitMetaForSession(sessionId)?.traceId;
+            const resolvedWaitMs = resolved.enqueuedAt ? Date.now() - resolved.enqueuedAt : undefined;
+            const openTransports = (resolved.transports ?? [resolved.transport])
+                .filter((ws, idx, arr) => arr.indexOf(ws) === idx)
+                .filter((ws) => this._canDeliverToMcp(ws, sessionId));
+            if (openTransports.length === 0) {
+                const detached = resolved.mcpDetached ?? this.deps.feedback.isMcpDetached(sessionId);
                 const wsState = resolved.transport.readyState;
                 this.deps.log((0, panelSubmitOutcome_1.panelSubmitNoEffectLogLine)({
                     reason: detached ? 'mcp_detached' : 'mcp_ws_not_open',
                     sessionId,
+                    traceId: resolvedTrace,
                     feedbackLen: resolved.feedback.length,
+                    waitMs: resolvedWaitMs,
                     mcpWsReadyState: wsState,
                     detail: detached
                         ? 'panel_reply_resolved_but_mcp_link_lost'
                         : 'panel_reply_resolved_but_mcp_ws_closed',
                 }));
-                this._notifyAgentTurnEnded(sessionId, 'link_lost', 'Cursor Agent 链接已断，回复已存入队列 — Settings → MCP toggle off/on', this.deps.feedback.waitMetaForSession(sessionId)?.traceId);
+                this._notifyAgentTurnEnded(sessionId, 'link_lost', 'Cursor Agent 链接已断，回复已存入队列 — Settings → MCP toggle off/on', resolvedTrace);
                 this.deps.log(`feedbackRequest: mcp gone session=${sessionId}, queue pending`);
+                this.deps.log([
+                    'event=feedback_response_queued',
+                    `reason=${detached ? 'mcp_detached' : 'mcp_ws_not_open'}`,
+                    `session=${sessionId}`,
+                    `trace=${resolvedTrace || '-'}`,
+                    `feedback_len=${resolved.feedback.length}`,
+                    `image_count=${resolved.images?.length ?? 0}`,
+                    `wait_ms=${resolvedWaitMs ?? '-'}`,
+                    `mcp_ws_ready_state=${wsState}`,
+                ].join(' '));
                 this.deps.queueAsPending(resolved.feedback, resolved.images);
                 if (this.deps.broadcastFeedbackUndelivered) {
                     this.deps.log((0, panelSubmitOutcome_1.feedbackUndeliveredBroadcastLogLine)({
                         sessionId,
-                        traceId: this.deps.feedback.waitMetaForSession(sessionId)?.traceId,
+                        traceId: resolvedTrace,
                         feedbackLen: resolved.feedback.length,
                         detail: 'panel_reply_resolved_but_mcp_link_lost',
                     }));
@@ -259,17 +273,20 @@ class FeedbackFlow {
                 this.deps.onFeedbackResolved?.();
                 return;
             }
-            this.deps.sendResult(resolved.transport, {
-                feedback: resolved.feedback,
-                images: resolved.images,
-                session_id: sessionId,
-            });
-            this.deps.log(`feedbackDeliver: session=${sessionId} detached=false readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`);
-            const deliverTrace = this.deps.feedback.waitMetaForSession(sessionId)?.traceId;
+            for (const ws of openTransports) {
+                this.deps.sendResult(ws, {
+                    feedback: resolved.feedback,
+                    images: resolved.images,
+                    session_id: sessionId,
+                });
+            }
+            this.deps.log(`feedbackDeliver: session=${sessionId} detached=false transports=${openTransports.length}`
+                + ` readyState=${resolved.transport.readyState} len=${resolved.feedback.length}`);
             this.deps.log((0, panelSubmitOutcome_1.panelSubmitDeliveredLogLine)({
                 sessionId,
-                traceId: deliverTrace,
+                traceId: resolvedTrace,
                 feedbackLen: resolved.feedback.length,
+                waitMs: resolvedWaitMs,
                 mcpWsReadyState: resolved.transport.readyState,
             }));
         }).catch((err) => {
@@ -301,7 +318,7 @@ class FeedbackFlow {
         }
         this.deps.log((0, pipelineContracts_1.pipelineTraceLine)(pipelineContracts_1.PipelineHop.UI_RESPONSE, `session=${res.session_id ?? '(first)'} project=${project ?? '(unknown)'} len=${res.feedback.length}`));
         const responseTraceId = this._sessionTrace(res.session_id);
-        this.deps.log((0, feedbackDelivery_1.feedbackResponseLogLine)(res.session_id ?? '(first)', project, res.feedback.slice(0, 80), responseTraceId));
+        this.deps.log((0, feedbackDelivery_1.feedbackResponseLogLine)(res.session_id ?? '(first)', project, res.feedback, responseTraceId, res.images?.length ?? 0));
         this.deps.addMessage({
             role: 'user',
             content: res.feedback,
@@ -351,6 +368,15 @@ class FeedbackFlow {
                 detail: 'routed_to_global_pending_queue_agent_will_not_see',
             }));
             this.deps.log('feedbackResponse: no pending session, routing to pending queue');
+            this.deps.log([
+                'event=feedback_response_queued',
+                'reason=no_pending_session',
+                `session=${targetSessionId || '-'}`,
+                `trace=${responseTraceId || '-'}`,
+                `project=${project || '-'}`,
+                `feedback_len=${res.feedback.length}`,
+                `image_count=${res.images?.length ?? 0}`,
+            ].join(' '));
             this.deps.queueAsPending(res.feedback, res.images);
             return;
         }

@@ -7,6 +7,7 @@ const extensionFileLog_js_1 = require("../extensionFileLog.js");
 class ClientRegistry {
     constructor() {
         this.clients = new Map();
+        this.protectedSkipLoggedAt = new WeakMap();
     }
     add(ws) {
         const client = {
@@ -70,25 +71,67 @@ class ClientRegistry {
     }
     setLastPong(ws, ts) {
         const c = this.clients.get(ws);
-        if (c)
+        if (c) {
             c.lastPong = ts;
+            this.protectedSkipLoggedAt.delete(ws);
+        }
     }
-    sweepStale(now, timeoutMs, onStale) {
+    sweepStale(now, timeoutMs, onStale, opts = {}) {
+        const protectedMcp = opts.protectedMcpWs;
+        const mcpZombieMs = opts.mcpZombieMs ?? 35 * 60 * 1000;
+        const protectedSkipLogMs = opts.protectedSkipLogMs ?? 5 * 60 * 1000;
         for (const [ws, client] of this.clients) {
+            const idleMs = now - client.lastPong;
             if (client.clientType === 'mcp-server') {
-                if (now - client.lastPong > timeoutMs) {
-                    (0, extensionFileLog_js_1.hubLog)((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
-                        action: 'skip',
-                        client_type: 'mcp-server',
-                        idle_ms: now - client.lastPong,
-                    }));
+                if (idleMs <= timeoutMs) {
+                    try {
+                        ws.ping();
+                    }
+                    catch { /* ignore */ }
+                    continue;
                 }
+                const protectedWait = protectedMcp?.has(ws) === true;
+                if (protectedWait && idleMs < mcpZombieMs) {
+                    const lastLoggedAt = this.protectedSkipLoggedAt.get(ws);
+                    if (lastLoggedAt === undefined || now - lastLoggedAt >= protectedSkipLogMs) {
+                        this.protectedSkipLoggedAt.set(ws, now);
+                        (0, extensionFileLog_js_1.hubLog)((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
+                            action: 'skip',
+                            client_type: 'mcp-server',
+                            idle_ms: idleMs,
+                            protected: true,
+                            zombie_ms: mcpZombieMs,
+                            time_to_zombie_ms: Math.max(0, mcpZombieMs - idleMs),
+                            detail: 'active_wait',
+                        }));
+                    }
+                    try {
+                        ws.ping();
+                    }
+                    catch { /* ignore */ }
+                    continue;
+                }
+                try {
+                    ws.close();
+                }
+                catch { /* ignore */ }
+                this.clients.delete(ws);
+                this.protectedSkipLoggedAt.delete(ws);
+                (0, extensionFileLog_js_1.hubLog)((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
+                    action: 'close',
+                    client_type: 'mcp-server',
+                    idle_ms: idleMs,
+                    protected: protectedWait,
+                    zombie_ms: protectedWait ? mcpZombieMs : undefined,
+                    detail: protectedWait ? 'zombie_wait' : (0, disconnectReason_js_1.formatDisconnectEvent)('hub_sweep'),
+                }));
+                onStale(ws);
                 continue;
             }
             if (client.webviewTransport === 'bridge') {
                 continue;
             }
-            if (now - client.lastPong > timeoutMs) {
+            if (idleMs > timeoutMs) {
                 try {
                     ws.close();
                 }
@@ -97,7 +140,7 @@ class ClientRegistry {
                 (0, extensionFileLog_js_1.hubLog)((0, structuredLog_js_1.formatLogEvent)('MCP Feedback Hub', 'stale_sweep', {
                     action: 'close',
                     client_type: client.clientType,
-                    idle_ms: now - client.lastPong,
+                    idle_ms: idleMs,
                     detail: (0, disconnectReason_js_1.formatDisconnectEvent)('hub_sweep'),
                 }));
                 onStale(ws);

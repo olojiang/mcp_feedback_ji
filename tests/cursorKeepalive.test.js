@@ -7,7 +7,9 @@ const require = createRequire(import.meta.url)
 const {
   CURSOR_KEEPALIVE_MESSAGE,
   CURSOR_KEEPALIVE_TOTAL_MIN,
+  CURSOR_PROGRESS_INTERVAL_MS,
   CURSOR_PROGRESS_TOTAL_MIN,
+  DEFAULT_CURSOR_PROGRESS_INTERVAL_MS,
   createProgressSender,
   cursorKeepaliveLogLine,
   elapsedWaitMinutes,
@@ -16,6 +18,11 @@ const { requestFeedback } = require('../mcp-server/dist/extensionClient.js')
 const { createToolCallHandler } = require('../mcp-server/dist/toolHandlers.js')
 
 describe('cursorKeepalive helpers', () => {
+  it('defaults progress below Cursor idle timeout', () => {
+    assert.equal(DEFAULT_CURSOR_PROGRESS_INTERVAL_MS, 25_000)
+    assert.equal(CURSOR_PROGRESS_INTERVAL_MS, DEFAULT_CURSOR_PROGRESS_INTERVAL_MS)
+  })
+
   it('formats auto-resolve log line', () => {
     const line = cursorKeepaliveLogLine({
       traceId: 'trace-1',

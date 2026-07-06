@@ -20,7 +20,7 @@ exports.RULES_CONTENT = [
     '- NEVER end your turn with only assistant-visible text and zero interactive_feedback call in that turn.',
     '- IMPORTANT: If interactive_feedback returns an error (e.g. "not connected", timeout), do NOT retry. End your turn normally. Retrying wastes Cursor requests.',
     '- If interactive_feedback returns [keepalive] or [released_duplicate] or [superseded], do NOT treat it as user input. End your turn immediately. Do NOT call interactive_feedback again.',
-    '- Hooks deny duplicate interactive_feedback while a live panel wait exists on the same trace — obey deny and end your turn.',
+    '- Hooks no-op duplicate interactive_feedback while a live panel wait exists on the same trace; the Hub keeps duplicate MCP transports subscribed to the same panel session.',
     '',
     'You have access to the interactive_feedback MCP tool for communicating with the user:',
     '- Use it to present results, ask questions, or check in with the user.',

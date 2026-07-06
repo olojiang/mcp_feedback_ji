@@ -23,8 +23,10 @@ describe('agentTurnStatus', () => {
             sessionId: 'fb-x',
             reason: 'cursor_ended',
             detail: 'done',
+            traceId: 'trace-1',
         })
         assert.match(line, /event=agent_turn_status/)
+        assert.match(line, /trace=trace-1/)
         assert.match(line, /reason=cursor_ended/)
     })
 })

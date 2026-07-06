@@ -111,11 +111,12 @@ describe('FeedbackFlow stale session_id fallback', () => {
     assert.equal(sentResult?.feedback, 'Reply')
   })
 
-  it('trace steal avoids duplicate session when same trace opens second mcp ws', () => {
+  it('trace steal avoids duplicate session and fanouts real feedback to subscribed transports', async () => {
     const { feedback, logs } = createFlow()
     const ws1 = { readyState: 1 }
     const ws2 = { readyState: 1 }
     const trace = 'same-trace-id'
+    const results = []
 
     const flow = new FeedbackFlow({
       feedback,
@@ -126,7 +127,7 @@ describe('FeedbackFlow stale session_id fallback', () => {
       broadcastFeedbackSubmitted: () => {},
       clearPending: () => {},
       queueAsPending: () => {},
-      sendResult: () => {},
+      sendResult: (ws, result) => { results.push({ ws, result }) },
       sendError: () => {},
       log: (msg) => logs.push(msg),
     })
@@ -145,6 +146,22 @@ describe('FeedbackFlow stale session_id fallback', () => {
     assert.equal(feedback.pendingCount(), 1)
     assert.ok(logs.some((l) => l.includes('sessionLifecycle: event=trace_steal')))
     assert.ok(logs.some((l) => l.includes('feedbackRequest: trace steal')))
+    assert.ok(logs.some((l) => l.includes('trace steal subscribed prior mcp')))
+    assert.equal(results.length, 0)
+
+    const sessionId = feedback.pendingSessions()[0].id
+    flow.handleFeedbackResponse({
+      session_id: sessionId,
+      feedback: 'Reply',
+      images: [],
+    })
+    await new Promise((r) => setTimeout(r, 20))
+
+    assert.equal(results.length, 2)
+    assert.deepEqual(results.map((r) => r.ws), [ws2, ws1])
+    assert.ok(results.every((r) => r.result.feedback === 'Reply'))
+    assert.ok(logs.some((l) => l.includes('feedbackDeliver: session=') && l.includes('transports=2')))
+    assert.ok(logs.some((l) => l.includes('event=panel_submit_delivered') && l.includes(`trace=${trace}`)))
   })
 
   it('rejects feedback_request for project outside hub workspaces', () => {
@@ -240,13 +257,14 @@ describe('FeedbackFlow stale session_id fallback', () => {
       sendError: () => {},
       log: (msg) => logs.push(msg),
     })
-    flow.handleFeedbackRequest(fakeWs, { summary: 'Q', project_directory: '/proj' })
+    flow.handleFeedbackRequest(fakeWs, { summary: 'Q', project_directory: '/proj', trace_id: 'trace-closed' })
     const sessionId = feedback.pendingSessions()[0].id
     fakeWs.readyState = 3
     flow.handleFeedbackResponse({ session_id: sessionId, feedback: 'late', project_directory: '/proj' })
     await new Promise((r) => setTimeout(r, 20))
     assert.equal(queued, true)
     assert.ok(logs.some((l) => l.includes('mcp gone')))
+    assert.ok(logs.some((l) => l.includes('event=panel_submit_no_effect') && l.includes('trace=trace-closed')))
   })
 
   it('restored detached session delivers via handlers or queues on panel reply', async () => {
@@ -277,7 +295,7 @@ describe('FeedbackFlow stale session_id fallback', () => {
     await new Promise((r) => setTimeout(r, 20))
     assert.equal(queued, true)
     assert.ok(logs.some((l) => l.includes('restored_session_handlers')))
-    assert.ok(logs.some((l) => l.includes('panel_submit_no_effect') || l.includes('mcp gone')))
+    assert.ok(logs.some((l) => l.includes('panel_submit_no_effect') && l.includes('trace=trace-restored')))
   })
 
   it('reattachDetachedOnMcpConnect re-binds restored sessions', () => {
@@ -304,9 +322,83 @@ describe('FeedbackFlow stale session_id fallback', () => {
     })
     flow.attachRestoredSessionHandlers('fb-detached')
     const mcpWs = { readyState: 1 }
-    const reattached = flow.reattachDetachedOnMcpConnect(mcpWs)
+    const reattached = flow.reattachDetachedOnMcpConnect(mcpWs, 'trace-x')
     assert.deepEqual(reattached, ['fb-detached'])
     assert.equal(feedback.isMcpDetached('fb-detached'), false)
     assert.ok(logs.some((l) => l.includes('event=mcp_reattach_detached')))
+  })
+
+  it('reattachDetachedOnMcpConnect does not re-bind a different trace', () => {
+    const feedback = new FeedbackManager()
+    const logs = []
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => ['/proj'],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => {},
+      sendResult: () => {},
+      sendError: () => {},
+      log: (msg) => logs.push(msg),
+    })
+    feedback.restoreDetachedSession({
+      sessionId: 'fb-detached-old',
+      summary: 'wait',
+      projectDir: '/proj',
+      traceId: 'trace-old',
+    })
+    const mcpWs = { readyState: 1 }
+
+    const reattached = flow.reattachDetachedOnMcpConnect(mcpWs, 'trace-new')
+
+    assert.deepEqual(reattached, [])
+    assert.equal(feedback.isMcpDetached('fb-detached-old'), true)
+    assert.equal(logs.some((l) => l.includes('event=mcp_reattach_detached')), false)
+  })
+
+  it('uses trace reuse before project transport reuse for restored sessions', () => {
+    const feedback = new FeedbackManager()
+    const logs = []
+    let bound = null
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => ['/proj'],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => {},
+      sendResult: () => {},
+      sendError: () => {},
+      sendSessionBound: (_ws, payload) => { bound = payload.session_id },
+      log: (msg) => logs.push(msg),
+    })
+    feedback.restoreDetachedSession({
+      sessionId: 'fb-old-trace-1',
+      summary: 'old first',
+      projectDir: '/proj',
+      traceId: 'trace-1',
+    })
+    feedback.restoreDetachedSession({
+      sessionId: 'fb-old-trace-2',
+      summary: 'old second',
+      projectDir: '/proj',
+      traceId: 'trace-2',
+    })
+
+    flow.handleFeedbackRequest({ readyState: 1 }, {
+      summary: 'resume second',
+      project_directory: '/proj',
+      trace_id: 'trace-2',
+    })
+
+    assert.equal(bound, 'fb-old-trace-2')
+    assert.equal(feedback.isMcpDetached('fb-old-trace-1'), true)
+    assert.equal(feedback.isMcpDetached('fb-old-trace-2'), false)
+    assert.ok(logs.some((l) => l.includes('sessionLifecycle: event=trace_reuse') && l.includes('session=fb-old-trace-2')))
   })
 })

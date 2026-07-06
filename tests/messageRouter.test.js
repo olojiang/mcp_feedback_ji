@@ -41,10 +41,13 @@ describe('messageRouter pipeline isolation', () => {
       type: 'feedback_request',
       summary: 'Agent question',
       project_directory: '/proj',
+      trace_id: 'trace-router-1',
     }, deps)
     assert.equal(errors.length, 0)
     assert.equal(feedbackRequests.length, 1)
     assert.equal(feedbackRequests[0].summary, 'Agent question')
+    assert.equal(feedbackRequests[0].project_directory, '/proj')
+    assert.equal(feedbackRequests[0].trace_id, 'trace-router-1')
   })
 
   it('accepts feedback_request from unknown client (pre-register race)', () => {

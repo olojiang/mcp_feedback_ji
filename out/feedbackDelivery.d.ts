@@ -9,7 +9,7 @@ export declare function sessionUpdatedLogLine(sessionId: string, delivery: Broad
 export declare function sessionReplayLogLine(sessionId: string, target: string, projectDirectory?: string, traceId?: string): string;
 export declare function sessionDisplayedLogLine(sessionId: string, projectDirectory?: string, traceId?: string): string;
 export declare function feedbackRequestAcceptedLogLine(sessionId: string, projectDirectory?: string, traceId?: string): string;
-export declare function feedbackResponseLogLine(sessionId: string, projectDirectory: string | undefined, feedbackPreview: string, traceId?: string): string;
+export declare function feedbackResponseLogLine(sessionId: string, projectDirectory: string | undefined, feedback: string, traceId?: string, imageCount?: number): string;
 export interface UiSyncMismatchInput {
     serverPendingCount: number;
     localWaitingCount: number;

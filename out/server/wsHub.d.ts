@@ -75,6 +75,7 @@ export declare class WsHub {
     private lastHeartbeatAt;
     private sleepResumeNotifiedAt;
     private _startHeartbeat;
+    private _sweepStaleClients;
     private _ensureServerRegistration;
     private _send;
     private _broadcastSessionUpdated;

@@ -121,9 +121,10 @@ async function main() {
 
     check('debug panel in static/panel.html', () => {
         const html = fs.readFileSync(path.join(target, 'static/panel.html'), 'utf-8');
+        const app = fs.readFileSync(path.join(target, 'static/panelApp.js'), 'utf-8');
         if (!html.includes('id="debugBtn"')) throw new Error('missing debugBtn');
-        if (!html.includes('request-debug')) throw new Error('missing request-debug in panel');
-        return 'DBG button + debug panel';
+        if (!app.includes('request-debug')) throw new Error('missing request-debug in panelApp');
+        return 'DBG button + panelApp debug handler';
     });
 
     check('panel CSP allows localhost WS', () => {
@@ -222,7 +223,7 @@ async function main() {
         const serversDir = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'servers');
         if (!fs.existsSync(serversDir)) return 'no servers dir';
         const bad = [];
-        for (const f of fs.readdirSync(serversDir).filter((n) => n.endsWith('.json'))) {
+        for (const f of fs.readdirSync(serversDir).filter((n) => n.endsWith('.json') && !n.endsWith('.lock.json'))) {
             try {
                 const info = JSON.parse(fs.readFileSync(path.join(serversDir, f), 'utf8'));
                 const version = String(info.version || '');

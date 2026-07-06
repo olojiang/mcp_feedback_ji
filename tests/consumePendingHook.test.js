@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const {
   isInteractiveFeedbackTool,
-  buildDuplicateFeedbackDeny,
+  buildFollowupMessage,
   shouldSkipRulesRefresh,
 } = require('../scripts/hooks/feedback-guard.js')
 
@@ -16,11 +16,10 @@ describe('feedback-guard', () => {
     assert.equal(isInteractiveFeedbackTool('Write'), false)
   })
 
-  it('buildDuplicateFeedbackDeny tells agent to end turn without retry', () => {
-    const out = buildDuplicateFeedbackDeny()
-    assert.equal(out.permission, 'deny')
-    assert.match(out.agent_message, /already waiting/i)
-    assert.match(out.agent_message, /Do NOT call interactive_feedback/i)
+  it('buildFollowupMessage uses zero-cost followup_message field', () => {
+    const out = buildFollowupMessage('checkpoint')
+    assert.equal(out.followup_message, 'checkpoint')
+    assert.equal(out.permission, undefined)
   })
 
   it('skips rules refresh when hub reports live feedback wait', () => {

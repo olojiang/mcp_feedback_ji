@@ -21,11 +21,14 @@ export function agentTurnStatusLogLine(opts: {
     sessionId: string;
     reason: AgentTurnStatusReason;
     detail: string;
+    traceId?: string;
 }): string {
-    return [
+    const parts = [
         'event=agent_turn_status',
         `session=${opts.sessionId}`,
+        `trace=${opts.traceId || '-'}`,
         `reason=${opts.reason}`,
         `detail=${opts.detail}`,
-    ].join(' ');
+    ];
+    return parts.join(' ');
 }

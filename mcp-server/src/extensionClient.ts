@@ -298,6 +298,8 @@ export function requestFeedback(
             '[requestFeedback] wait_config '
             + `keepalive_ms=${cursorKeepaliveMs || 'disabled'} `
             + `progress_interval_ms=${CURSOR_PROGRESS_INTERVAL_MS} `
+            + `progress_interval_source=${process.env.MCP_FEEDBACK_CURSOR_PROGRESS_MS ? 'env' : 'default'} `
+            + `cursor_idle_risk=${CURSOR_PROGRESS_INTERVAL_MS >= 60_000} `
             + `progress_total_min=${CURSOR_PROGRESS_TOTAL_MIN} `
             + `progress=${deps?.progressToken ? 'enabled' : 'disabled'} `
             + `hard_timeout_suspect_ms=${CURSOR_HARD_TIMEOUT_SUSPECT_MS} `

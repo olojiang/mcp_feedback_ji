@@ -39,7 +39,37 @@ describe('FeedbackManager', () => {
     assert.equal(fm.pendingCount(), 1)
   })
 
-  it('reuseByTraceId steals transport when same trace has live mcp on different ws', () => {
+  it('updateTransport does not reuse closed session from a different trace', () => {
+    const fm = new FeedbackManager()
+    const ws1 = { id: 'ws1', readyState: 3 }
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const project = '/Users/hunter/Workspace/mcp_feedback_ji'
+
+    const first = fm.enqueue(ws1, project, 'old summary', 'trace-old')
+    const transport = fm.updateTransport(ws2, project, 'new summary', 'trace-new')
+
+    assert.equal(transport.updated, false)
+    assert.equal(transport.skipReason, 'no_pending')
+    assert.equal(fm.pendingCount(), 1)
+    assert.equal(fm.pendingSessions()[0].id, first.sessionId)
+    assert.equal(fm.pendingSessions()[0].traceId, 'trace-old')
+  })
+
+  it('updateTransport reuses closed session when trace matches', () => {
+    const fm = new FeedbackManager()
+    const ws1 = { id: 'ws1', readyState: 3 }
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const project = '/Users/hunter/Workspace/mcp_feedback_ji'
+
+    const first = fm.enqueue(ws1, project, 'old summary', 'trace-same')
+    const transport = fm.updateTransport(ws2, project, 'new summary', 'trace-same')
+
+    assert.equal(transport.updated, true)
+    assert.equal(transport.sessionId, first.sessionId)
+    assert.equal(fm.pendingSessions()[0].summary, 'new summary')
+  })
+
+  it('reuseByTraceId subscribes prior live transport when same trace moves to new ws', async () => {
     const fm = new FeedbackManager()
     const ws1 = { id: 'ws1', readyState: 1 }
     const ws2 = { id: 'ws2', readyState: 1 }
@@ -50,9 +80,31 @@ describe('FeedbackManager', () => {
     const reuse = fm.reuseByTraceId(ws2, trace, 'second summary')
     assert.equal(reuse.action, 'steal')
     assert.equal(reuse.sessionId, first.sessionId)
-    assert.equal(reuse.supersededWs, ws1)
+    assert.equal(reuse.supersededWs, undefined)
     assert.equal(fm.pendingCount(), 1)
     assert.equal(fm.pendingSessions()[0].summary, 'second summary')
+
+    assert.equal(fm.resolveBySessionId(first.sessionId, { feedback: 'ok' }), true)
+    const resolved = await first.promise
+    assert.deepEqual(resolved.transports, [ws2, ws1])
+  })
+
+  it('promotes subscribed same-trace transport when primary duplicate disconnects', () => {
+    const fm = new FeedbackManager()
+    const ws1 = { id: 'ws1', readyState: 1 }
+    const ws2 = { id: 'ws2', readyState: 1 }
+    const project = '/Users/hunter/Workspace/mcp_feedback_ji'
+    const trace = 'cursor-trace-primary-close'
+
+    const first = fm.enqueue(ws1, project, 'first', trace)
+    const reuse = fm.reuseByTraceId(ws2, trace, 'second summary')
+    assert.equal(reuse.action, 'steal')
+    assert.deepEqual(fm.activeMcpClients(), [ws2, ws1])
+
+    assert.deepEqual(fm.detachMcpClient(ws2), [])
+    assert.equal(fm.isMcpDetached(first.sessionId), false)
+    assert.deepEqual(fm.activeMcpClients(), [ws1])
+    assert.equal(fm.liveWaitForTrace(trace)?.sessionId, first.sessionId)
   })
 
   it('reuseByTraceId reuses dead mcp transport for same trace', () => {
@@ -153,10 +205,51 @@ describe('FeedbackManager', () => {
       summary: 'waiting',
       traceId: 'trace-1',
     })
-    const reattached = fm.reattachDetachedForHub(ws, hubWs)
+    const reattached = fm.reattachDetachedForHub(ws, hubWs, 'trace-1')
     assert.deepEqual(reattached, ['fb-null-project'])
     assert.equal(fm.isMcpDetached('fb-null-project'), false)
     assert.equal(fm.pendingSessions()[0].projectDir, hubWs[0])
+  })
+
+  it('reattachDetachedForHub skips ambiguous multiple detached sessions', () => {
+    const fm = new FeedbackManager()
+    const ws = { id: 'ws-new', readyState: 1 }
+    const hubWs = ['/Users/hunter/Workspace/spatial-smart-apps']
+    fm.restoreDetachedSession({
+      sessionId: 'fb-detached-1',
+      summary: 'first',
+      projectDir: hubWs[0],
+      traceId: 'trace-1',
+    })
+    fm.restoreDetachedSession({
+      sessionId: 'fb-detached-2',
+      summary: 'second',
+      projectDir: hubWs[0],
+      traceId: 'trace-1',
+    })
+
+    const reattached = fm.reattachDetachedForHub(ws, hubWs, 'trace-1')
+
+    assert.deepEqual(reattached, [])
+    assert.equal(fm.isMcpDetached('fb-detached-1'), true)
+    assert.equal(fm.isMcpDetached('fb-detached-2'), true)
+  })
+
+  it('reattachDetachedForHub skips detached sessions from a different trace', () => {
+    const fm = new FeedbackManager()
+    const ws = { id: 'ws-new', readyState: 1 }
+    const hubWs = ['/Users/hunter/Workspace/spatial-smart-apps']
+    fm.restoreDetachedSession({
+      sessionId: 'fb-old-trace',
+      summary: 'old waiting',
+      projectDir: hubWs[0],
+      traceId: 'trace-old',
+    })
+
+    const reattached = fm.reattachDetachedForHub(ws, hubWs, 'trace-new')
+
+    assert.deepEqual(reattached, [])
+    assert.equal(fm.isMcpDetached('fb-old-trace'), true)
   })
 
   it('tryAttachHandlers only allows one handler attachment per session', () => {

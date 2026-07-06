@@ -46,7 +46,7 @@ describe('session dedupe — waste prevention', () => {
     assert.equal(feedback.pendingCount(), 1, 'must not create 5 tabs for same trace')
   })
 
-  it('storm: releases superseded MCP waits with released_duplicate (no 24h hang)', () => {
+  it('storm: subscribes superseded MCP waits without released_duplicate no-op', () => {
     const feedback = new FeedbackManager()
     const logs = []
     const results = []
@@ -78,10 +78,8 @@ describe('session dedupe — waste prevention', () => {
       trace_id: TRACE,
     })
 
-    const released = results.find((r) => r.result.status === 'released_duplicate')
-    assert.ok(released, 'old ws should get released_duplicate')
-    assert.equal(released.ws, ws1)
-    assert.ok(logs.some((l) => l.includes('released_duplicate mcp ws')))
+    assert.equal(results.length, 0)
+    assert.ok(logs.some((l) => l.includes('trace steal subscribed prior mcp')))
   })
 
   it('duplicate feedback_request on same mcp ws sends already_pending result (no second tab)', () => {
@@ -175,13 +173,13 @@ describe('FeedbackManager reuseByTraceId edge cases', () => {
     assert.equal(r.action, 'duplicate')
   })
 
-  it('returns supersededWs on steal', () => {
+  it('does not return supersededWs on live steal', () => {
     const fm = new FeedbackManager()
     const ws1 = { readyState: 1 }
     const ws2 = { readyState: 1 }
     fm.enqueue(ws1, PROJECT, 'q', TRACE)
     const r = fm.reuseByTraceId(ws2, TRACE, 'q2')
     assert.equal(r.action, 'steal')
-    assert.equal(r.supersededWs, ws1)
+    assert.equal(r.supersededWs, undefined)
   })
 })

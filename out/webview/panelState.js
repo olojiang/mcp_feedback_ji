@@ -23,7 +23,33 @@
     transport = {
       OutboundQueue: function () { this.items = []; this.enqueue = function () { return 0 }; this.drain = function () { return [] }; this.hasFeedbackResponse = function () { return false } },
       TransportMetrics: function () { this.record = function () {}; this.snapshot = function () { return {} } },
-      BridgeSessionGate: function () { this.isReady = function () { return false }; this.resetForReconnect = function () {}; this.onBridgeConnected = function () { return { register: true, stateSync: true, labels: true } }; this.shouldInitFromConnectionEstablished = function () { return true }; this.shouldInitFromServerInfo = function () { return true }; this.snapshot = function () { return {} } },
+      BridgeSessionGate: function () {
+        this.ready = false
+        this.registered = false
+        this.initialized = false
+        this.needsResync = false
+        this.isReady = function () { return this.ready }
+        this.resetForReconnect = function () {
+          if (this.initialized) this.needsResync = true
+          this.ready = false
+          this.registered = false
+        }
+        this.onBridgeConnected = function () {
+          this.ready = true
+          var isFirst = !this.initialized
+          if (isFirst) this.initialized = true
+          var stateSync = isFirst || this.needsResync
+          if (this.needsResync) this.needsResync = false
+          var register = isFirst
+          if (register) this.registered = true
+          return { register: register, stateSync: stateSync, labels: true }
+        }
+        this.shouldInitFromConnectionEstablished = function () { return !this.initialized }
+        this.shouldInitFromServerInfo = function () { return !this.initialized }
+        this.snapshot = function () {
+          return { ready: this.ready, registered: this.registered, initialized: this.initialized }
+        }
+      },
       transportSendWithQueue: function (m, r, s, q) { if (r()) s(m); else q(m); return r() },
       ConnectionHealth: { evaluate: function () { return { level: 'disconnected', label: 'Disconnected', detail: '', issues: [], portPid: '' } }, countStaleLocalWaiting: function () { return 0 }, workspaceLabel: function () { return '' }, formatAgentLink: function () { return '' } },
     }

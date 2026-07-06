@@ -7,6 +7,7 @@ const {
   sessionUpdatedLogLine,
   sessionReplayLogLine,
   sessionDisplayedLogLine,
+  feedbackResponseLogLine,
   evaluateBroadcastDelivery,
   detectUiSyncMismatch,
 } = require('../out/feedbackDelivery.js')
@@ -71,5 +72,31 @@ describe('feedbackDelivery project_directory in logs', () => {
       sessionDisplayedLogLine('fb-1', '/repo/a'),
       /sessionDisplayed: ack session=fb-1 project=\/repo\/a/,
     )
+  })
+
+  it('redacts feedback response body by default', () => {
+    const line = feedbackResponseLogLine(
+      'fb-1',
+      '/repo/a',
+      'secret token should not be logged',
+      'trace-1',
+      2,
+    )
+    assert.match(line, /feedbackResponse: session=fb-1/)
+    assert.match(line, /feedback_len=33/)
+    assert.match(line, /image_count=2/)
+    assert.match(line, /preview_redacted=true/)
+    assert.doesNotMatch(line, /secret token/)
+  })
+
+  it('allows explicit feedback preview logging for local debugging', () => {
+    process.env.MCP_FEEDBACK_LOG_FEEDBACK_PREVIEW = '1'
+    try {
+      const line = feedbackResponseLogLine('fb-1', '/repo/a', 'hello\nworld')
+      assert.match(line, /preview_redacted=false/)
+      assert.match(line, /feedback_preview=hello world/)
+    } finally {
+      delete process.env.MCP_FEEDBACK_LOG_FEEDBACK_PREVIEW
+    }
   })
 })

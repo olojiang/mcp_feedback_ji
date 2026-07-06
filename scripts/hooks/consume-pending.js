@@ -3,7 +3,7 @@
 const hookUtils = require('./hook-utils');
 const {
     isInteractiveFeedbackTool,
-    buildDuplicateFeedbackDeny,
+    buildFollowupMessage,
     shouldSkipRulesRefresh,
 } = require('./feedback-guard');
 
@@ -111,10 +111,9 @@ async function runHook(input) {
             if (fbServer && traceId) {
                 var activeWait = await checkActiveFeedbackWait(fbServer.port, traceId);
                 if (shouldSkipRulesRefresh(activeWait)) {
-                    hookUtils.log('  event=hooks_feedback_tool trace=' + traceId + ' action=deny_duplicate');
-                    var deny = buildDuplicateFeedbackDeny();
-                    hookUtils.output(deny);
-                    return deny;
+                    hookUtils.log('  event=hooks_feedback_tool trace=' + traceId + ' action=skip_duplicate_active_wait session=' + (activeWait.sessionId || '-'));
+                    hookUtils.output({});
+                    return {};
                 }
             }
         }
@@ -144,10 +143,10 @@ async function runHook(input) {
 
     var pending = await consumePending(port);
     if (pending) {
-        hookUtils.log('  delivering pending via deny');
-        var pendingDeny = { permission: 'deny', user_message: fmtUser(pending), agent_message: fmtAgent(pending) };
-        hookUtils.output(pendingDeny);
-        return pendingDeny;
+        hookUtils.log('  delivering pending via followup_message');
+        var pendingFollowup = buildFollowupMessage(fmtAgent(pending));
+        hookUtils.output(pendingFollowup);
+        return pendingFollowup;
     }
     return checkEnforcement(state, { activeWait: activeWaitForEnforcement });
 }
@@ -168,17 +167,15 @@ function checkEnforcement(state, opts) {
         || (lastFeedback && minutesSince >= cfg.maxMinutes);
 
     if (needsRefresh) {
-        hookUtils.log('  preToolUse: rules refresh (count=' + count + ', minutes=' + Math.round(minutesSince) + ')');
+        hookUtils.log('  preToolUse: rules refresh followup (count=' + count + ', minutes=' + Math.round(minutesSince) + ')');
         state.toolsSinceFeedback = 0;
         state.lastFeedbackAt = Date.now();
         hookUtils.writeFeedbackState(state, _wsKey);
-        var refreshDeny = {
-            permission: 'deny',
-            user_message: 'Rules refresh',
-            agent_message: 'Long task checkpoint: call interactive_feedback to check in with the user, then continue.',
-        };
-        hookUtils.output(refreshDeny);
-        return refreshDeny;
+        var refreshFollowup = buildFollowupMessage(
+            'Long task checkpoint: call interactive_feedback to check in with the user, then continue.',
+        );
+        hookUtils.output(refreshFollowup);
+        return refreshFollowup;
     }
 
     hookUtils.output({});

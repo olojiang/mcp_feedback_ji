@@ -2,7 +2,7 @@
  * FIFO queue of pending feedback requests.
  *
  * On MCP disconnect, sessions stay alive so the panel can respond.
- * On reconnect for the same project (dead MCP ws), transport is swapped via updateTransport().
+ * On reconnect for the same trace/project (dead MCP ws), transport is swapped via updateTransport().
  * A live MCP connection for the same project always creates a new session tab.
  * resolve returns the *current* transport (not the one captured at enqueue time).
  */
@@ -16,6 +16,11 @@ export interface FeedbackResult {
 
 export interface ResolvedFeedback extends FeedbackResult {
     transport: WebSocket;
+    transports?: WebSocket[];
+    projectDir?: string;
+    traceId?: string;
+    enqueuedAt?: number;
+    mcpDetached?: boolean;
 }
 
 export type TransportUpdateResult = {
@@ -28,7 +33,7 @@ export type TransportUpdateResult = {
 export type TraceReuseResult = {
     action: 'none' | 'reuse' | 'steal' | 'duplicate';
     sessionId?: string;
-    /** Prior MCP WebSocket replaced by steal/reuse — caller should sendError to release the wait. */
+    /** Closed prior MCP WebSocket replaced by reuse. Live steals keep old WS subscribed. */
     supersededWs?: WebSocket;
 };
 
@@ -45,6 +50,7 @@ export interface PendingSessionSnapshot {
 interface PendingFeedback {
     sessionId: string;
     mcpClient: WebSocket;
+    subscriberClients?: Set<WebSocket>;
     projectDir?: string;
     traceId?: string;
     summary: string;
@@ -89,7 +95,7 @@ export class FeedbackManager {
         const entry = this.queue.shift();
         if (!entry) return false;
         this.promises.delete(entry.sessionId);
-        entry.resolve({ ...result, transport: entry.mcpClient });
+        entry.resolve(this._resolvedFeedback(entry, result));
         return true;
     }
 
@@ -98,7 +104,7 @@ export class FeedbackManager {
         if (idx < 0) return false;
         const entry = this.queue.splice(idx, 1)[0];
         this.promises.delete(sessionId);
-        entry.resolve({ ...result, transport: entry.mcpClient });
+        entry.resolve(this._resolvedFeedback(entry, result));
         return true;
     }
 
@@ -106,12 +112,14 @@ export class FeedbackManager {
         newWs: WebSocket,
         projectDir?: string,
         summary?: string,
+        traceId?: string,
     ): TransportUpdateResult {
         const matchProject = projectDir || undefined;
         if (!matchProject) return { updated: false, skipReason: 'no_project' };
         let blockedSessionId: string | undefined;
         for (const entry of this.queue) {
             if (entry.projectDir !== matchProject) continue;
+            if (!this._traceCompatible(entry.traceId, traceId)) continue;
             if (!isMcpTransportOpen(entry.mcpClient)) {
                 entry.mcpClient = newWs;
                 entry.mcpDetached = false;
@@ -127,23 +135,29 @@ export class FeedbackManager {
     }
 
     /** Reattach detached pending sessions when MCP WS reconnects to hub. */
-    reattachDetachedForHub(newWs: WebSocket, hubWorkspaces: string[]): string[] {
-        const reattached: string[] = [];
+    reattachDetachedForHub(newWs: WebSocket, hubWorkspaces: string[], traceId?: string): string[] {
+        if (!traceId) return [];
         const soleWorkspace = hubWorkspaces.length === 1 ? hubWorkspaces[0] : undefined;
+        const candidates: PendingFeedback[] = [];
         for (const entry of this.queue) {
             if (!entry.mcpDetached) continue;
+            if (entry.traceId !== traceId) continue;
             const projectMatch = entry.projectDir
                 ? hubWorkspaces.includes(entry.projectDir)
                 : soleWorkspace !== undefined;
             if (!projectMatch) continue;
-            entry.mcpClient = newWs;
-            entry.mcpDetached = false;
-            if (!entry.projectDir && soleWorkspace) {
-                entry.projectDir = soleWorkspace;
-            }
-            reattached.push(entry.sessionId);
+            candidates.push(entry);
         }
-        return reattached;
+        if (candidates.length !== 1) {
+            return [];
+        }
+        const entry = candidates[0];
+        entry.mcpClient = newWs;
+        entry.mcpDetached = false;
+        if (!entry.projectDir && soleWorkspace) {
+            entry.projectDir = soleWorkspace;
+        }
+        return [entry.sessionId];
     }
 
     /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
@@ -171,8 +185,9 @@ export class FeedbackManager {
             }
             entry.mcpClient = mcpWs;
             entry.mcpDetached = false;
+            this._addSubscriber(entry, supersededWs);
             if (summary) entry.summary = summary;
-            return { action: 'steal', sessionId: entry.sessionId, supersededWs };
+            return { action: 'steal', sessionId: entry.sessionId };
         }
         return { action: 'none' };
     }
@@ -263,7 +278,17 @@ export class FeedbackManager {
     detachMcpClient(ws: WebSocket): string[] {
         const detached: string[] = [];
         for (const entry of this.queue) {
+            if (entry.subscriberClients?.delete(ws)) {
+                continue;
+            }
             if (entry.mcpClient === ws) {
+                const replacement = this._firstOpenSubscriber(entry);
+                if (replacement) {
+                    entry.subscriberClients?.delete(replacement);
+                    entry.mcpClient = replacement;
+                    entry.mcpDetached = false;
+                    continue;
+                }
                 entry.mcpDetached = true;
                 detached.push(entry.sessionId);
             }
@@ -302,10 +327,26 @@ export class FeedbackManager {
         for (const entry of this.queue) {
             if (entry.traceId !== traceId) continue;
             if (entry.mcpDetached) continue;
-            if (!isMcpTransportOpen(entry.mcpClient)) continue;
+            if (!this._hasOpenTransport(entry)) continue;
             return { sessionId: entry.sessionId, detached: false };
         }
         return null;
+    }
+
+    /** MCP transports with live (non-detached) pending sessions — protected from normal stale sweep. */
+    activeMcpClients(): WebSocket[] {
+        const seen = new Set<WebSocket>();
+        const out: WebSocket[] = [];
+        for (const entry of this.queue) {
+            if (entry.mcpDetached) continue;
+            for (const ws of this._transportsFor(entry)) {
+                if (!isMcpTransportOpen(ws)) continue;
+                if (seen.has(ws)) continue;
+                seen.add(ws);
+                out.push(ws);
+            }
+        }
+        return out;
     }
 
     tryAttachHandlers(sessionId: string): boolean {
@@ -323,5 +364,53 @@ export class FeedbackManager {
         }
         this.queue = [];
         this.promises.clear();
+    }
+
+    private _addSubscriber(entry: PendingFeedback, ws: WebSocket): void {
+        if (entry.mcpClient === ws) return;
+        if (!entry.subscriberClients) entry.subscriberClients = new Set<WebSocket>();
+        entry.subscriberClients.add(ws);
+    }
+
+    private _transportsFor(entry: PendingFeedback): WebSocket[] {
+        const out: WebSocket[] = [];
+        const seen = new Set<WebSocket>();
+        const add = (ws: WebSocket | undefined) => {
+            if (!ws || seen.has(ws)) return;
+            seen.add(ws);
+            out.push(ws);
+        };
+        add(entry.mcpClient);
+        for (const ws of entry.subscriberClients ?? []) add(ws);
+        return out;
+    }
+
+    private _firstOpenSubscriber(entry: PendingFeedback): WebSocket | undefined {
+        for (const ws of entry.subscriberClients ?? []) {
+            if (isMcpTransportOpen(ws)) return ws;
+        }
+        return undefined;
+    }
+
+    private _hasOpenTransport(entry: PendingFeedback): boolean {
+        return this._transportsFor(entry).some((ws) => isMcpTransportOpen(ws));
+    }
+
+    private _traceCompatible(existingTraceId?: string, nextTraceId?: string): boolean {
+        if (!existingTraceId && !nextTraceId) return true;
+        if (existingTraceId && nextTraceId) return existingTraceId === nextTraceId;
+        return false;
+    }
+
+    private _resolvedFeedback(entry: PendingFeedback, result: FeedbackResult): ResolvedFeedback {
+        return {
+            ...result,
+            transport: entry.mcpClient,
+            transports: this._transportsFor(entry),
+            projectDir: entry.projectDir,
+            traceId: entry.traceId,
+            enqueuedAt: entry.enqueuedAt,
+            mcpDetached: entry.mcpDetached === true,
+        };
     }
 }

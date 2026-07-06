@@ -11,6 +11,8 @@ interface HubRouteHandlers {
     onFeedbackResponse: (res: {
         feedback: string;
         images?: string[];
+        session_id?: string;
+        project_directory?: string;
     }) => void;
     onQueuePending: (qp: {
         comments: string[];

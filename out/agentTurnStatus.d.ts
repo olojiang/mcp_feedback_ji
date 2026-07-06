@@ -10,4 +10,5 @@ export declare function agentTurnStatusLogLine(opts: {
     sessionId: string;
     reason: AgentTurnStatusReason;
     detail: string;
+    traceId?: string;
 }): string;

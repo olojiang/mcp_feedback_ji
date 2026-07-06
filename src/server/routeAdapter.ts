@@ -6,7 +6,7 @@ import { routeHubMessage } from './messageRouter';
 interface HubRouteHandlers {
     onRegister: (clientType: 'webview' | 'mcp-server') => void;
     onFeedbackRequest: (ws: WebSocket, req: { summary: string; project_directory?: string; trace_id?: string }) => void;
-    onFeedbackResponse: (res: { feedback: string; images?: string[] }) => void;
+    onFeedbackResponse: (res: { feedback: string; images?: string[]; session_id?: string; project_directory?: string }) => void;
     onQueuePending: (qp: { comments: string[]; images?: string[] }) => void;
     onDismiss: () => void;
     onGetState: (ws: WebSocket) => void;

@@ -6,14 +6,9 @@ function isInteractiveFeedbackTool(toolName) {
   return lower.includes('interactive_feedback')
 }
 
-function buildDuplicateFeedbackDeny() {
-  return {
-    permission: 'deny',
-    user_message: 'Feedback already waiting',
-    agent_message:
-      'interactive_feedback is already waiting for the user on this chat trace. '
-      + 'Do NOT call interactive_feedback again. End your turn immediately and wait for panel reply.',
-  }
+/** Zero-cost hook injection — does not consume a Cursor Request like permission: deny. */
+function buildFollowupMessage(agentMessage) {
+  return { followup_message: String(agentMessage || '') }
 }
 
 /** Skip forced rules-refresh checkpoint while user has not replied to an open feedback wait. */
@@ -23,6 +18,6 @@ function shouldSkipRulesRefresh(activeWait) {
 
 module.exports = {
   isInteractiveFeedbackTool,
-  buildDuplicateFeedbackDeny,
+  buildFollowupMessage,
   shouldSkipRulesRefresh,
 }

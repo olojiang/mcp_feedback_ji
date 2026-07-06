@@ -30,7 +30,7 @@ export function planMcpConfigUpdate(
         env: {
             MCP_FEEDBACK_VERSION: version,
             MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
-            MCP_FEEDBACK_CURSOR_PROGRESS_MS: '600000',
+            MCP_FEEDBACK_CURSOR_PROGRESS_MS: '25000',
         },
     };
     const existingEnv = (existing?.env || {}) as Record<string, string>;

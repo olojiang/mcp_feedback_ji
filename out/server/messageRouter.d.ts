@@ -9,6 +9,7 @@ export interface MessageRouterDeps {
     onFeedbackRequest: (ws: WebSocket, req: {
         summary: string;
         project_directory?: string;
+        trace_id?: string;
     }) => void;
     onFeedbackResponse: (res: {
         feedback: string;

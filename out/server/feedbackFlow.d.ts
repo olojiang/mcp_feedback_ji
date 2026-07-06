@@ -44,10 +44,10 @@ export declare class FeedbackFlow {
     /** Attach delivery handlers for sessions restored from disk (mcp detached). */
     attachRestoredSessionHandlers(sessionId: string): void;
     /** When MCP WS registers, re-bind detached pending sessions for this hub. */
-    reattachDetachedOnMcpConnect(mcpWs: WebSocket): string[];
+    reattachDetachedOnMcpConnect(mcpWs: WebSocket, traceId?: string): string[];
     private _notifyAgentTurnEnded;
-    private _releaseSupersededMcp;
     private _auditSession;
+    private _handleTraceReuse;
     handleFeedbackRequest(mcpWs: WebSocket, req: {
         summary: string;
         project_directory?: string;

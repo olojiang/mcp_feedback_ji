@@ -87,12 +87,69 @@ rg 'event=panel_submit_no_effect' ~/.config/mcp-feedback-enhanced/logs/
 rg 'reason=cursor_hard_timeout_suspected' ~/.config/mcp-feedback-enhanced/logs/mcp-server-*.log
 ```
 
+## Cursor request best-effort 保持策略
+
+当前目标是尽量保持同一个 Cursor `interactive_feedback` tool call 等待用户回复，而不是主动结束旧 request 后再开新 Agent turn。它是 best-effort：如果 Cursor 自身仍关闭 MCP/tool call，插件只能感知并保留 pending session，不能复活已经断开的 Cursor request。
+
+1. **MCP progress 保活**
+
+   等用户反馈期间，MCP server 每 `25s` 发一次 `notifications/progress`。目标是让 Cursor 认为这个 tool call 仍在活跃，而不是空等超时。新请求日志应显示：
+
+   ```text
+   progress_interval_ms=25000 cursor_idle_risk=false
+   event=progress_send_ok
+   ```
+
+   若看到 `progress_interval_ms=600000` 或 `cursor_idle_risk=true`，说明仍是旧运行时或旧配置，先 Reload Window + MCP 关开。
+
+2. **不主动 auto-resolve**
+
+   当前部署把 `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` 设为 `0`。插件不会为了保活自己返回一个占位反馈来结束 request。策略是“尽量挂住当前 Cursor request”，不是“定时结束再开新 turn”。
+
+3. **同 trace 去重和复用**
+
+   如果 Cursor/规则又触发重复 `interactive_feedback`，Hub 会识别同一个 trace 下已有 pending session，返回 `already_pending` 或复用 transport。MCP 侧不会把它当作用户反馈结束当前等待，避免短时间内多发 Cursor request。
+
+4. **active wait 防 stale sweep**
+
+   Hub 的 WebSocket stale sweep 遇到“有 pending feedback 的 MCP 连接”会保护它，不按普通 idle 连接关闭。日志应显示：
+
+   ```text
+   event=stale_sweep action=skip protected=true detail=active_wait
+   ```
+
+   该日志会限频，并带 `time_to_zombie_ms`，用于判断离 zombie wait 强制关闭还有多久。
+
+5. **断链后保留 pending session**
+
+   如果 MCP 连接断了，Hub 不直接丢掉面板 session，而是标成 `detached/pending`，让界面还能显示这次等待和回复入口。不过这只是保留上下文，不能复活已经断开的 Cursor request。面板回复若无法送到 live MCP，会记录：
+
+   ```text
+   event=feedback_response_queued reason=mcp_detached
+   ```
+
+### 判断当前 request 是否还活着
+
+```bash
+# 新请求必须是 25s progress 且低 idle 风险
+rg 'wait_config|progress_send_ok|progress_send_fail|cursor_idle_risk' \
+  ~/.config/mcp-feedback-enhanced/logs/mcp-server-*.log
+
+# 界面/Hub 是否已经感知断链
+rg 'mcp disconnected|event=agent_turn_status|agent_turn_status_received|feedback_response_queued' \
+  ~/.config/mcp-feedback-enhanced/logs/{extension,webview}-*.log
+
+# stale sweep 是否保护 active wait
+rg 'event=stale_sweep.*active_wait|zombie_wait|time_to_zombie_ms' \
+  ~/.config/mcp-feedback-enhanced/logs/extension-*.log
+```
+
 | `request_billing_risk.reason` | 含义 | 预期扣 Request？ |
 |---|---|---|
-| `our_keepalive` | 我们 30min 主动结束工具 | 可能 1 次（工具完成），但 ji.116+ Agent 不再连环调 |
+| `our_keepalive` | 旧策略或手动配置下主动结束工具 | 可能 1 次（工具完成），但 ji.116+ Agent 不再连环调 |
 | `cursor_hard_timeout_suspected` | 等待 ≥35min 后 WS 被关 | 可能 1 次（Cursor 硬超时） |
 | `extension_ws_close` | 较短等待时 WS 断开 | 视 Agent 是否重试 |
-| `released_duplicate` / `superseded` | 同 trace 重复调用 | ji.116+ 应 end turn；ji.135+ hooks 可 deny 拦截 |
+| `released_duplicate` / `superseded` | 旧版同 trace 重复调用会提前完成旧 MCP wait | 当前版本不应作为 live duplicate 正常路径；新日志应是 `skip_duplicate_active_wait` 或 `trace steal subscribed prior mcp` |
 
 | `panel_submit_no_effect.reason` | 含义 | Cursor 会响应？ |
 |---|---|---|
@@ -107,7 +164,8 @@ rg 'reason=cursor_hard_timeout_suspected' ~/.config/mcp-feedback-enhanced/logs/m
 
 | 变量 | 默认 (ji.116) | 说明 |
 |---|---|---|
-| `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | `1800000` (30min) | 设为 `0` = 只靠 progress 撑到 Cursor 硬超时 |
+| `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | 当前部署为 `0` | `0` = 不主动 auto-resolve，尽量保持当前 Cursor request |
+| `MCP_FEEDBACK_CURSOR_PROGRESS_MS` | 当前部署为 `25000` | 等待时每 25s 发送一次 MCP progress，降低 idle 断开概率 |
 | `MCP_FEEDBACK_CURSOR_HARD_TIMEOUT_SUSPECT_MS` | `2100000` (35min) | 超过此等待时长且 WS 关闭 → 记为硬超时嫌疑 |
 
 ### keepalive 自动释放
@@ -125,12 +183,12 @@ rg 'request_waste_guard|cursor_keepalive_auto_resolve|released_duplicate|keepali
 | Panel 显示 AWAITING SIGNAL | `UNDELIVERED` 或 webview 无 `session_updated received` | bridge 断连 / 消息丢弃 | Reload Window |
 | `MCP error -32001: Request timed out` | MCP 无 `cursor_keepalive_auto_resolve`，等待 >60min | Cursor 工具超时 | 50min 内回复；或依赖 keepalive |
 | `[keepalive]` 自动返回 | `event=cursor_keepalive_auto_resolve` + `event=request_waste_guard reason=keepalive` | 50min 无回复主动释放；旧版会指示 Agent 再调 feedback **多扣 Request** | ji.116+ 改为 **End turn，勿再调**；grep `request_waste_guard` |
-| Usage 莫名 +1 Request（无聊天输入） | `request_waste_guard` / `cursor_keepalive_auto_resolve` / `released_duplicate` / `trace_steal` | keepalive 完成工具 → Agent 续跑；或 trace_steal 旧 WS 被 superseded 完成 | ji.116+ 已修；设 `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS=0` 可关自动释放 |
+| Usage 莫名 +1 Request（无聊天输入） | `request_waste_guard` / `cursor_keepalive_auto_resolve` / 新版本部署后仍出现 `released_duplicate` | keepalive 完成工具 → Agent 续跑；或旧版 trace_steal 提前完成旧 WS | 当前部署将 `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS=0`，同 trace live duplicate 应 no-op/subscriber；若新日志仍出现 `released_duplicate`，先 Reload Window + MCP 关开 |
 | 左右都在等 / 面板 PENDING 但 Agent 在等 | MCP 连 `48201` 面板在 `48202`；或 `feedback_request candidates=* (auto)` | Hub 重启时误路由到别的项目窗口 | Reload 两个窗口 + MCP 关开；ji.113+ 会拒绝错误 hub |
 | 面板重连后 `UI missing N waiting tab` | `hydrateAfterStateSync localRestore=yes` 后 `connection_health issues=UI missing`；或 `restored waiting_count=0` | localStorage 覆盖了 Hub pending session | ji.128+ 先 snapshot 再 restore；点 ↻ 或 Reload |
 | Hub 重启后 pending 丢失 | 无 `pending_restore`；Hub `pending=0` 但 MCP 仍在等 | 内存 pending 未持久化 | ji.115+ 查 `pending_persist` / `pending_restore` 日志 |
 | 面板陈旧 PENDING | `hydrateAfterStateSync` 后 waiting 但 hub pending=0 | localStorage 覆盖 server 状态 | ji.115+ 先 stateSync 再 merge；点 ↻ 手动刷新 |
-| `Duplicate superseded` | `released_duplicate` / `request_waste_guard reason=superseded` | 同 trace 新 MCP 连接取代旧等待 | ji.116+ 旧 WS 收 `released_duplicate` 而非 error；Agent 应 End turn |
+| `Duplicate superseded` | 旧日志：`released_duplicate` / `request_waste_guard reason=superseded`；新日志：`skip_duplicate_active_wait` / `trace steal subscribed prior mcp` | 同 trace 新 MCP 连接取代旧等待 | 当前版本保留旧 WS 为 subscriber，不应提前完成旧 request；若还有新 `released_duplicate`，说明运行中 extension/MCP 仍是旧版本 |
 | `mcp gone, queue pending` | `mcp_detach` + `feedbackDeliver` 缺失 | MCP 断开时用户已回复 | 下次 interactive_feedback 取回 |
 | `4/50 waiting` 进度 | `event=progress_send_ok elapsed_min=N` | 正常等待心跳 | 非错误 |
 
@@ -147,7 +205,7 @@ rg 'request_waste_guard|cursor_keepalive_auto_resolve|released_duplicate|keepali
 | `event=feedback_submitted_broadcast` | Hub 已向面板广播提交确认（extension.log） |
 | `event=feedback_submitted_received` | 面板收到提交确认（webview.log） |
 | `event=hooks_feedback_tool` | Cursor hooks 放行 interactive_feedback（hooks.log） |
-| `action=deny_duplicate` | hooks 拦截同 trace 重复 feedback（ji.135+，减 Usage 浪费） |
+| `action=skip_duplicate_active_wait` | hooks 发现同 trace live wait 后 no-op，不用 `permission: deny` 完成/打断工具 |
 | `event=agent_resume_stall` | submitted 后 30s Agent 未续跑（webview 提示） |
 | `event=agent_turn_status_received` | 面板收到 Agent 断开/结束通知（webview.log） |
 
@@ -157,20 +215,22 @@ rg 'request_waste_guard|cursor_keepalive_auto_resolve|released_duplicate|keepali
 
 ```bash
 TRACE=0498f00a
-rg "$TRACE|hooks_feedback_tool|action=deny_duplicate|feedback_request start|released_duplicate|feedback_submitted" \
+rg "$TRACE|hooks_feedback_tool|skip_duplicate_active_wait|feedback_request start|trace steal subscribed|released_duplicate|feedback_submitted" \
   ~/.config/mcp-feedback-enhanced/logs/
 ```
 
 | 只有 hooks、无 MCP `feedback_request start` | Agent 发起了工具但 MCP 仍在等旧 session（stdio 占用） |
-| `action=deny_duplicate` | ji.135+ hooks 已拦截重复 feedback，Agent 应 end turn |
-| 有 `released_duplicate` 无 `feedback_submitted_received` | Cursor request 已结束，面板仍显示等待 |
-| 有 `panel_submit_delivered` 无 Cursor 续跑 | 插件已送达，问题在 Cursor Agent 调度（日志无法观测） |
+| `action=skip_duplicate_active_wait` | hooks 已 no-op 重复 feedback，避免额外 deny/request 完成 |
+| 新版本部署后仍有 `released_duplicate` 无 `feedback_submitted_received` | Cursor request 被旧运行时代码提前结束，面板仍显示等待；Reload Window + MCP 关开 |
+| 有 `panel_submit_delivered trace=...` 无 Cursor 续跑 | 插件已送达，问题在 Cursor Agent 调度（日志无法观测） |
+| 有 `panel_submit_delivered trace=-` | 旧版本可观测性缺口；当前版本应保留 resolve 快照里的 trace |
 
 ## 环境变量（mcp.json env）
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | 3000000 (50min) | 自动释放前等待时间 |
+| `MCP_FEEDBACK_CURSOR_KEEPALIVE_MS` | 0 | 不主动 auto-resolve，尽量保持当前 Cursor request |
+| `MCP_FEEDBACK_CURSOR_PROGRESS_MS` | 25000 (25s) | 等待用户反馈期间发送 MCP progress 的间隔 |
 | `MCP_FEEDBACK_CURSOR_KEEPALIVE_MESSAGE` | `hello` | keepalive 占位文本（非用户输入） |
 | `MCP_FEEDBACK_PENDING_MAX_AGE_MS` | 86400000 (24h) | 持久化 pending 过期时间 |
 

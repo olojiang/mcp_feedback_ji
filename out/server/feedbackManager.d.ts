@@ -2,7 +2,7 @@
  * FIFO queue of pending feedback requests.
  *
  * On MCP disconnect, sessions stay alive so the panel can respond.
- * On reconnect for the same project (dead MCP ws), transport is swapped via updateTransport().
+ * On reconnect for the same trace/project (dead MCP ws), transport is swapped via updateTransport().
  * A live MCP connection for the same project always creates a new session tab.
  * resolve returns the *current* transport (not the one captured at enqueue time).
  */
@@ -13,6 +13,11 @@ export interface FeedbackResult {
 }
 export interface ResolvedFeedback extends FeedbackResult {
     transport: WebSocket;
+    transports?: WebSocket[];
+    projectDir?: string;
+    traceId?: string;
+    enqueuedAt?: number;
+    mcpDetached?: boolean;
 }
 export type TransportUpdateResult = {
     updated: boolean;
@@ -23,7 +28,7 @@ export type TransportUpdateResult = {
 export type TraceReuseResult = {
     action: 'none' | 'reuse' | 'steal' | 'duplicate';
     sessionId?: string;
-    /** Prior MCP WebSocket replaced by steal/reuse — caller should sendError to release the wait. */
+    /** Closed prior MCP WebSocket replaced by reuse. Live steals keep old WS subscribed. */
     supersededWs?: WebSocket;
 };
 export interface PendingSessionSnapshot {
@@ -44,9 +49,9 @@ export declare class FeedbackManager {
     };
     resolveFirst(result: FeedbackResult): boolean;
     resolveBySessionId(sessionId: string, result: FeedbackResult): boolean;
-    updateTransport(newWs: WebSocket, projectDir?: string, summary?: string): TransportUpdateResult;
+    updateTransport(newWs: WebSocket, projectDir?: string, summary?: string, traceId?: string): TransportUpdateResult;
     /** Reattach detached pending sessions when MCP WS reconnects to hub. */
-    reattachDetachedForHub(newWs: WebSocket, hubWorkspaces: string[]): string[];
+    reattachDetachedForHub(newWs: WebSocket, hubWorkspaces: string[], traceId?: string): string[];
     /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
     reuseByTraceId(mcpWs: WebSocket, traceId: string | undefined, summary?: string): TraceReuseResult;
     explainNewSession(mcpWs: WebSocket, projectDir?: string): string;
@@ -83,6 +88,14 @@ export declare class FeedbackManager {
         sessionId: string;
         detached: boolean;
     } | null;
+    /** MCP transports with live (non-detached) pending sessions — protected from normal stale sweep. */
+    activeMcpClients(): WebSocket[];
     tryAttachHandlers(sessionId: string): boolean;
     rejectAll(error: Error): void;
+    private _addSubscriber;
+    private _transportsFor;
+    private _firstOpenSubscriber;
+    private _hasOpenTransport;
+    private _traceCompatible;
+    private _resolvedFeedback;
 }

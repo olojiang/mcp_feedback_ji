@@ -9,9 +9,11 @@ export const CURSOR_KEEPALIVE_TOTAL_MIN = CURSOR_KEEPALIVE_MS > 0
     : 0;
 
 /** Send MCP progress notifications while waiting (best-effort for Cursor timeout reset). */
+export const DEFAULT_CURSOR_PROGRESS_INTERVAL_MS = 25_000;
+
 export const CURSOR_PROGRESS_INTERVAL_MS = readPositiveInt(
     process.env.MCP_FEEDBACK_CURSOR_PROGRESS_MS,
-    10 * 60 * 1000,
+    DEFAULT_CURSOR_PROGRESS_INTERVAL_MS,
 );
 
 /** Progress bar total minutes when keepalive disabled (expected Cursor hard timeout window). */

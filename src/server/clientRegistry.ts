@@ -14,8 +14,18 @@ export interface ConnectedClient {
     webviewTransport?: WebviewTransport;
 }
 
+export interface StaleSweepOptions {
+    /** MCP WS with live pending feedback — skip normal idle close. */
+    protectedMcpWs?: ReadonlySet<WebSocket>;
+    /** Force-close MCP idle longer than this even when protected (zombie wait). */
+    mcpZombieMs?: number;
+    /** Rate-limit repeated protected active-wait skip logs per MCP socket. */
+    protectedSkipLogMs?: number;
+}
+
 export class ClientRegistry {
     private readonly clients = new Map<WebSocket, ConnectedClient>();
+    private readonly protectedSkipLoggedAt = new WeakMap<WebSocket, number>();
 
     add(ws: WebSocket): ConnectedClient {
         const client: ConnectedClient = {
@@ -76,31 +86,73 @@ export class ClientRegistry {
 
     setLastPong(ws: WebSocket, ts: number): void {
         const c = this.clients.get(ws);
-        if (c) c.lastPong = ts;
+        if (c) {
+            c.lastPong = ts;
+            this.protectedSkipLoggedAt.delete(ws);
+        }
     }
 
-    sweepStale(now: number, timeoutMs: number, onStale: (ws: WebSocket) => void): void {
+    sweepStale(
+        now: number,
+        timeoutMs: number,
+        onStale: (ws: WebSocket) => void,
+        opts: StaleSweepOptions = {},
+    ): void {
+        const protectedMcp = opts.protectedMcpWs;
+        const mcpZombieMs = opts.mcpZombieMs ?? 35 * 60 * 1000;
+        const protectedSkipLogMs = opts.protectedSkipLogMs ?? 5 * 60 * 1000;
+
         for (const [ws, client] of this.clients) {
+            const idleMs = now - client.lastPong;
+
             if (client.clientType === 'mcp-server') {
-                if (now - client.lastPong > timeoutMs) {
-                    hubLog(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
-                        action: 'skip',
-                        client_type: 'mcp-server',
-                        idle_ms: now - client.lastPong,
-                    }));
+                if (idleMs <= timeoutMs) {
+                    try { ws.ping(); } catch { /* ignore */ }
+                    continue;
                 }
+                const protectedWait = protectedMcp?.has(ws) === true;
+                if (protectedWait && idleMs < mcpZombieMs) {
+                    const lastLoggedAt = this.protectedSkipLoggedAt.get(ws);
+                    if (lastLoggedAt === undefined || now - lastLoggedAt >= protectedSkipLogMs) {
+                        this.protectedSkipLoggedAt.set(ws, now);
+                        hubLog(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
+                            action: 'skip',
+                            client_type: 'mcp-server',
+                            idle_ms: idleMs,
+                            protected: true,
+                            zombie_ms: mcpZombieMs,
+                            time_to_zombie_ms: Math.max(0, mcpZombieMs - idleMs),
+                            detail: 'active_wait',
+                        }));
+                    }
+                    try { ws.ping(); } catch { /* ignore */ }
+                    continue;
+                }
+                try { ws.close(); } catch { /* ignore */ }
+                this.clients.delete(ws);
+                this.protectedSkipLoggedAt.delete(ws);
+                hubLog(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
+                    action: 'close',
+                    client_type: 'mcp-server',
+                    idle_ms: idleMs,
+                    protected: protectedWait,
+                    zombie_ms: protectedWait ? mcpZombieMs : undefined,
+                    detail: protectedWait ? 'zombie_wait' : formatDisconnectEvent('hub_sweep'),
+                }));
+                onStale(ws);
                 continue;
             }
+
             if (client.webviewTransport === 'bridge') {
                 continue;
             }
-            if (now - client.lastPong > timeoutMs) {
+            if (idleMs > timeoutMs) {
                 try { ws.close(); } catch { /* ignore */ }
                 this.clients.delete(ws);
                 hubLog(formatLogEvent('MCP Feedback Hub', 'stale_sweep', {
                     action: 'close',
                     client_type: client.clientType,
-                    idle_ms: now - client.lastPong,
+                    idle_ms: idleMs,
                     detail: formatDisconnectEvent('hub_sweep'),
                 }));
                 onStale(ws);

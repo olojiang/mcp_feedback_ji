@@ -13,11 +13,13 @@ function agentTurnStatusPayload(opts) {
     };
 }
 function agentTurnStatusLogLine(opts) {
-    return [
+    const parts = [
         'event=agent_turn_status',
         `session=${opts.sessionId}`,
+        `trace=${opts.traceId || '-'}`,
         `reason=${opts.reason}`,
         `detail=${opts.detail}`,
-    ].join(' ');
+    ];
+    return parts.join(' ');
 }
 //# sourceMappingURL=agentTurnStatus.js.map
