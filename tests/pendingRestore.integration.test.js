@@ -94,6 +94,44 @@ describe('pending restore integration', () => {
     mcp.close()
     bridge.dispose()
   })
+
+  it('webview dismiss of a restored detached session clears persisted pending', async () => {
+    const workspace = '/tmp/pending-restore-dismiss-ws'
+    const hub1 = new WsHub('pending-restore-dismiss-it')
+    hub1.setWorkspaces([workspace])
+    const port1 = await hub1.start()
+
+    const mcp = new WebSocket(`ws://127.0.0.1:${port1}`)
+    await waitOpen(mcp)
+    mcp.send(JSON.stringify({ type: 'register', clientType: 'mcp-server' }))
+    mcp.send(JSON.stringify({
+      type: 'feedback_request',
+      summary: 'Dismiss restored pending',
+      project_directory: workspace,
+      trace_id: 'trace-restore-dismiss-1',
+    }))
+    await waitFor(() => hub1.hasPendingRequests())
+    await hub1.stop()
+
+    const hub2 = new WsHub('pending-restore-dismiss-it')
+    hub2.setWorkspaces([workspace])
+    const port2 = await hub2.start()
+    assert.ok(hub2.hasPendingRequests(), 'hub should restore pending from disk')
+
+    const webviewOut = []
+    const bridge = hub2.attachWebview((msg) => webviewOut.push(msg))
+    bridge.deliver(JSON.stringify({ type: 'register', clientType: 'webview' }))
+    const updated = await waitFor(() => webviewOut.find((m) => m.type === 'session_updated'))
+
+    bridge.deliver(JSON.stringify({ type: 'dismiss_feedback', session_id: updated.session_id }))
+    await waitFor(() => !hub2.hasPendingRequests())
+
+    assert.equal(readPersistedPendingSessions([workspace]), null)
+
+    await hub2.stop()
+    mcp.close()
+    bridge.dispose()
+  })
 })
 
 describe('pendingSessionStore TTL', () => {

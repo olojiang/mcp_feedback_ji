@@ -30,6 +30,8 @@ export declare class WsHub {
     private readonly _readImageBase64;
     private _mcpConnSeq;
     private readonly _mcpConnIds;
+    private _onFeedbackRequestCb;
+    private _onFeedbackResolvedCb;
     constructor(version?: string, options?: WsHubOptions);
     setWorkspaces(workspaces: string[]): void;
     onFeedbackRequest(cb: () => void): void;
@@ -53,6 +55,8 @@ export declare class WsHub {
     stop(): Promise<void>;
     private _cleanup;
     private _addMessage;
+    private _handleFeedbackRequested;
+    private _handleFeedbackResolved;
     private _persistPendingSessions;
     private _restorePersistedPendingSessions;
     private _findPort;

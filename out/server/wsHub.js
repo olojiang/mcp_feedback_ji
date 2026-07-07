@@ -91,6 +91,8 @@ class WsHub {
         this.stateSyncFingerprints = new Map();
         this._mcpConnSeq = 0;
         this._mcpConnIds = new WeakMap();
+        this._onFeedbackRequestCb = null;
+        this._onFeedbackResolvedCb = null;
         this._clipboardHandlers = null;
         this.lastHeartbeatAt = Date.now();
         this.sleepResumeNotifiedAt = 0;
@@ -165,8 +167,8 @@ class WsHub {
                     error: error.message,
                 });
             },
-            onFeedbackRequested: undefined,
-            onFeedbackResolved: undefined,
+            onFeedbackRequested: () => this._handleFeedbackRequested(),
+            onFeedbackResolved: () => this._handleFeedbackResolved(),
             log: wsLog,
             getHubMeta: () => ({ port: this.port, pid: process.pid }),
             appendSessionJournal: (record) => (0, sessionJournal_js_1.appendSessionJournalRecord)(record),
@@ -194,22 +196,10 @@ class WsHub {
         this.stateSyncFingerprints.clear();
     }
     onFeedbackRequest(cb) {
-        this.feedbackFlow.setOnFeedbackRequested(() => {
-            this._persistPendingSessions('enqueue');
-            cb();
-        });
+        this._onFeedbackRequestCb = cb;
     }
     onFeedbackResolved(cb) {
-        this.feedbackFlow.setOnFeedbackResolved(() => {
-            if (!this.feedback.hasPending()) {
-                (0, pendingSessionStore_js_1.clearPersistedPendingSessions)(this.workspaces);
-                wsLog('pending_persist: cleared reason=all_resolved');
-            }
-            else {
-                this._persistPendingSessions('partial_resolve');
-            }
-            cb();
-        });
+        this._onFeedbackResolvedCb = cb;
     }
     onFeedbackError(cb) {
         this.feedbackFlow.setOnFeedbackError(cb);
@@ -310,6 +300,20 @@ class WsHub {
     }
     _addMessage(msg) {
         this.timeline.addMessage(msg);
+    }
+    _handleFeedbackRequested() {
+        this._persistPendingSessions('enqueue');
+        this._onFeedbackRequestCb?.();
+    }
+    _handleFeedbackResolved() {
+        if (!this.feedback.hasPending()) {
+            (0, pendingSessionStore_js_1.clearPersistedPendingSessions)(this.workspaces);
+            wsLog('pending_persist: cleared reason=all_resolved');
+        }
+        else {
+            this._persistPendingSessions('partial_resolve');
+        }
+        this._onFeedbackResolvedCb?.();
     }
     _persistPendingSessions(reason) {
         const sessions = this.feedback.pendingSessionsForPersist().map((s) => ({
@@ -511,7 +515,7 @@ class WsHub {
             onFeedbackRequest: (mcpWs, req) => this._handleFeedbackRequest(mcpWs, req),
             onFeedbackResponse: (res) => this._handleFeedbackResponse(res),
             onQueuePending: (qp) => this._handleQueuePending(qp),
-            onDismiss: () => this._handleDismiss(),
+            onDismiss: (sessionId) => this._handleDismiss(sessionId),
             onGetState: (targetWs) => this._sendState(targetWs),
             onSessionDisplayed: (sessionId) => {
                 const snap = this.feedback.pendingSessions().find((s) => s.id === sessionId);
@@ -544,8 +548,8 @@ class WsHub {
     _handleFeedbackResponse(res) {
         this.feedbackFlow.handleFeedbackResponse(res);
     }
-    _handleDismiss() {
-        this.feedbackFlow.handleDismiss();
+    _handleDismiss(sessionId) {
+        this.feedbackFlow.handleDismiss(sessionId);
     }
     // ── Pending Queue ───────────────────────────────────────
     _handleQueuePending(qp) {

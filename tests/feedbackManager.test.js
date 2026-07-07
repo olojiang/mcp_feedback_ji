@@ -39,6 +39,25 @@ describe('FeedbackManager', () => {
     assert.equal(fm.pendingCount(), 1)
   })
 
+  it('resolveBySessionId removes the selected restored detached session', async () => {
+    const fm = new FeedbackManager()
+    const first = fm.restoreDetachedSession({
+      sessionId: 'fb-old',
+      projectDir: '/proj',
+      summary: 'old detached',
+    })
+    const second = fm.restoreDetachedSession({
+      sessionId: 'fb-new',
+      projectDir: '/proj',
+      summary: 'new detached',
+    })
+
+    assert.equal(first, true)
+    assert.equal(second, true)
+    assert.equal(fm.resolveBySessionId('fb-old', { feedback: '[Dismissed by user]' }), true)
+    assert.deepEqual(fm.pendingSessions().map((s) => s.id), ['fb-new'])
+  })
+
   it('updateTransport does not reuse closed session from a different trace', () => {
     const fm = new FeedbackManager()
     const ws1 = { id: 'ws1', readyState: 3 }

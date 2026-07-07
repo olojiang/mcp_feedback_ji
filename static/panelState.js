@@ -218,23 +218,37 @@
       this.activeSessionId = remaining.length ? remaining[remaining.length - 1] : null
     }
 
+    _dismissCommandsForRemoved(ids) {
+      var cmds = []
+      for (var i = 0; i < ids.length; i++) {
+        var sess = this.sessions[ids[i]]
+        if (sess && sess.waiting) {
+          cmds.push(wsSend({ type: 'dismiss_feedback', session_id: ids[i] }))
+        }
+      }
+      return cmds
+    }
+
     closeSession(id) {
       if (!id || !this.sessions[id]) return []
+      var cmds = this._dismissCommandsForRemoved([id])
       delete this.sessions[id]
       var idx = this.sessionOrder.indexOf(id)
       if (idx >= 0) this.sessionOrder.splice(idx, 1)
       this._adoptActiveIfNeeded([id])
-      return this._afterSessionListChange()
+      return cmds.concat(this._afterSessionListChange())
     }
 
     closeOtherSessions(id) {
       if (!id || !this.sessions[id]) return []
+      var removed = this.sessionOrder.filter(function (sid) { return sid !== id })
+      var cmds = this._dismissCommandsForRemoved(removed)
       var keep = this.sessions[id]
       this.sessions = {}
       this.sessions[id] = keep
       this.sessionOrder = [id]
       this.activeSessionId = id
-      return this._afterSessionListChange()
+      return cmds.concat(this._afterSessionListChange())
     }
 
     closeSessionsToLeft(id) {
@@ -242,10 +256,11 @@
       var idx = this.sessionOrder.indexOf(id)
       if (idx <= 0) return []
       var removed = this.sessionOrder.slice(0, idx)
+      var cmds = this._dismissCommandsForRemoved(removed)
       for (var i = 0; i < removed.length; i++) delete this.sessions[removed[i]]
       this.sessionOrder = this.sessionOrder.slice(idx)
       this._adoptActiveIfNeeded(removed)
-      return this._afterSessionListChange()
+      return cmds.concat(this._afterSessionListChange())
     }
 
     closeResolvedSessions() {
@@ -319,6 +334,8 @@
       if (sess.mcpDetached) return true
       var hub = this.hubSnapshot
       if (!hub || !hub.mcp_detached_count) return false
+      if (hub.live_pending_count && hub.live_pending_count > 0) return false
+      if (hub.pending_count && hub.mcp_detached_count < hub.pending_count) return false
       var ids = this.lastPendingSessionIds || []
       return ids.indexOf(sess.id) >= 0
     }
@@ -326,6 +343,8 @@
     _syncDetachedFromHub() {
       var hub = this.hubSnapshot
       if (!hub || !hub.mcp_detached_count) return
+      if (hub.live_pending_count && hub.live_pending_count > 0) return
+      if (hub.pending_count && hub.mcp_detached_count < hub.pending_count) return
       var ids = this.lastPendingSessionIds || []
       for (var i = 0; i < ids.length; i++) {
         var sess = this.sessions[ids[i]]
@@ -363,6 +382,19 @@
       return null
     }
 
+    _canSubmitToSession(sess) {
+      return !!(sess && sess.waiting && !sess.submitInFlight && !sess.mcpDetached && !this._sessionLinkLost(sess))
+    }
+
+    _latestSubmittableWaitingSessionId() {
+      for (var i = this.sessionOrder.length - 1; i >= 0; i--) {
+        var sid = this.sessionOrder[i]
+        var s = this.sessions[sid]
+        if (this._canSubmitToSession(s)) return sid
+      }
+      return null
+    }
+
     _applyMessagePatches(msg) {
       if (!msg.message_patches || !msg.message_patches.length) return
       for (var i = 0; i < msg.message_patches.length; i++) {
@@ -395,7 +427,9 @@
       var pending = msg.pending_sessions || []
       var hubWs = (msg.hub && msg.hub.workspaces) || (this.hubSnapshot && this.hubSnapshot.workspaces)
       var acceptedPending = []
+      var livePendingIds = []
       var latestPendingId = null
+      var latestLivePendingId = null
       for (var i = 0; i < pending.length; i++) {
         var p = pending[i]
         var projectDir = p.project_directory || p.projectDir
@@ -405,6 +439,10 @@
         acceptedPending.push(p)
         this.ensureSession(p.id, p.label, p.summary, p.trace_id || p.traceId, { markWaiting: true })
         latestPendingId = p.id || latestPendingId
+        if (p.mcp_detached !== true) {
+          latestLivePendingId = p.id || latestLivePendingId
+          if (p.id) livePendingIds.push(p.id)
+        }
         var sessPending = this.sessions[p.id]
         if (sessPending) {
           sessPending.mcpDetached = p.mcp_detached === true
@@ -421,8 +459,10 @@
         }
       }
       this._reconcileWaitingWithServer(acceptedPending)
-      if (latestPendingId && this.sessions[latestPendingId] && this.sessions[latestPendingId].waiting) {
-        this.activeSessionId = latestPendingId
+      var activeBeforePendingChoice = this.getActiveSession()
+      var preferredPendingId = latestLivePendingId || (!activeBeforePendingChoice ? latestPendingId : null)
+      if (preferredPendingId && this.sessions[preferredPendingId] && this.sessions[preferredPendingId].waiting) {
+        this.activeSessionId = preferredPendingId
       } else if (!this.activeSessionId && this.sessionOrder.length > 0) {
         this.activeSessionId = this.sessionOrder[this.sessionOrder.length - 1]
       }
@@ -431,7 +471,12 @@
       this.hubSnapshot = msg.hub || null
       this.lastPendingSessionIds = acceptedPending.map(function (p) { return p.id })
       this._syncDetachedFromHub()
-      return [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
+      var cmds = [render('tabs', 'messages', 'pending', 'input', 'staged_images'), dom('save_state')]
+      if (livePendingIds.length === 1) {
+        var auto = this._drainGlobalPendingForAutoSubmit(livePendingIds[0], cmds)
+        if (auto) return auto
+      }
+      return cmds
     }
 
     _onAgentTurnStatus(msg) {
@@ -590,19 +635,8 @@
         }
       }
 
-      if (this.globalPendingQueue.length > 0 || this.globalPendingImages.length > 0) {
-        var gCombined = this.globalPendingQueue.join('\n\n')
-        var gImages =
-          this.globalPendingImages.length > 0 ? this.globalPendingImages.slice() : []
-        this.globalPendingQueue = []
-        this.globalPendingImages = []
-        cmds.push(render('pending'))
-        cmds.push(wsSend({ type: 'queue-pending', comments: [], images: [] }))
-        return {
-          commands: cmds,
-          autoSubmit: { session_id: id, text: gCombined || '(image)', images: gImages },
-        }
-      }
+      var pendingAutoSubmit = this._drainGlobalPendingForAutoSubmit(id, cmds)
+      if (pendingAutoSubmit) return pendingAutoSubmit
 
       if (this.autoReply && this.autoReplyText) {
         return {
@@ -612,6 +646,21 @@
       }
 
       return cmds
+    }
+
+    _drainGlobalPendingForAutoSubmit(id, cmds) {
+      if (!id || !this.sessions[id] || !this._canSubmitToSession(this.sessions[id])) return null
+      if (this.globalPendingQueue.length === 0 && this.globalPendingImages.length === 0) return null
+      var combined = this.globalPendingQueue.join('\n\n')
+      var images = this.globalPendingImages.length > 0 ? this.globalPendingImages.slice() : []
+      this.globalPendingQueue = []
+      this.globalPendingImages = []
+      cmds.push(render('pending'))
+      cmds.push(wsSend({ type: 'queue-pending', comments: [], images: [] }))
+      return {
+        commands: cmds,
+        autoSubmit: { session_id: id, text: combined || '(image)', images: images },
+      }
     }
 
     _onSessionUpdatedLegacy(msg) {
@@ -698,7 +747,15 @@
         ]
       }
       var active = this.getActiveSession()
-      if (active && active.waiting) return this.submitFeedback(text, images)
+      if (this._canSubmitToSession(active)) return this.submitFeedback(text, images)
+      var live = this._latestSubmittableWaitingSessionId()
+      if (live) {
+        this.activeSessionId = live
+        return [
+          render('tabs', 'messages', 'pending', 'input', 'staged_images'),
+          notify({ type: 'retarget-live-session', session_id: live }),
+        ].concat(this.submitFeedback(text, images, { session_id: live }))
+      }
       if (this.waitingCount > 0) {
         var latest = this._latestWaitingSessionId()
         if (latest) {
@@ -789,28 +846,18 @@
       if (!hasText && !hasImages) return []
 
       var active = this.getActiveSession()
-      if (active && active.waiting) {
-        if (hasText) active.pendingQueue.push(text.trim())
-        if (hasImages) active.pendingImages = active.pendingImages.concat(images)
-      } else {
-        if (hasText) this.globalPendingQueue.push(text.trim())
-        if (hasImages) this.globalPendingImages = this.globalPendingImages.concat(images)
-        return [
-          wsSend({
-            type: 'queue-pending',
-            comments: this.globalPendingQueue,
-            images: this.globalPendingImages,
-          }),
-          render('pending'),
-          dom('clear_input'),
-          dom('clear_staged_images'),
-          dom('save_state'),
-        ]
+      if (hasText) this.globalPendingQueue.push(text.trim())
+      if (hasImages) this.globalPendingImages = this.globalPendingImages.concat(images)
+      if (active) {
+        active.stagedImages = []
+        active.inputDraft = ''
       }
-
-      active.stagedImages = []
-      active.inputDraft = ''
       return [
+        wsSend({
+          type: 'queue-pending',
+          comments: this.globalPendingQueue.slice(),
+          images: this.globalPendingImages.slice(),
+        }),
         render('pending'),
         dom('clear_input'),
         dom('clear_staged_images'),
@@ -819,19 +866,15 @@
     }
 
     editPending(idx) {
-      var active = this.getActiveSession()
-      var q = active && active.waiting ? active.pendingQueue : this.globalPendingQueue
+      var q = this.globalPendingQueue
       if (idx < 0 || idx >= q.length) return []
       var text = q[idx]
       q.splice(idx, 1)
-      if (active && active.waiting) {
-        return [render('pending'), dom('set_input', text), dom('focus_input'), dom('save_state')]
-      }
       return [
         wsSend({
           type: 'queue-pending',
-          comments: this.globalPendingQueue,
-          images: this.globalPendingImages,
+          comments: this.globalPendingQueue.slice(),
+          images: this.globalPendingImages.slice(),
         }),
         render('pending'),
         dom('set_input', text),
@@ -841,18 +884,14 @@
     }
 
     removePending(idx) {
-      var active = this.getActiveSession()
-      var q = active && active.waiting ? active.pendingQueue : this.globalPendingQueue
+      var q = this.globalPendingQueue
       if (idx < 0 || idx >= q.length) return []
       q.splice(idx, 1)
-      if (active && active.waiting) {
-        return [render('pending'), dom('save_state')]
-      }
       return [
         wsSend({
           type: 'queue-pending',
-          comments: this.globalPendingQueue,
-          images: this.globalPendingImages,
+          comments: this.globalPendingQueue.slice(),
+          images: this.globalPendingImages.slice(),
         }),
         render('pending'),
         dom('save_state'),
@@ -860,12 +899,6 @@
     }
 
     clearPending() {
-      var active = this.getActiveSession()
-      if (active && active.waiting) {
-        active.pendingQueue = []
-        active.pendingImages = []
-        return [render('pending'), dom('save_state')]
-      }
       this.globalPendingQueue = []
       this.globalPendingImages = []
       return [
@@ -876,18 +909,12 @@
     }
 
     clearPendingImages() {
-      var active = this.getActiveSession()
-      if (active && active.waiting) {
-        if (active.pendingImages.length === 0) return []
-        active.pendingImages = []
-        return [render('pending'), dom('save_state')]
-      }
       if (this.globalPendingImages.length === 0) return []
       this.globalPendingImages = []
       return [
         wsSend({
           type: 'queue-pending',
-          comments: this.globalPendingQueue,
+          comments: this.globalPendingQueue.slice(),
           images: [],
         }),
         render('pending'),
@@ -912,6 +939,13 @@
     getStagedImages() {
       var active = this.getActiveSession()
       return active ? active.stagedImages : []
+    }
+
+    getPendingDisplay() {
+      return {
+        comments: this.globalPendingQueue.slice(),
+        images: this.globalPendingImages.slice(),
+      }
     }
 
     setUxPrefs(prefs) {
@@ -943,10 +977,12 @@
       var waiting = !!(active && active.waiting)
       var anyWaiting = this.waitingCount > 0
       var linkLost = !!(active && active.waiting && this._sessionLinkLost(active))
+      var hasLiveTarget = !!this._latestSubmittableWaitingSessionId()
+      var detachedOnlyWaiting = anyWaiting && !hasLiveTarget
       return {
-        buttonMode: linkLost ? 'queue_lost' : ((waiting || anyWaiting) ? 'send' : 'queue'),
+        buttonMode: detachedOnlyWaiting ? 'queue_lost' : ((waiting || hasLiveTarget) ? 'send' : 'queue'),
         isWaiting: waiting || anyWaiting,
-        linkLost: linkLost,
+        linkLost: (linkLost || detachedOnlyWaiting) && !hasLiveTarget,
         submitInFlight: !!(active && active.submitInFlight),
         waitingCount: this.waitingCount,
         activeSessionId: this.activeSessionId,

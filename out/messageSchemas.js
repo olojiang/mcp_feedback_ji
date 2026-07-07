@@ -33,6 +33,7 @@ exports.QueuePendingSchema = zod_1.z.object({
 });
 exports.DismissFeedbackSchema = zod_1.z.object({
     type: zod_1.z.literal('dismiss_feedback'),
+    session_id: zod_1.z.string().optional(),
 });
 // ─── 3. Outgoing from Extension (to Webview) ───────────────────────────────
 exports.SessionUpdatedOutSchema = zod_1.z.object({

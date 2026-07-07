@@ -87,7 +87,7 @@ describe('messageRouter pipeline isolation', () => {
   })
 
   it('routes dismiss_feedback, get_state, ping, and session_displayed', () => {
-    let dismissed = false
+    let dismissed = ''
     let stateRequested = false
     let ponged = false
     let displayed = ''
@@ -97,17 +97,17 @@ describe('messageRouter pipeline isolation', () => {
       onFeedbackRequest: () => {},
       onFeedbackResponse: () => {},
       onQueuePending: () => {},
-      onDismiss: () => { dismissed = true },
+      onDismiss: (sid) => { dismissed = sid || '(first)' },
       onGetState: () => { stateRequested = true },
       onSessionDisplayed: (sid) => { displayed = sid },
       sendPong: () => { ponged = true },
       onProtocolError: () => {},
     }
-    routeHubMessage(null, client, { type: 'dismiss_feedback' }, deps)
+    routeHubMessage(null, client, { type: 'dismiss_feedback', session_id: 'fb-dismiss' }, deps)
     routeHubMessage(null, client, { type: 'get_state' }, deps)
     routeHubMessage(null, client, { type: 'ping' }, deps)
     routeHubMessage(null, client, { type: 'session_displayed', session_id: 'fb-ack' }, deps)
-    assert.equal(dismissed, true)
+    assert.equal(dismissed, 'fb-dismiss')
     assert.equal(stateRequested, true)
     assert.equal(ponged, true)
     assert.equal(displayed, 'fb-ack')

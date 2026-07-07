@@ -21,7 +21,7 @@ export interface MessageRouterDeps {
         comments: string[];
         images?: string[];
     }) => void;
-    onDismiss: () => void;
+    onDismiss: (sessionId?: string) => void;
     onGetState: (ws: WebSocket) => void;
     onSessionDisplayed?: (sessionId: string) => void;
     onClipboardWrite?: (ws: WebSocket, msg: {

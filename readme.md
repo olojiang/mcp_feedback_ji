@@ -2,7 +2,7 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.149`**
+**当前版本：`2.5.1-ji.154`**
 
 > **一句话**：让 Cursor Agent 在 IDE 里等你回复——**面板回复免费**，插件自身**不偷吃 Request**，多 workspace、断线重连、Hub 重启都尽量保持同一个 live request 的交互链路。
 
@@ -22,6 +22,7 @@
 | 第二个 workspace 污染第一个 | **per-workspace storage/lock/registry**，pending、state、runtime 文件按 workspace hash 隔离 |
 | 前端误报掉线 | health 检查同时参考 Hub protocol activity，减少空闲 ping timeout 假阳性 |
 | 面板发了 Agent 没反应 | **`panel_submit_no_effect`** 结构化日志 + reason 对照表，秒级定位断点 |
+| 刷新时 pending 回复丢失 | **outbound feedback queue 持久化**，transport 未就绪时的回复刷新后仍可重发 |
 | 断网重连级联重试 | Supersede 熔断 + `already_pending` 忽略重复调用 |
 | 排查困难 | 统一日轮转日志 + [`troubleshooting.md`](local_docs/troubleshooting.md) |
 
@@ -38,13 +39,14 @@
 | **连接状态可见** | 顶部显示 `v版本 ● Connected :端口 pid=进程号`；版本 skew 横幅提示 Reload |
 | **剪贴板与截图** | 面板内复制/粘贴；macOS 支持截图 Cmd+V 读图（Extension Host 侧 `pbpaste` + NSPasteboard） |
 | **Pending / Draft** | 无等待会话时可先攒草稿；Send 时合并 pending 队列并清空 PENDING 条 |
+| **刷新不丢待发回复 (ji.154)** | `feedback_response` 在 bridge/WS 未就绪时进入可持久化 outbound queue；刷新后恢复并继续 flush，避免 pending 文本被清空却没有送达 |
 | **Pending 磁盘恢复** | Hub 重启后从 `pending-sessions/` 恢复未决 session；面板 boot 先 `state_sync` 再合并 localStorage，避免陈旧 PENDING |
 | **Hydrate 防覆盖** | `snapshotServerPendingSessions` → localStorage restore → `restoreServerPendingSessions`；重连后 waiting tab 不丢失 |
 | **Live request 复用 (ji.144+)** | stale detached session 不再被当成健康 waiting；面板优先绑定当前 live MCP request |
 | **Workspace 强隔离 (ji.145+)** | registry lock、pending 文件、feedback state、localStorage key 全部按 workspace hash 隔离 |
 | **Reload 状态隔离 (ji.146+)** | workspace 变更时清理陈旧内存状态，`state_sync` 带 workspace hash 防止旧 payload 污染新 UI |
 | **Health 误报抑制 (ji.147)** | 前端 health timeout 不只看 ping，也看最近 Hub protocol message，降低空闲或后台状态误报 |
-| **断网长等待防续跑 (ji.149)** | 同 trace duplicate 等待超过 35min 时释放为 `released_duplicate`，部署强制写入 50min keepalive，避免旧 progress-only 配置残留 |
+| **断网长等待防续跑 (ji.149+)** | 同 trace duplicate 长等待后释放为 `released_duplicate`，配合 keepalive / no-op 文案避免旧等待继续消耗 Cursor request |
 | **Request waste guard (ji.116+)** | `[keepalive]` / `[released_duplicate]` / `[superseded]` 返回明确 **End turn** 文案，Agent 规则同步，避免多扣 Request |
 | **面板投递可观测** | `panel_submit_delivered` / `panel_submit_no_effect`（含 `session_not_on_hub_queue`、`mcp_detached` 等 reason） |
 | **账单风险关联** | `event=request_billing_risk` 记录 keepalive / 硬超时 / WS 断连等结束原因，便于对照 Cursor Usage |
@@ -53,7 +55,7 @@
 | **排查文档** | [`local_docs/troubleshooting.md`](local_docs/troubleshooting.md)：死锁、pending 持久化、↻ 手动恢复、grep 命令 |
 | **统一日轮转日志** | extension / mcp-server / webview / hooks 四大子系统统一按天轮转 + 7 天清理；heartbeat 对数节流；passthrough 工具静默 |
 | **Deploy 工作流** | `npm run deploy` 自动 bump、编译、同步到 `~/.cursor/extensions/` 并更新 `mcp.json` |
-| **487 单测** | 协议路由、pending 恢复、剪贴板、多 Tab、pipeline、workspace 隔离、health timeout、测试隔离等覆盖 |
+| **490+ 单测** | 协议路由、pending 恢复、outbound queue、剪贴板、多 Tab、pipeline、workspace 隔离、health timeout、测试隔离等覆盖 |
 
 ### Cursor Request 节省机制
 
@@ -140,7 +142,7 @@ npm run deploy            # bump 版本 + 编译 + 同步到已安装扩展
 ## 面板一览
 
 ```
-v2.5.1-ji.149  ● Connected :48202 pid=44671   ↻
+v2.5.1-ji.154  ● Connected :48202 pid=44671   ↻
 Chat fb-abc123  |  Chat fb-def456
 ─────────────────────────────────────────────
   AI  请确认是否继续…
@@ -260,7 +262,7 @@ mcp_feedback_ji/
       "command": "/path/to/node",
       "args": ["/path/to/mcp-server/dist/index.js"],
       "env": {
-        "MCP_FEEDBACK_VERSION": "2.5.1-ji.149"
+        "MCP_FEEDBACK_VERSION": "2.5.1-ji.154"
       }
     }
   }

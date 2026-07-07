@@ -36,7 +36,7 @@ describe('PanelState multi-session', () => {
     assert.equal(state.sessions['fb-1-aaa'].waiting, true)
   })
 
-  it('submitFeedback merges and clears session pendingQueue', () => {
+  it('addToPending stores drafts in global pending even when a session tab is waiting', () => {
     const state = new PanelState()
     state.handleMessage({
       type: 'session_updated',
@@ -44,13 +44,17 @@ describe('PanelState multi-session', () => {
       session_label: 'q',
       summary: 'Question',
     })
-    state.addToPending('queued draft', [])
-    assert.equal(state.sessions['fb-q'].pendingQueue.length, 1)
+    const cmds = state.addToPending('queued draft', ['img-1'])
 
-    const cmds = state.submitFeedback('final line', [])
-    assert.equal(state.sessions['fb-q'].pendingQueue.length, 0)
-    const ws = cmds.find((c) => c.type === 'ws_send')
-    assert.equal(ws.message.feedback, 'queued draft\n\nfinal line')
+    assert.deepEqual(state.sessions['fb-q'].pendingQueue, [])
+    assert.deepEqual(state.sessions['fb-q'].pendingImages, [])
+    assert.deepEqual(state.globalPendingQueue, ['queued draft'])
+    assert.deepEqual(state.globalPendingImages, ['img-1'])
+    assert.deepEqual(state.getPendingDisplay(), { comments: ['queued draft'], images: ['img-1'] })
+    const ws = cmds.find((c) => c.type === 'ws_send' && c.message.type === 'queue-pending')
+    assert.ok(ws)
+    assert.deepEqual(ws.message.comments, ['queued draft'])
+    assert.deepEqual(ws.message.images, ['img-1'])
     assert.ok(cmds.some((c) => c.type === 'render' && c.targets.includes('pending')))
   })
 
@@ -124,6 +128,51 @@ describe('PanelState multi-session', () => {
     assert.equal(state.sessions['fb-9'].messages[0].content, 'waiting summary')
   })
 
+  it('state_sync auto-submits queued pending when there is one live waiting session', () => {
+    const state = new PanelState()
+    const result = state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-live', label: 'x', summary: 'waiting summary', waiting: true },
+      ],
+      pending_comments: ['queued reply'],
+      pending_images: ['img-1'],
+      feedback_queue_size: 1,
+      messages: [],
+    })
+
+    assert.equal(state.globalPendingQueue.length, 0)
+    assert.equal(state.globalPendingImages.length, 0)
+    assert.equal(result.autoSubmit.session_id, 'fb-live')
+    assert.equal(result.autoSubmit.text, 'queued reply')
+    assert.deepEqual(result.autoSubmit.images, ['img-1'])
+    const clearPending = result.commands.find(
+      (c) => c.type === 'ws_send' && c.message.type === 'queue-pending',
+    )
+    assert.deepEqual(clearPending.message.comments, [])
+    assert.deepEqual(clearPending.message.images, [])
+  })
+
+  it('state_sync keeps queued pending when multiple live waiting sessions are restored', () => {
+    const state = new PanelState()
+    const result = state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-a', label: 'a', summary: 'A', waiting: true },
+        { id: 'fb-b', label: 'b', summary: 'B', waiting: true },
+      ],
+      pending_comments: ['queued reply'],
+      pending_images: [],
+      feedback_queue_size: 1,
+      messages: [],
+    })
+
+    assert.ok(Array.isArray(result))
+    assert.deepEqual(state.globalPendingQueue, ['queued reply'])
+    assert.equal(state.sessions['fb-a'].waiting, true)
+    assert.equal(state.sessions['fb-b'].waiting, true)
+  })
+
   it('connection_established requests state sync from server', () => {
     const state = new PanelState()
     const cmds = state.handleMessage({ type: 'connection_established' })
@@ -189,6 +238,28 @@ describe('PanelState multi-session', () => {
     assert.deepEqual(state.sessionOrder, ['d'])
     state.closeOtherSessions('d')
     assert.deepEqual(state.sessionOrder, ['d'])
+  })
+
+  it('closing a detached waiting tab dismisses it on the hub so refresh cannot restore it', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-detached', label: 'old', summary: 'Old detached', waiting: true, mcp_detached: true },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 1,
+      hub: { workspaces: ['/proj'], pending_count: 1, live_pending_count: 0, mcp_detached_count: 1, mcp_servers: 0 },
+      messages: [],
+    })
+
+    const cmds = state.closeSession('fb-detached')
+    const dismiss = cmds.find((c) => c.type === 'ws_send' && c.message.type === 'dismiss_feedback')
+
+    assert.ok(dismiss)
+    assert.equal(dismiss.message.session_id, 'fb-detached')
+    assert.equal(state.sessions['fb-detached'], undefined)
   })
 
   it('clears stale waiting flags from localStorage on deserialize', () => {
@@ -288,6 +359,102 @@ describe('PanelState multi-session', () => {
     const ws = cmds.find((c) => c.type === 'ws_send')
     assert.equal(ws.message.session_id, 'fb-new')
     assert.equal(ws.message.feedback, 'Continue')
+  })
+
+  it('smartSend routes to live waiting session when active tab is link lost', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-old', label: 'old', summary: 'Old detached', waiting: true, mcp_detached: true },
+        { id: 'fb-live', label: 'live', summary: 'Live question', waiting: true, mcp_detached: false },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 2,
+      hub: { workspaces: ['/proj'], pending_count: 2, live_pending_count: 1, mcp_detached_count: 1, mcp_servers: 1 },
+    })
+    state.setActiveSession('fb-old')
+
+    const cmds = state.smartSend('reply to live', [])
+    const fr = cmds.find((c) => c.type === 'ws_send' && c.message.type === 'feedback_response')
+    const qp = cmds.find((c) => c.type === 'ws_send' && c.message.type === 'queue-pending')
+    assert.ok(fr, 'should deliver to a live session instead of queueing on the detached active tab')
+    assert.equal(fr.message.session_id, 'fb-live')
+    assert.equal(fr.message.feedback, 'reply to live')
+    assert.equal(qp, undefined)
+    assert.equal(state.activeSessionId, 'fb-live')
+  })
+
+  it('state_sync does not infer every pending session is detached from aggregate hub counts', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-old', label: 'old', summary: 'Old detached', waiting: true, mcp_detached: true },
+        { id: 'fb-live', label: 'live', summary: 'Live question', waiting: true, mcp_detached: false },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 2,
+      hub: { workspaces: ['/proj'], pending_count: 2, live_pending_count: 1, mcp_detached_count: 1, mcp_servers: 1 },
+    })
+
+    assert.equal(state.sessions['fb-old'].mcpDetached, true)
+    assert.equal(state.sessions['fb-live'].mcpDetached, false)
+    assert.equal(state.getUIState().buttonMode, 'send')
+  })
+
+  it('state_sync keeps submitted session active instead of jumping to old detached pending', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-live',
+      summary: 'Live question',
+    })
+    state.handleMessage({
+      type: 'feedback_submitted',
+      session_id: 'fb-live',
+      feedback: 'delivered',
+    })
+
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-old', label: 'old', summary: 'Old detached', waiting: true, mcp_detached: true },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 1,
+      hub: { workspaces: ['/proj'], pending_count: 1, live_pending_count: 0, mcp_detached_count: 1, mcp_servers: 0 },
+    })
+
+    assert.equal(state.activeSessionId, 'fb-live')
+    assert.equal(state.sessions['fb-live'].waiting, false)
+    assert.equal(state.sessions['fb-old'].mcpDetached, true)
+    assert.equal(state.getUIState().buttonMode, 'queue_lost')
+  })
+
+  it('getUIState does not show Send when only detached sessions are waiting', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [
+        { id: 'fb-detached', label: 'old', summary: 'Old detached', waiting: true, mcp_detached: true },
+      ],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 1,
+      hub: { workspaces: ['/proj'], pending_count: 1, live_pending_count: 0, mcp_detached_count: 1, mcp_servers: 0 },
+    })
+    state.handleMessage({
+      type: 'feedback_submitted',
+      session_id: 'fb-resolved',
+      feedback: 'done',
+    })
+
+    assert.equal(state.getUIState().buttonMode, 'queue_lost')
+    assert.equal(state.getUIState().linkLost, true)
   })
 
   it('setActiveSession and state_sync re-render staged_images for active tab', () => {

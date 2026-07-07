@@ -37,6 +37,7 @@ export const QueuePendingSchema = z.object({
 
 export const DismissFeedbackSchema = z.object({
     type: z.literal('dismiss_feedback'),
+    session_id: z.string().optional(),
 });
 
 // ─── 3. Outgoing from Extension (to Webview) ───────────────────────────────

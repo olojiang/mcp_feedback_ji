@@ -15,7 +15,7 @@ describe('deploy mcpConfig', () => {
       args,
       env: {
         MCP_FEEDBACK_VERSION: '2.5.1-ji.135',
-        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '3000000',
+        MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: '0',
         MCP_FEEDBACK_CURSOR_PROGRESS_MS: '25000',
       },
     })
@@ -33,8 +33,8 @@ describe('deploy mcpConfig', () => {
   it('deploy script writes the guarded keepalive default', () => {
     const fs = require('node:fs')
     const source = fs.readFileSync(new URL('../scripts/deploy.js', import.meta.url), 'utf8')
-    assert.match(source, /MCP_FEEDBACK_CURSOR_KEEPALIVE_MS:\s*'3000000'/)
-    assert.doesNotMatch(source, /MCP_FEEDBACK_CURSOR_KEEPALIVE_MS:\s*'0'/)
+    assert.match(source, /MCP_FEEDBACK_CURSOR_KEEPALIVE_MS:\s*'0'/)
+    assert.doesNotMatch(source, /MCP_FEEDBACK_CURSOR_KEEPALIVE_MS:\s*'3000000'/)
   })
 })
 

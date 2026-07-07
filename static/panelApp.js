@@ -678,7 +678,13 @@
     var LEGACY_STORAGE_KEY = 'mcp-fb-v4-multi-' + PROJECT_PATH.replace(/[^a-zA-Z0-9]/g, '-').slice(-30);
 
     function saveState() {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.serialize())); } catch (e) { /* ignore */ }
+        try {
+            var data = state.serialize();
+            if (typeof outboundQueue.snapshot === 'function') {
+                data.outboundQueue = outboundQueue.snapshot();
+            }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (e) { /* ignore */ }
     }
 
     function syncSettings() {
@@ -706,7 +712,12 @@
         if (pendingLocalRestore) {
             try {
                 var d = JSON.parse(pendingLocalRestore);
-                if (d) state.deserialize(d);
+                if (d) {
+                    state.deserialize(d);
+                    if (typeof outboundQueue.restore === 'function') {
+                        outboundQueue.restore(d.outboundQueue);
+                    }
+                }
             } catch (e) { /* ignore */ }
             pendingLocalRestore = null;
         }
@@ -865,9 +876,9 @@
     }
 
     function renderPending() {
-        var active = state.getActiveSession();
-        var q = active && active.waiting ? active.pendingQueue : state.globalPendingQueue;
-        var imgs = active && active.waiting ? (active.pendingImages || []) : (state.globalPendingImages || []);
+        var pending = state.getPendingDisplay();
+        var q = pending.comments || [];
+        var imgs = pending.images || [];
         if (q.length === 0 && imgs.length === 0) {
             pendingSection.classList.remove('visible');
             syncInputTextareaToPane();

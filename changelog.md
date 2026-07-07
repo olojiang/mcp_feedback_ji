@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.154] - 2026-07-07
+
+### Fix — pending 回复刷新后不丢失
+
+- **outbound queue 持久化** — `feedback_response` 在 bridge / WebSocket 未就绪时不只停留在内存队列，面板保存状态时会一并保存 outbound queue
+- **刷新后恢复重发** — webview hydrate localStorage 时恢复 outbound queue，连接恢复后继续 flush，避免用户看到 pending 文本被清空但 Agent 没收到
+- **Deploy 已同步** — `npm run deploy` 已构建并同步到本机 Cursor 扩展目录，版本更新为 `2.5.1-ji.154`
+- **Codex remote_control 配置修正** — 本机 `~/.codex/config.toml` 的 custom/Azure provider 已改为 `requires_openai_auth = false`，避免 API-key auth 下反复触发 ChatGPT remote control auth 检查；相关 app-server 重启后生效
+- **TDD** — 新增 `OutboundQueue` 回归测试，先复现 `snapshot is not a function` 的 RED，再实现 `snapshot()` / `restore()` 通过 GREEN
+
+## [2.5.1-ji.151] - 2026-07-07
+
+### Fix — detached tab 不再抢走 live request 回复
+
+- **live session 自动恢复** — 面板 active tab 如果是 `link_lost` / `mcp_detached`，但同 workspace 还有 live waiting session，普通发送会自动切到 live session 并发送 `feedback_response`
+- **Hub 聚合计数收窄** — `mcp_detached_count` 只在无法区分、且所有 pending 都 detached 时作为兜底；混合状态下不再把 live session 误标成 detached
+- **提交后不跳回旧 tab** — live request 成功 `feedback_submitted` 后，后续 `state_sync` 只剩旧 detached pending 时不会把 active tab 抢回旧会话
+- **按钮状态修正** — active tab 是 detached 但存在 live target 时按钮保持 Send；只有 detached pending 时显示 queue-lost，不再伪装成可直达的 Send
+- **TDD** — 新增四个 panel state 回归测试，覆盖混合 detached/live pending session 的误投递、误标记、成功提交后 active 抢占，以及 detached-only 按钮误报
+
 ## [2.5.1-ji.149] - 2026-07-06
 
 ### Fix — 断网/长等待后避免 duplicate feedback 续跑浪费

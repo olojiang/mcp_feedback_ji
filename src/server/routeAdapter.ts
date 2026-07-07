@@ -8,7 +8,7 @@ interface HubRouteHandlers {
     onFeedbackRequest: (ws: WebSocket, req: { summary: string; project_directory?: string; trace_id?: string }) => void;
     onFeedbackResponse: (res: { feedback: string; images?: string[]; session_id?: string; project_directory?: string }) => void;
     onQueuePending: (qp: { comments: string[]; images?: string[] }) => void;
-    onDismiss: () => void;
+    onDismiss: (sessionId?: string) => void;
     onGetState: (ws: WebSocket) => void;
     onSessionDisplayed?: (sessionId: string) => void;
     onClipboardWrite?: (ws: WebSocket, msg: { text?: string }) => void;

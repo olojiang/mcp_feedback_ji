@@ -5579,13 +5579,13 @@ var FeedbackFlow = class {
     if (!sessionId) return void 0;
     return this.deps.feedback.pendingSessions().find((s) => s.id === sessionId)?.traceId;
   }
-  handleDismiss() {
-    const resolved = this.deps.feedback.resolveFirst({ feedback: "[Dismissed by user]" });
+  handleDismiss(sessionId) {
+    const resolved = sessionId ? this.deps.feedback.resolveBySessionId(sessionId, { feedback: "[Dismissed by user]" }) : this.deps.feedback.resolveFirst({ feedback: "[Dismissed by user]" });
     if (!resolved) {
-      this.deps.log("dismiss ignored: no pending feedback request");
+      this.deps.log(`dismiss ignored: no pending feedback request session=${sessionId ?? "(first)"}`);
       return;
     }
-    this.deps.broadcastFeedbackSubmitted();
+    this.deps.broadcastFeedbackSubmitted(void 0, sessionId);
     this.deps.onFeedbackResolved?.();
   }
 };
@@ -20163,7 +20163,8 @@ var QueuePendingSchema = external_exports.object({
   images: external_exports.array(external_exports.string()).optional()
 });
 var DismissFeedbackSchema = external_exports.object({
-  type: external_exports.literal("dismiss_feedback")
+  type: external_exports.literal("dismiss_feedback"),
+  session_id: external_exports.string().optional()
 });
 var SessionUpdatedOutSchema = external_exports.object({
   type: external_exports.literal("session_updated"),
@@ -20300,7 +20301,12 @@ function routeHubMessage(ws, client, msg, deps) {
       break;
     }
     case "dismiss_feedback": {
-      deps.onDismiss();
+      const dismiss = validateMessage(DismissFeedbackSchema, msg, "dismiss_feedback");
+      if (!dismiss) {
+        deps.onProtocolError("dismiss_feedback");
+        break;
+      }
+      deps.onDismiss(dismiss.session_id);
       break;
     }
     case "get_state": {
@@ -20697,6 +20703,8 @@ var WsHub = class {
     this.stateSyncFingerprints = /* @__PURE__ */ new Map();
     this._mcpConnSeq = 0;
     this._mcpConnIds = /* @__PURE__ */ new WeakMap();
+    this._onFeedbackRequestCb = null;
+    this._onFeedbackResolvedCb = null;
     this._clipboardHandlers = null;
     this.lastHeartbeatAt = Date.now();
     this.sleepResumeNotifiedAt = 0;
@@ -20778,8 +20786,8 @@ var WsHub = class {
           error: error51.message
         });
       },
-      onFeedbackRequested: void 0,
-      onFeedbackResolved: void 0,
+      onFeedbackRequested: () => this._handleFeedbackRequested(),
+      onFeedbackResolved: () => this._handleFeedbackResolved(),
       log: wsLog,
       getHubMeta: () => ({ port: this.port, pid: process.pid }),
       appendSessionJournal: (record2) => appendSessionJournalRecord(record2),
@@ -20807,21 +20815,10 @@ var WsHub = class {
     this.stateSyncFingerprints.clear();
   }
   onFeedbackRequest(cb) {
-    this.feedbackFlow.setOnFeedbackRequested(() => {
-      this._persistPendingSessions("enqueue");
-      cb();
-    });
+    this._onFeedbackRequestCb = cb;
   }
   onFeedbackResolved(cb) {
-    this.feedbackFlow.setOnFeedbackResolved(() => {
-      if (!this.feedback.hasPending()) {
-        clearPersistedPendingSessions(this.workspaces);
-        wsLog("pending_persist: cleared reason=all_resolved");
-      } else {
-        this._persistPendingSessions("partial_resolve");
-      }
-      cb();
-    });
+    this._onFeedbackResolvedCb = cb;
   }
   onFeedbackError(cb) {
     this.feedbackFlow.setOnFeedbackError(cb);
@@ -20922,6 +20919,19 @@ var WsHub = class {
   }
   _addMessage(msg) {
     this.timeline.addMessage(msg);
+  }
+  _handleFeedbackRequested() {
+    this._persistPendingSessions("enqueue");
+    this._onFeedbackRequestCb?.();
+  }
+  _handleFeedbackResolved() {
+    if (!this.feedback.hasPending()) {
+      clearPersistedPendingSessions(this.workspaces);
+      wsLog("pending_persist: cleared reason=all_resolved");
+    } else {
+      this._persistPendingSessions("partial_resolve");
+    }
+    this._onFeedbackResolvedCb?.();
   }
   _persistPendingSessions(reason) {
     const sessions = this.feedback.pendingSessionsForPersist().map((s) => ({
@@ -21129,7 +21139,7 @@ var WsHub = class {
       onFeedbackRequest: (mcpWs, req) => this._handleFeedbackRequest(mcpWs, req),
       onFeedbackResponse: (res) => this._handleFeedbackResponse(res),
       onQueuePending: (qp) => this._handleQueuePending(qp),
-      onDismiss: () => this._handleDismiss(),
+      onDismiss: (sessionId) => this._handleDismiss(sessionId),
       onGetState: (targetWs) => this._sendState(targetWs),
       onSessionDisplayed: (sessionId) => {
         const snap = this.feedback.pendingSessions().find((s) => s.id === sessionId);
@@ -21162,8 +21172,8 @@ var WsHub = class {
   _handleFeedbackResponse(res) {
     this.feedbackFlow.handleFeedbackResponse(res);
   }
-  _handleDismiss() {
-    this.feedbackFlow.handleDismiss();
+  _handleDismiss(sessionId) {
+    this.feedbackFlow.handleDismiss(sessionId);
   }
   // ── Pending Queue ───────────────────────────────────────
   _handleQueuePending(qp) {
@@ -22244,7 +22254,7 @@ function planMcpConfigUpdate(extensionPath, version2, nodeBin, existing) {
     args: [localServerPath],
     env: {
       MCP_FEEDBACK_VERSION: version2,
-      MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: "3000000",
+      MCP_FEEDBACK_CURSOR_KEEPALIVE_MS: "0",
       MCP_FEEDBACK_CURSOR_PROGRESS_MS: "25000"
     }
   };

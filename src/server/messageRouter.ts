@@ -4,6 +4,7 @@ import {
     validateMessage,
     FeedbackRequestSchema,
     FeedbackResponseSchema,
+    DismissFeedbackSchema,
     QueuePendingSchema,
     RegisterSchema,
 } from '../messageSchemas';
@@ -23,7 +24,7 @@ export interface MessageRouterDeps {
     onFeedbackRequest: (ws: WebSocket, req: { summary: string; project_directory?: string; trace_id?: string }) => void;
     onFeedbackResponse: (res: { feedback: string; images?: string[]; session_id?: string; project_directory?: string }) => void;
     onQueuePending: (qp: { comments: string[]; images?: string[] }) => void;
-    onDismiss: () => void;
+    onDismiss: (sessionId?: string) => void;
     onGetState: (ws: WebSocket) => void;
     onSessionDisplayed?: (sessionId: string) => void;
     onClipboardWrite?: (ws: WebSocket, msg: { text?: string }) => void;
@@ -92,7 +93,12 @@ export function routeHubMessage(
             break;
         }
         case 'dismiss_feedback': {
-            deps.onDismiss();
+            const dismiss = validateMessage(DismissFeedbackSchema, msg, 'dismiss_feedback');
+            if (!dismiss) {
+                deps.onProtocolError('dismiss_feedback');
+                break;
+            }
+            deps.onDismiss(dismiss.session_id);
             break;
         }
         case 'get_state': {

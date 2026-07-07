@@ -30,6 +30,7 @@ export declare const QueuePendingSchema: z.ZodObject<{
 }, z.core.$strip>;
 export declare const DismissFeedbackSchema: z.ZodObject<{
     type: z.ZodLiteral<"dismiss_feedback">;
+    session_id: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const SessionUpdatedOutSchema: z.ZodObject<{
     type: z.ZodLiteral<"session_updated">;

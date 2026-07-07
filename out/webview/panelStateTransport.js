@@ -45,6 +45,19 @@
       return false
     }
 
+    snapshot() {
+      return this.items.slice()
+    }
+
+    restore(items) {
+      this.items = []
+      if (!Array.isArray(items)) return this.items.length
+      for (var i = 0; i < items.length; i++) {
+        this.enqueue(items[i])
+      }
+      return this.items.length
+    }
+
     get size() {
       return this.items.length
     }

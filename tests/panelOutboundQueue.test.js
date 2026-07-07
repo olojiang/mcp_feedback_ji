@@ -44,4 +44,18 @@ describe('OutboundQueue', () => {
     q.enqueue({ type: 'feedback_response', feedback: 'ok' })
     assert.equal(q.hasFeedbackResponse(), true)
   })
+
+  it('serializes queued feedback_response so a refresh can resend it', () => {
+    const q = new OutboundQueue()
+    q.enqueue({ type: 'ping' })
+    q.enqueue({ type: 'feedback_response', session_id: 'fb-1', feedback: 'pending reply' })
+
+    const restored = new OutboundQueue()
+    restored.restore(q.snapshot())
+
+    assert.deepEqual(restored.drain(), [
+      { type: 'ping' },
+      { type: 'feedback_response', session_id: 'fb-1', feedback: 'pending reply' },
+    ])
+  })
 })

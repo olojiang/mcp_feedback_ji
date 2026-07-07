@@ -5,3 +5,4 @@ node_modules/
 upstream/
 coverage/
 test-results/
+.omx/

@@ -445,13 +445,15 @@ class FeedbackFlow {
             return undefined;
         return this.deps.feedback.pendingSessions().find((s) => s.id === sessionId)?.traceId;
     }
-    handleDismiss() {
-        const resolved = this.deps.feedback.resolveFirst({ feedback: '[Dismissed by user]' });
+    handleDismiss(sessionId) {
+        const resolved = sessionId
+            ? this.deps.feedback.resolveBySessionId(sessionId, { feedback: '[Dismissed by user]' })
+            : this.deps.feedback.resolveFirst({ feedback: '[Dismissed by user]' });
         if (!resolved) {
-            this.deps.log('dismiss ignored: no pending feedback request');
+            this.deps.log(`dismiss ignored: no pending feedback request session=${sessionId ?? '(first)'}`);
             return;
         }
-        this.deps.broadcastFeedbackSubmitted();
+        this.deps.broadcastFeedbackSubmitted(undefined, sessionId);
         this.deps.onFeedbackResolved?.();
     }
 }

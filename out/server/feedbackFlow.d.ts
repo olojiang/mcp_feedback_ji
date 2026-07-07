@@ -65,6 +65,6 @@ export declare class FeedbackFlow {
     private _resolveProject;
     private _sessionProject;
     private _sessionTrace;
-    handleDismiss(): void;
+    handleDismiss(sessionId?: string): void;
 }
 export {};

@@ -52,7 +52,12 @@ function routeHubMessage(ws, client, msg, deps) {
             break;
         }
         case 'dismiss_feedback': {
-            deps.onDismiss();
+            const dismiss = (0, messageSchemas_1.validateMessage)(messageSchemas_1.DismissFeedbackSchema, msg, 'dismiss_feedback');
+            if (!dismiss) {
+                deps.onProtocolError('dismiss_feedback');
+                break;
+            }
+            deps.onDismiss(dismiss.session_id);
             break;
         }
         case 'get_state': {
