@@ -58,6 +58,43 @@ describe('PanelState multi-session', () => {
     assert.ok(cmds.some((c) => c.type === 'render' && c.targets.includes('pending')))
   })
 
+  it('stages pasted images before any session exists and queues them on send', () => {
+    const state = new PanelState()
+
+    const stageCmds = state.stageImage('img-empty-chat')
+    assert.deepEqual(state.getStagedImages(), ['img-empty-chat'])
+    assert.ok(stageCmds.some((c) => c.type === 'render' && c.targets.includes('staged_images')))
+
+    const sendCmds = state.smartSend('', state.getStagedImages())
+    const ws = sendCmds.find((c) => c.type === 'ws_send' && c.message.type === 'queue-pending')
+    assert.ok(ws)
+    assert.deepEqual(ws.message.images, ['img-empty-chat'])
+    assert.deepEqual(state.globalPendingImages, ['img-empty-chat'])
+    assert.deepEqual(state.getStagedImages(), [])
+  })
+
+  it('queues empty-chat text together with staged pasted images', () => {
+    const state = new PanelState()
+
+    state.stageImage('img-with-text')
+    const sendCmds = state.smartSend('reply with screenshot', state.getStagedImages())
+    const ws = sendCmds.find((c) => c.type === 'ws_send' && c.message.type === 'queue-pending')
+
+    assert.ok(ws)
+    assert.deepEqual(ws.message.comments, ['reply with screenshot'])
+    assert.deepEqual(ws.message.images, ['img-with-text'])
+    assert.deepEqual(state.globalPendingQueue, ['reply with screenshot'])
+    assert.deepEqual(state.globalPendingImages, ['img-with-text'])
+    assert.deepEqual(state.getStagedImages(), [])
+  })
+
+  it('counts images as attachments when displaying pending count', () => {
+    assert.equal(PanelState.pendingDisplayCount({ comments: ['reply'], images: ['img'] }), 1)
+    assert.equal(PanelState.pendingDisplayCount({ comments: ['one', 'two'], images: ['img'] }), 2)
+    assert.equal(PanelState.pendingDisplayCount({ comments: [], images: ['img'] }), 1)
+    assert.equal(PanelState.pendingDisplayCount({ comments: [], images: [] }), 0)
+  })
+
   it('submits feedback to selected session, not FIFO order', () => {
     const state = new PanelState()
     state.handleMessage({

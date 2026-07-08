@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url)
 const {
   isInteractiveFeedbackTool,
   buildFollowupMessage,
+  buildDuplicateActiveWaitDeny,
   shouldSkipRulesRefresh,
 } = require('../scripts/hooks/feedback-guard.js')
 
@@ -20,6 +21,13 @@ describe('feedback-guard', () => {
     const out = buildFollowupMessage('checkpoint')
     assert.equal(out.followup_message, 'checkpoint')
     assert.equal(out.permission, undefined)
+  })
+
+  it('buildDuplicateActiveWaitDeny blocks duplicate feedback tool calls', () => {
+    const out = buildDuplicateActiveWaitDeny({ sessionId: 'fb-test' })
+    assert.equal(out.permission, 'deny')
+    assert.match(out.user_message, /already waiting/)
+    assert.match(out.agent_message, /Do not call interactive_feedback again/)
   })
 
   it('skips rules refresh when hub reports live feedback wait', () => {

@@ -2,16 +2,18 @@
 
 基于 [mcp-feedback-enhanced-vscode](https://github.com/yuanmingchencn/mcp-feedback-enhanced-vscode) **v2.5.1** 的本地定制版。面向 **Cursor / VS Code** 中运行的 AI Agent：在对话过程中弹出 **MCP Feedback 面板**，让用户直接回复，而无需额外浏览器窗口。
 
-**当前版本：`2.5.1-ji.154`**
+**当前版本：`2.5.1-ji.155`**
 
 > **一句话**：让 Cursor Agent 在 IDE 里等你回复——**面板回复免费**，插件自身**不偷吃 Request**，多 workspace、断线重连、Hub 重启都尽量保持同一个 live request 的交互链路。
 
 ## 核心亮点
 
-- **少花 Cursor Request**：通过 MCP 面板回复，不需要每次回到聊天框发消息；重复 `interactive_feedback`、keepalive、supersede、stale duplicate 都有 End-turn 防护，避免插件把 Agent 带进连环续跑。
+- **少花 Cursor Request**：通过 MCP 面板回复，不需要每次回到聊天框发消息；重复 `interactive_feedback` 会在已有 live wait 时被 hook 阻断，keepalive、supersede、stale duplicate 都有 End-turn 防护，避免插件把 Agent 带进连环续跑。
 - **一个 IDE 面板承接所有反馈**：Agent 调用 `interactive_feedback` 后，问题直接进入底部面板；多个等待会话以 Tab 管理，可并发、可切换、可批量关闭已完成会话。
 - **长等待更稳**：Hub 重启、Cursor Reload、WebSocket 断开、面板刷新后，pending session 和待发回复都会尽量恢复，不让用户输入在前端消失但 Agent 收不到。
 - **多窗口多项目不串台**：registry、pending 文件、feedback state、localStorage 均按 workspace hash 隔离；MCP discovery 会按项目路径和隐式工作区匹配正确 Hub。
+- **图片反馈顺手**：支持面板内直接 Cmd+V 粘贴截图；即使当前没有 live waiting tab，也能先把图片暂存到 pending，等下一次 Agent 请求自动带上。
+- **Pending 语义更准**：`PENDING (n)` 表示待发送回复条数，图片显示为附件，不再把「1 条回复 + 1 张图」误报成 2 条 pending。
 - **问题可定位**：内置 `panel_submit_delivered`、`panel_submit_no_effect`、`request_billing_risk`、`agent_turn_status` 等结构化日志，方便对照 Cursor Usage、断线原因和真实投递结果。
 - **适合本地高频 Agent 工作流**：支持快捷回复、截图粘贴、draft/pending、手动重连、版本 skew 提示、部署后自检和日轮转日志。
 
@@ -20,11 +22,11 @@
 | 模块 | 功能 |
 |------|------|
 | Feedback 面板 | IDE 内嵌、多 Tab、快捷回复、pending/draft、Close resolved、状态栏、DBG 诊断 |
-| Request 保护 | no-op End turn、duplicate wait 释放、supersede 熔断、keepalive 默认 50min、硬超时日志 |
+| Request 保护 | duplicate active wait 阻断、no-op End turn、duplicate wait 释放、supersede 熔断、keepalive 默认 50min、硬超时日志 |
 | 会话恢复 | pending 磁盘持久化、Hub restore、webview hydrate、outbound queue 持久化、live session reattach |
 | 多 workspace | workspace hash 隔离、路径匹配、registry lock、stale payload 过滤、测试 Hub 隔离 |
 | 连接韧性 | 6×1s rediscovery、health timeout 降噪、agent link lost toast、手动 ↻ 重连 |
-| 剪贴板 | 文本复制粘贴、macOS 截图 Cmd+V、bridge 异常自动降级原生粘贴 |
+| 剪贴板 | 文本复制粘贴、macOS 截图 Cmd+V、空对话图片暂存、bridge 异常自动降级原生粘贴 |
 | 可观测性 | 日轮转日志、health/docs/openapi 端点、面板投递 reason、账单风险事件、troubleshooting 文档 |
 | 开发部署 | `npm run compile`、`npm run deploy`、`verify-install`、VSIX 打包、回归测试套件 |
 
@@ -39,12 +41,14 @@
 | 多窗口 MCP 连错 Hub | 隐式工作区路由 + 6×1s 重发现，避免连到别的项目端口 |
 | Hub 重启后左右都在等 | Pending **磁盘持久化**，启动自动 restore + 面板 hydrate |
 | 面板重连后 Send 变 QUEUE | **server pending snapshot/restore**，localStorage 不再冲掉 Hub waiting tab |
-| 莫名多扣 Cursor Request | **Request waste guard**：keepalive / supersede 完成工具后 **End turn**，禁止连环调 feedback |
+| 莫名多扣 Cursor Request | **Request waste guard**：已有 live wait 时阻断重复 feedback；keepalive / supersede 完成工具后 **End turn**，禁止连环调 feedback |
 | Reload 后重连到旧 session | **live session reattach**，拒绝 stale detached tab 抢占当前 request |
 | 第二个 workspace 污染第一个 | **per-workspace storage/lock/registry**，pending、state、runtime 文件按 workspace hash 隔离 |
 | 前端误报掉线 | health 检查同时参考 Hub protocol activity，减少空闲 ping timeout 假阳性 |
 | 面板发了 Agent 没反应 | **`panel_submit_no_effect`** 结构化日志 + reason 对照表，秒级定位断点 |
 | 刷新时 pending 回复丢失 | **outbound feedback queue 持久化**，transport 未就绪时的回复刷新后仍可重发 |
+| 空对话粘贴图片只显示 Pasted | **全局 staged images**，无 active session 时图片也会预览、入队并随下一次回复投递 |
+| 一条回复带图却显示 PENDING (2) | **按回复计数**，图片作为附件显示，不再额外增加 pending 条数 |
 | 断网重连级联重试 | Supersede 熔断 + `already_pending` 忽略重复调用 |
 | 排查困难 | 统一日轮转日志 + [`troubleshooting.md`](local_docs/troubleshooting.md) |
 
@@ -60,7 +64,8 @@
 | **多窗口 / 多项目路由** | 按 workspace hash 注册端口，支持子目录匹配；MCP 自动 discovery + 有限重试 |
 | **连接状态可见** | 顶部显示 `v版本 ● Connected :端口 pid=进程号`；版本 skew 横幅提示 Reload |
 | **剪贴板与截图** | 面板内复制/粘贴；macOS 支持截图 Cmd+V 读图（Extension Host 侧 `pbpaste` + NSPasteboard） |
-| **Pending / Draft** | 无等待会话时可先攒草稿；Send 时合并 pending 队列并清空 PENDING 条 |
+| **Pending / Draft** | 无等待会话时可先攒草稿和截图；Send/Queue 时合并 pending 队列并清空 PENDING 条 |
+| **图片附件语义** | `PENDING (n)` 按待发送回复条数计数；图片以 `image attached` 展示为附件，纯图片 pending 计为 1 条 |
 | **刷新不丢待发回复 (ji.154)** | `feedback_response` 在 bridge/WS 未就绪时进入可持久化 outbound queue；刷新后恢复并继续 flush，避免 pending 文本被清空却没有送达 |
 | **Pending 磁盘恢复** | Hub 重启后从 `pending-sessions/` 恢复未决 session；面板 boot 先 `state_sync` 再合并 localStorage，避免陈旧 PENDING |
 | **Hydrate 防覆盖** | `snapshotServerPendingSessions` → localStorage restore → `restoreServerPendingSessions`；重连后 waiting tab 不丢失 |
@@ -77,7 +82,7 @@
 | **排查文档** | [`local_docs/troubleshooting.md`](local_docs/troubleshooting.md)：死锁、pending 持久化、↻ 手动恢复、grep 命令 |
 | **统一日轮转日志** | extension / mcp-server / webview / hooks 四大子系统统一按天轮转 + 7 天清理；heartbeat 对数节流；passthrough 工具静默 |
 | **Deploy 工作流** | `npm run deploy` 自动 bump、编译、同步到 `~/.cursor/extensions/` 并更新 `mcp.json` |
-| **490+ 单测** | 协议路由、pending 恢复、outbound queue、剪贴板、多 Tab、pipeline、workspace 隔离、health timeout、测试隔离等覆盖 |
+| **503+ 单测** | 协议路由、pending 恢复、outbound queue、剪贴板、多 Tab、pipeline、workspace 隔离、health timeout、测试隔离等覆盖 |
 
 ### Cursor Request 节省机制
 
@@ -88,6 +93,7 @@
 | 保护机制 | 原理 |
 |----------|------|
 | **`already_pending` 忽略** | 重复的 `interactive_feedback` 调用不完成工具调用，Cursor 不启动新 Agent 轮次 |
+| **Duplicate active wait hook** | 同一 trace 已有 live wait 时，preToolUse 直接阻断重复 `interactive_feedback`，要求 Agent 等现有面板回复 |
 | **`stop` hook + followup_message** | Agent 结束前零成本提醒调用 `interactive_feedback`，不使用 `deny`（deny 会消耗 1 request） |
 | **No-op End turn (ji.116+)** | `[keepalive]` / `[released_duplicate]` / `[superseded]` 完成工具后禁止 Agent 再调 feedback |
 | **超时 resolve** | MCP 等待超时返回结果而非抛错，避免 Agent 进入错误处理循环 |
@@ -164,7 +170,7 @@ npm run deploy            # bump 版本 + 编译 + 同步到已安装扩展
 ## 面板一览
 
 ```
-v2.5.1-ji.154  ● Connected :48202 pid=44671   ↻
+v2.5.1-ji.155  ● Connected :48202 pid=44671   ↻
 Chat fb-abc123  |  Chat fb-def456
 ─────────────────────────────────────────────
   AI  请确认是否继续…
@@ -217,6 +223,8 @@ Chat fb-abc123  |  Chat fb-def456
 | 无法输入 | 移除抢焦点的 `focus-webview` |
 | 截图粘贴 | macOS Extension 读图；paste 去重 |
 | 链接粘贴两遍 | 单路径 keydown → WS |
+| 空对话图片粘贴 | 无 active session 时进入全局 staged images，显示预览，点击 Queue 后写入 `queue-pending.images` |
+| 图片 pending 计数 | 一条文本回复带多张图仍显示 `PENDING (1)`；纯图片 pending 显示 `PENDING (1)` |
 
 ### 5. 死锁、断连与多 workspace 隔离（ji.115–ji.147）
 
@@ -284,7 +292,7 @@ mcp_feedback_ji/
       "command": "/path/to/node",
       "args": ["/path/to/mcp-server/dist/index.js"],
       "env": {
-        "MCP_FEEDBACK_VERSION": "2.5.1-ji.154"
+        "MCP_FEEDBACK_VERSION": "2.5.1-ji.155"
       }
     }
   }

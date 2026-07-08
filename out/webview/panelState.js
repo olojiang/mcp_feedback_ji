@@ -160,6 +160,7 @@
       this.autoReplyText = 'Continue'
       this.globalPendingQueue = []
       this.globalPendingImages = []
+      this.globalStagedImages = []
       this.hubSnapshot = null
       this.hubTimeline = []
       this.lastPendingSessionIds = []
@@ -851,6 +852,8 @@
       if (active) {
         active.stagedImages = []
         active.inputDraft = ''
+      } else {
+        this.globalStagedImages = []
       }
       return [
         wsSend({
@@ -924,21 +927,22 @@
 
     stageImage(base64) {
       var active = this.getActiveSession()
-      if (!active) return []
-      active.stagedImages.push(base64)
+      if (active) active.stagedImages.push(base64)
+      else this.globalStagedImages.push(base64)
       return [render('staged_images'), dom('update_send_button')]
     }
 
     unstageImage(idx) {
       var active = this.getActiveSession()
-      if (!active || idx < 0 || idx >= active.stagedImages.length) return []
-      active.stagedImages.splice(idx, 1)
+      var staged = active ? active.stagedImages : this.globalStagedImages
+      if (!staged || idx < 0 || idx >= staged.length) return []
+      staged.splice(idx, 1)
       return [render('staged_images'), dom('update_send_button')]
     }
 
     getStagedImages() {
       var active = this.getActiveSession()
-      return active ? active.stagedImages : []
+      return active ? active.stagedImages : this.globalStagedImages
     }
 
     getPendingDisplay() {
@@ -996,6 +1000,7 @@
         activeSessionId: this.activeSessionId,
         globalPendingQueue: this.globalPendingQueue,
         globalPendingImages: this.globalPendingImages,
+        globalStagedImages: this.globalStagedImages,
         autoReply: this.autoReply,
         autoReplyText: this.autoReplyText,
         quickReplies: this.quickReplies,
@@ -1012,6 +1017,7 @@
       this.activeSessionId = data.activeSessionId || null
       this.globalPendingQueue = data.globalPendingQueue || []
       this.globalPendingImages = data.globalPendingImages || []
+      this.globalStagedImages = data.globalStagedImages || []
       this.autoReply = data.autoReply || false
       this.autoReplyText = data.autoReplyText || 'Continue'
       if (data.quickReplies) {
@@ -1187,6 +1193,13 @@
       if (pending) return true
       if (pasteAt && now - pasteAt < 800) return true
       return false
+    }
+
+    static pendingDisplayCount(pending) {
+      var comments = (pending && pending.comments) || []
+      var images = (pending && pending.images) || []
+      if (comments.length > 0) return comments.length
+      return images.length > 0 ? 1 : 0
     }
 
     static resolveWsUrl(currentUrl, serverPort) {

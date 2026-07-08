@@ -74,7 +74,7 @@ describe('consume-pending integration', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('no-ops duplicate interactive_feedback when hub reports live wait', async () => {
+  it('denies duplicate interactive_feedback when hub reports live wait', async () => {
     const out = await runHook({
       hook_event_name: 'preToolUse',
       tool_name: 'MCP:interactive_feedback',
@@ -83,7 +83,9 @@ describe('consume-pending integration', () => {
       workspace_roots: [workspace],
     })
 
-    assert.deepEqual(out, {})
+    assert.equal(out.permission, 'deny')
+    assert.match(out.user_message, /already waiting/)
+    assert.match(out.agent_message, /Do not call interactive_feedback again/)
   })
 
   it('allows interactive_feedback when hub has no live wait', async () => {

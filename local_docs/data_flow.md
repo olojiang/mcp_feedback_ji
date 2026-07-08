@@ -143,7 +143,7 @@ Hook 输出约束：
 
 | 场景 | 输出 | 原因 |
 | --- | --- | --- |
-| 同 trace 已有 live wait，又调用 `interactive_feedback` | `{}` | 避免 `permission: deny` 被 Cursor 当作工具失败并重新发 request |
+| 同 trace 已有 live wait，又调用 `interactive_feedback` | `permission: deny` | 阻断重复 MCP tool call，并要求 Agent 等现有面板回复 |
 | 有 pending 用户反馈需要交给 Agent | `followup_message` | 注入消息，不完成 MCP wait |
 | 长任务规则刷新 | `followup_message` | 提醒调用 feedback，不阻断当前工具 |
 | stop hook | `{}` | 避免 stop followup 循环 |

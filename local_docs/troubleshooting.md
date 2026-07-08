@@ -205,7 +205,7 @@ rg 'request_waste_guard|cursor_keepalive_auto_resolve|released_duplicate|keepali
 | `event=feedback_submitted_broadcast` | Hub 已向面板广播提交确认（extension.log） |
 | `event=feedback_submitted_received` | 面板收到提交确认（webview.log） |
 | `event=hooks_feedback_tool` | Cursor hooks 放行 interactive_feedback（hooks.log） |
-| `action=skip_duplicate_active_wait` | hooks 发现同 trace live wait 后 no-op，不用 `permission: deny` 完成/打断工具 |
+| `action=deny_duplicate_active_wait` | hooks 发现同 trace live wait 后阻断重复 `interactive_feedback`，避免再进入 Hub 形成第二个 MCP wait |
 | `event=agent_resume_stall` | submitted 后 30s Agent 未续跑（webview 提示） |
 | `event=agent_turn_status_received` | 面板收到 Agent 断开/结束通知（webview.log） |
 

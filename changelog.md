@@ -2,7 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-07-08
+## [2.5.1-ji.155] - 2026-07-08
+
+### Fix — 阻断重复 feedback live wait
+
+- **重复 active wait 不再空返回** — hooks 发现同一 trace 已有 live `interactive_feedback` 等待时，不再只输出 `{}`；改为明确阻断重复 tool call，并提示 Agent 结束本轮、等待现有面板回复
+- **账单风险定位** — 这对应 Cursor Usage 中同一时间段出现额外 request 的场景；日志会从 `action=skip_duplicate_active_wait` 变为 `action=deny_duplicate_active_wait`
+- **回归测试** — 更新 consume-pending hook 集成测试，锁定重复 active wait 必须返回 deny 输出
+
+### Fix — 图片粘贴入队与 Pending 计数
+
+- **空对话图片粘贴可入队** — 无 active session 时，Cmd+V 粘贴图片不再只显示 `Pasted` toast；图片会进入全局 staged images，显示预览，并在点击 Queue 后写入 `queue-pending.images`
+- **附件随下一次 live request 投递** — 当后续 Agent 请求到达时，pending 文本与图片会一起自动提交；日志中可见 `queuePending: comments=1 images=1` 与 `feedbackResponse ... image_count=1`
+- **Pending 计数按回复而不是附件** — `PENDING (n)` 不再把图片附件单独算一条；一条文本回复带图片显示 `PENDING (1)`，纯图片 pending 也显示 `PENDING (1)`
+- **回归测试** — 新增 panel state 覆盖空对话图片 staged/queue、空对话文字+截图一起入队、图片附件计数；全量 `npm test` 为 **503 pass**
 
 ### Docs — README 亮点与功能总览
 

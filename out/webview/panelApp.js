@@ -885,7 +885,7 @@
             return;
         }
         pendingSection.classList.add('visible');
-        var total = q.length + (imgs.length > 0 ? 1 : 0);
+        var total = PS.PanelState.pendingDisplayCount(pending);
         pendingCountEl.textContent = total;
         pendingList.innerHTML = '';
         for (var i = 0; i < q.length; i++) {

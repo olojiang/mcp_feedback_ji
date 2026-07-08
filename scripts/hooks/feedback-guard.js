@@ -11,6 +11,17 @@ function buildFollowupMessage(agentMessage) {
   return { followup_message: String(agentMessage || '') }
 }
 
+function buildDuplicateActiveWaitDeny(activeWait) {
+  const sessionId = activeWait && activeWait.sessionId ? String(activeWait.sessionId) : 'current feedback session'
+  const message = 'A feedback panel is already waiting for this Cursor trace (' + sessionId + '). '
+    + 'Do not call interactive_feedback again; end this turn and wait for the existing panel reply.'
+  return {
+    permission: 'deny',
+    user_message: message,
+    agent_message: message,
+  }
+}
+
 /** Skip forced rules-refresh checkpoint while user has not replied to an open feedback wait. */
 function shouldSkipRulesRefresh(activeWait) {
   return !!(activeWait && activeWait.active && !activeWait.detached)
@@ -19,5 +30,6 @@ function shouldSkipRulesRefresh(activeWait) {
 module.exports = {
   isInteractiveFeedbackTool,
   buildFollowupMessage,
+  buildDuplicateActiveWaitDeny,
   shouldSkipRulesRefresh,
 }

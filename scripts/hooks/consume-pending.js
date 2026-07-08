@@ -4,6 +4,7 @@ const hookUtils = require('./hook-utils');
 const {
     isInteractiveFeedbackTool,
     buildFollowupMessage,
+    buildDuplicateActiveWaitDeny,
     shouldSkipRulesRefresh,
 } = require('./feedback-guard');
 
@@ -111,9 +112,10 @@ async function runHook(input) {
             if (fbServer && traceId) {
                 var activeWait = await checkActiveFeedbackWait(fbServer.port, traceId);
                 if (shouldSkipRulesRefresh(activeWait)) {
-                    hookUtils.log('  event=hooks_feedback_tool trace=' + traceId + ' action=skip_duplicate_active_wait session=' + (activeWait.sessionId || '-'));
-                    hookUtils.output({});
-                    return {};
+                    hookUtils.log('  event=hooks_feedback_tool trace=' + traceId + ' action=deny_duplicate_active_wait session=' + (activeWait.sessionId || '-'));
+                    var duplicateDeny = buildDuplicateActiveWaitDeny(activeWait);
+                    hookUtils.output(duplicateDeny);
+                    return duplicateDeny;
                 }
             }
         }
