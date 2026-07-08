@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-07-08
+
+### Docs — README 亮点与功能总览
+
+- **README 首屏强化** — 新增“核心亮点”，把 Request 节省、IDE 面板、多 Tab、长等待恢复、多 workspace 隔离和结构化日志集中放到开头
+- **功能地图** — 新增按模块划分的功能表，覆盖 Feedback 面板、Request 保护、会话恢复、多 workspace、连接韧性、剪贴板、可观测性和开发部署
+- **定位更清晰** — README 保留后续安装、机制和排查细节，同时让首次阅读者先看到本 fork 相比上游的关键价值
+
 ## [2.5.1-ji.154] - 2026-07-07
 
 ### Fix — pending 回复刷新后不丢失

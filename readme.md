@@ -6,6 +6,28 @@
 
 > **一句话**：让 Cursor Agent 在 IDE 里等你回复——**面板回复免费**，插件自身**不偷吃 Request**，多 workspace、断线重连、Hub 重启都尽量保持同一个 live request 的交互链路。
 
+## 核心亮点
+
+- **少花 Cursor Request**：通过 MCP 面板回复，不需要每次回到聊天框发消息；重复 `interactive_feedback`、keepalive、supersede、stale duplicate 都有 End-turn 防护，避免插件把 Agent 带进连环续跑。
+- **一个 IDE 面板承接所有反馈**：Agent 调用 `interactive_feedback` 后，问题直接进入底部面板；多个等待会话以 Tab 管理，可并发、可切换、可批量关闭已完成会话。
+- **长等待更稳**：Hub 重启、Cursor Reload、WebSocket 断开、面板刷新后，pending session 和待发回复都会尽量恢复，不让用户输入在前端消失但 Agent 收不到。
+- **多窗口多项目不串台**：registry、pending 文件、feedback state、localStorage 均按 workspace hash 隔离；MCP discovery 会按项目路径和隐式工作区匹配正确 Hub。
+- **问题可定位**：内置 `panel_submit_delivered`、`panel_submit_no_effect`、`request_billing_risk`、`agent_turn_status` 等结构化日志，方便对照 Cursor Usage、断线原因和真实投递结果。
+- **适合本地高频 Agent 工作流**：支持快捷回复、截图粘贴、draft/pending、手动重连、版本 skew 提示、部署后自检和日轮转日志。
+
+## 功能地图
+
+| 模块 | 功能 |
+|------|------|
+| Feedback 面板 | IDE 内嵌、多 Tab、快捷回复、pending/draft、Close resolved、状态栏、DBG 诊断 |
+| Request 保护 | no-op End turn、duplicate wait 释放、supersede 熔断、keepalive 默认 50min、硬超时日志 |
+| 会话恢复 | pending 磁盘持久化、Hub restore、webview hydrate、outbound queue 持久化、live session reattach |
+| 多 workspace | workspace hash 隔离、路径匹配、registry lock、stale payload 过滤、测试 Hub 隔离 |
+| 连接韧性 | 6×1s rediscovery、health timeout 降噪、agent link lost toast、手动 ↻ 重连 |
+| 剪贴板 | 文本复制粘贴、macOS 截图 Cmd+V、bridge 异常自动降级原生粘贴 |
+| 可观测性 | 日轮转日志、health/docs/openapi 端点、面板投递 reason、账单风险事件、troubleshooting 文档 |
+| 开发部署 | `npm run compile`、`npm run deploy`、`verify-install`、VSIX 打包、回归测试套件 |
+
 ---
 
 ## 为什么选择这个 Fork
