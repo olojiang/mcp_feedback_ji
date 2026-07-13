@@ -1,8 +1,10 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import { installIsolatedConfig } from './helpers/isolatedConfig.js'
 
 const require = createRequire(import.meta.url)
+installIsolatedConfig('mcp-feedback-session-dedupe-')
 const { FeedbackManager } = require('../out/server/feedbackManager.js')
 const { FeedbackFlow } = require('../out/server/feedbackFlow.js')
 
@@ -119,6 +121,42 @@ describe('session dedupe — waste prevention', () => {
     assert.equal(results.length, 1)
     assert.equal(results[0].result.status, 'already_pending')
     assert.equal(results[0].result.feedback, '')
+  })
+
+  it('duplicate feedback_request on same mcp ws without trace still sends already_pending', () => {
+    const feedback = new FeedbackManager()
+    const logs = []
+    const results = []
+    const flow = new FeedbackFlow({
+      feedback,
+      getHubWorkspaces: () => [PROJECT],
+      appendReminder: (t) => t,
+      addMessage: () => {},
+      broadcastSessionUpdated: () => {},
+      broadcastFeedbackSubmitted: () => {},
+      clearPending: () => {},
+      queueAsPending: () => {},
+      sendResult: (ws, result) => { results.push({ ws, result }) },
+      sendError: () => {},
+      log: (msg) => logs.push(msg),
+      getHubMeta: () => ({ port: 48201, pid: 1 }),
+    })
+    const ws = { id: 'ws-no-trace', readyState: 1 }
+
+    flow.handleFeedbackRequest(ws, {
+      summary: 'First no-trace call',
+      project_directory: PROJECT,
+    })
+    flow.handleFeedbackRequest(ws, {
+      summary: 'Second no-trace call',
+      project_directory: PROJECT,
+    })
+
+    assert.equal(feedback.pendingCount(), 1)
+    assert.equal(results.length, 1)
+    assert.equal(results[0].result.status, 'already_pending')
+    assert.equal(results[0].result.feedback, '')
+    assert.ok(logs.some((l) => l.includes('same_transport_duplicate_blocked')))
   })
 
   it('different trace same project → legitimate parallel tabs (2 pending)', () => {

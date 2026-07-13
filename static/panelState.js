@@ -266,6 +266,11 @@
 
     closeResolvedSessions() {
       var removed = []
+      var activeDraft = null
+      var activeSess = this.getActiveSession()
+      if (activeSess && !activeSess.waiting) {
+        activeDraft = activeSess.inputDraft || ''
+      }
       for (var i = this.sessionOrder.length - 1; i >= 0; i--) {
         var sid = this.sessionOrder[i]
         if (this.sessions[sid] && !this.sessions[sid].waiting) {
@@ -276,6 +281,12 @@
       }
       if (!removed.length) return []
       this._adoptActiveIfNeeded(removed)
+      if (activeDraft && this.activeSessionId) {
+        var newActive = this.sessions[this.activeSessionId]
+        if (newActive && !(newActive.inputDraft && newActive.inputDraft.trim())) {
+          newActive.inputDraft = activeDraft
+        }
+      }
       return this._afterSessionListChange()
     }
 
@@ -1469,6 +1480,57 @@
   PanelState.formatConnectionStatusLabel = function (level, pid) {
     var base = level === 'ok' ? 'Connected' : (level === 'degraded' ? 'Degraded' : 'Disconnected')
     return pid ? (base + ' pid=' + pid) : base
+  }
+  PanelState.relativeFilePath = function (filePath, workspaceRoot) {
+    if (!filePath) return ''
+    var p = String(filePath)
+    if (!workspaceRoot) return p
+    var root = String(workspaceRoot).replace(/\/+$/, '').replace(/\\+$/, '')
+    if (!root) return p
+    var normP = p.replace(/\\/g, '/')
+    var normRoot = root.replace(/\\/g, '/')
+    if (normP === normRoot) return ''
+    if (normP.indexOf(normRoot + '/') === 0) {
+      return normP.slice(normRoot.length + 1)
+    }
+    return p
+  }
+  PanelState.pathFromFileUri = function (uri) {
+    if (!uri) return ''
+    var s = String(uri).trim()
+    if (s.indexOf('file://') !== 0) return s
+    s = s.slice(7)
+    if (s.length >= 3 && s.charAt(0) === '/' && s.charAt(2) === ':') {
+      s = s.slice(1)
+    }
+    try { return decodeURIComponent(s) } catch (e) { return s }
+  }
+  PanelState.finishedClickAction = function (confirmEnabled, pendingConfirm) {
+    if (!confirmEnabled) return 'send'
+    return pendingConfirm ? 'send' : 'confirm-first'
+  }
+  PanelState.addPathsToLru = function (list, paths, max) {
+    var result = Array.isArray(list) ? list.slice() : []
+    var arr = Array.isArray(paths) ? paths : []
+    for (var i = 0; i < arr.length; i++) {
+      var p = String(arr[i] || '')
+      if (!p) continue
+      var idx = result.indexOf(p)
+      if (idx >= 0) result.splice(idx, 1)
+      result.unshift(p)
+    }
+    if (typeof max === 'number' && max > 0 && result.length > max) {
+      result = result.slice(0, max)
+    }
+    return result
+  }
+  PanelState.removeFromPathLru = function (list, path) {
+    if (!Array.isArray(list)) return []
+    var idx = list.indexOf(path)
+    if (idx < 0) return list.slice()
+    var result = list.slice()
+    result.splice(idx, 1)
+    return result
   }
   exports.ConnectionHealth = ConnectionHealth
 })(typeof window !== 'undefined'

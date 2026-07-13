@@ -32,6 +32,11 @@ export type TraceReuseResult = {
     /** Closed prior MCP WebSocket replaced by reuse. Live steals keep old WS subscribed. */
     supersededWs?: WebSocket;
 };
+export type TransportDuplicateResult = {
+    duplicate: boolean;
+    sessionId?: string;
+    enqueuedAt?: number;
+};
 export interface PendingSessionSnapshot {
     id: string;
     label: string;
@@ -55,6 +60,7 @@ export declare class FeedbackManager {
     reattachDetachedForHub(newWs: WebSocket, hubWorkspaces: string[], traceId?: string): string[];
     /** Same agent trace reconnecting or duplicate MCP call — reuse tab instead of new session. */
     reuseByTraceId(mcpWs: WebSocket, traceId: string | undefined, summary?: string): TraceReuseResult;
+    duplicateByTransport(mcpWs: WebSocket): TransportDuplicateResult;
     explainNewSession(mcpWs: WebSocket, projectDir?: string): string;
     hasPending(): boolean;
     pendingCount(): number;

@@ -4084,6 +4084,27 @@ var FeedbackManager = class {
     }
     return { action: "none" };
   }
+  duplicateByTransport(mcpWs) {
+    for (const entry of this.queue) {
+      if (entry.mcpDetached) continue;
+      if (!isMcpTransportOpen(entry.mcpClient)) continue;
+      if (entry.mcpClient === mcpWs) {
+        return {
+          duplicate: true,
+          sessionId: entry.sessionId,
+          enqueuedAt: entry.enqueuedAt
+        };
+      }
+      if (entry.subscriberClients?.has(mcpWs)) {
+        return {
+          duplicate: true,
+          sessionId: entry.sessionId,
+          enqueuedAt: entry.enqueuedAt
+        };
+      }
+    }
+    return { duplicate: false };
+  }
   explainNewSession(mcpWs, projectDir) {
     if (!projectDir) return "no_project_directory";
     const sameProject = this.queue.filter((e) => e.projectDir === projectDir);
@@ -5290,6 +5311,27 @@ var FeedbackFlow = class {
       `feedbackRequest: project=${req.project_directory ?? "(none)"} summary=${req.summary.slice(0, 80)}`
     );
     if (this._handleTraceReuse(mcpWs, req, traceId)) {
+      return;
+    }
+    const sameTransportDuplicate = this.deps.feedback.duplicateByTransport(mcpWs);
+    if (sameTransportDuplicate.duplicate) {
+      this._auditSession("same_transport_duplicate_blocked", {
+        sessionId: sameTransportDuplicate.sessionId,
+        project: req.project_directory,
+        traceId,
+        mcpReadyState: mcpWs.readyState,
+        pendingCount: this.deps.feedback.pendingCount(),
+        reason: "same_mcp_ws_active_wait",
+        summaryPreview: req.summary
+      });
+      this.deps.log(
+        `feedbackRequest: same_transport_duplicate_blocked session=${sameTransportDuplicate.sessionId ?? "unknown"}`
+      );
+      this.deps.sendResult(mcpWs, {
+        status: "already_pending",
+        feedback: "",
+        session_id: sameTransportDuplicate.sessionId
+      });
       return;
     }
     const transport = this.deps.feedback.updateTransport(
@@ -21639,6 +21681,29 @@ function buildDefaultWebviewHandlers(vscodeApi) {
     "at-search": (msg, view, ctx) => {
       ctx.handleAtSearch(String(msg.query || ""), view);
     },
+    "browse-paths": async (msg, view) => {
+      const canSelectFiles = msg.canSelectFiles !== false;
+      const canSelectFolders = msg.canSelectFolders === true;
+      try {
+        const uris = await vscodeApi.window.showOpenDialog({
+          canSelectFiles,
+          canSelectFolders,
+          canSelectMany: true,
+          openLabel: "Insert path"
+        });
+        const paths = [];
+        if (uris && uris.length) {
+          const workspaceRoot = vscodeApi.workspace.workspaceFolders?.[0]?.uri;
+          for (const uri of uris) {
+            const rel = workspaceRoot ? vscodeApi.workspace.asRelativePath(uri, false) : uri.fsPath;
+            paths.push(rel);
+          }
+        }
+        view.webview.postMessage({ type: "browse-paths-result", paths });
+      } catch {
+        view.webview.postMessage({ type: "browse-paths-result", paths: [] });
+      }
+    },
     "open-log": (msg, _view, ctx) => {
       void ctx.openLog(String(msg.target || ""));
     },
@@ -22064,9 +22129,11 @@ var FeedbackViewProvider = class {
     try {
       const filePattern = `**/*${query}*`;
       const excludePattern = "{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}";
-      const files = await vscode.workspace.findFiles(filePattern, excludePattern, 15);
+      const files = await vscode.workspace.findFiles(filePattern, excludePattern, 30);
       if (seq !== this._atSearchSeq) return;
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+      const lowerQuery = query.toLowerCase();
+      const dirSet = /* @__PURE__ */ new Set();
       for (const file2 of files) {
         const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
         items.push({
@@ -22075,8 +22142,39 @@ var FeedbackViewProvider = class {
           detail: rel,
           insertText: rel
         });
+        const parts = rel.split("/");
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (parts[i].toLowerCase().includes(lowerQuery)) {
+            dirSet.add(parts.slice(0, i + 1).join("/") + "/");
+          }
+        }
       }
-    } catch {
+      appendWebviewLog(`at-search query="${query}" files=${files.length} dirs_from_files=${dirSet.size}`);
+      try {
+        const dirFilePattern = `**/*${query}*/*`;
+        const dirFiles = await vscode.workspace.findFiles(dirFilePattern, excludePattern, 20);
+        if (seq !== this._atSearchSeq) return;
+        for (const file2 of dirFiles) {
+          const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
+          const parts = rel.split("/");
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (parts[i].toLowerCase().includes(lowerQuery)) {
+              dirSet.add(parts.slice(0, i + 1).join("/") + "/");
+            }
+          }
+        }
+        appendWebviewLog(`at-search dir_glob files=${dirFiles.length} dirs_total=${dirSet.size}`);
+      } catch {
+      }
+      const dirItems = Array.from(dirSet).slice(0, 8).map((d) => ({
+        kind: "folder",
+        label: d,
+        detail: "directory",
+        insertText: d
+      }));
+      items.unshift(...dirItems);
+    } catch (err) {
+      appendWebviewLog(`at-search error: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (seq !== this._atSearchSeq) return;
     try {

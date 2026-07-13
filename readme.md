@@ -4,6 +4,8 @@
 
 **当前版本：`2.5.1-ji.155`**
 
+**稳定性对照分支**：[`shenghanqin/mcp-feedback-enhanced-vscode-good@fix/cursor-single-feedback-session`](https://github.com/shenghanqin/mcp-feedback-enhanced-vscode-good/tree/fix/cursor-single-feedback-session)，用于对比 single feedback session、通信重绑、`already_pending`、提示词/规则注入等稳定性修复。
+
 > **一句话**：让 Cursor Agent 在 IDE 里等你回复——**面板回复免费**，插件自身**不偷吃 Request**，多 workspace、断线重连、Hub 重启都尽量保持同一个 live request 的交互链路。
 
 ## 核心亮点

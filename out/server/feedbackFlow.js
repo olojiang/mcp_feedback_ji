@@ -188,6 +188,25 @@ class FeedbackFlow {
         if (this._handleTraceReuse(mcpWs, req, traceId)) {
             return;
         }
+        const sameTransportDuplicate = this.deps.feedback.duplicateByTransport(mcpWs);
+        if (sameTransportDuplicate.duplicate) {
+            this._auditSession('same_transport_duplicate_blocked', {
+                sessionId: sameTransportDuplicate.sessionId,
+                project: req.project_directory,
+                traceId,
+                mcpReadyState: mcpWs.readyState,
+                pendingCount: this.deps.feedback.pendingCount(),
+                reason: 'same_mcp_ws_active_wait',
+                summaryPreview: req.summary,
+            });
+            this.deps.log(`feedbackRequest: same_transport_duplicate_blocked session=${sameTransportDuplicate.sessionId ?? 'unknown'}`);
+            this.deps.sendResult(mcpWs, {
+                status: 'already_pending',
+                feedback: '',
+                session_id: sameTransportDuplicate.sessionId,
+            });
+            return;
+        }
         const transport = this.deps.feedback.updateTransport(mcpWs, req.project_directory, req.summary, traceId);
         if (transport.updated && transport.sessionId) {
             this.deps.log(`feedbackRequest: transport updated session=${transport.sessionId ?? 'unknown'}`);

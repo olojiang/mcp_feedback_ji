@@ -1,8 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 
 const require = createRequire(import.meta.url)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const { PanelState, storageKeyForWorkspace } = require('../out/webview/panelState.js')
 
 describe('PanelState multi-session', () => {
@@ -745,5 +748,188 @@ describe('PanelState multi-session', () => {
     state.restoreServerGlobalPending(snap)
     assert.deepEqual(state.globalPendingQueue, ['from-server'])
     assert.deepEqual(state.globalPendingImages, ['img-srv'])
+  })
+
+  // ── Issue fixes ──────────────────────────────────────
+
+  it('closeResolvedSessions migrates draft from removed active resolved to new active', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'a', summary: 'A' })
+    state.submitFeedback('done', [], { session_id: 'a' })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'a', feedback: 'done' })
+    state.handleMessage({ type: 'session_updated', session_id: 'b', summary: 'B' })
+    // active resolved session 'a' with a draft, waiting session 'b' exists
+    state.setActiveSession('a')
+    state.sessions['a'].inputDraft = 'my unsent text'
+
+    const cmds = state.closeResolvedSessions()
+    assert.equal(state.sessions['a'], undefined)
+    assert.equal(state.activeSessionId, 'b')
+    assert.equal(state.sessions['b'].inputDraft, 'my unsent text')
+    const setInput = cmds.find((c) => c.type === 'dom' && c.action === 'set_input')
+    assert.ok(setInput)
+    assert.equal(setInput.value, 'my unsent text')
+  })
+
+  it('closeResolvedSessions does not overwrite existing draft on new active', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'a', summary: 'A' })
+    state.submitFeedback('done', [], { session_id: 'a' })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'a', feedback: 'done' })
+    state.handleMessage({ type: 'session_updated', session_id: 'b', summary: 'B' })
+    state.setActiveSession('a')
+    state.sessions['a'].inputDraft = 'unsent on a'
+    state.sessions['b'].inputDraft = 'already on b'
+
+    state.closeResolvedSessions()
+    assert.equal(state.sessions['b'].inputDraft, 'already on b')
+  })
+
+  it('closeResolvedSessions preserves draft when active is waiting', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'a', summary: 'A' })
+    state.submitFeedback('done', [], { session_id: 'a' })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'a', feedback: 'done' })
+    state.handleMessage({ type: 'session_updated', session_id: 'b', summary: 'B' })
+    state.setActiveSession('b')
+    state.sessions['b'].inputDraft = 'typing here'
+
+    const cmds = state.closeResolvedSessions()
+    assert.equal(state.activeSessionId, 'b')
+    assert.equal(state.sessions['b'].inputDraft, 'typing here')
+    const setInput = cmds.find((c) => c.type === 'dom' && c.action === 'set_input')
+    assert.ok(setInput)
+    assert.equal(setInput.value, 'typing here')
+  })
+
+  it('relativeFilePath computes path relative to workspace root', () => {
+    assert.equal(
+      PanelState.relativeFilePath('/proj/src/main.ts', '/proj'),
+      'src/main.ts'
+    )
+    assert.equal(
+      PanelState.relativeFilePath('/proj/src/main.ts', '/proj/'),
+      'src/main.ts'
+    )
+    assert.equal(
+      PanelState.relativeFilePath('C:\\proj\\src\\main.ts', 'C:\\proj'),
+      'src/main.ts'
+    )
+    assert.equal(
+      PanelState.relativeFilePath('/other/path/file.ts', '/proj'),
+      '/other/path/file.ts'
+    )
+    assert.equal(
+      PanelState.relativeFilePath('/proj', '/proj'),
+      ''
+    )
+    assert.equal(
+      PanelState.relativeFilePath('/proj/file.ts', ''),
+      '/proj/file.ts'
+    )
+    assert.equal(PanelState.relativeFilePath('', '/proj'), '')
+    assert.equal(PanelState.relativeFilePath(null, '/proj'), '')
+  })
+
+  it('pathFromFileUri extracts filesystem path from file:// URI', () => {
+    assert.equal(
+      PanelState.pathFromFileUri('file:///Users/hunter/proj/src/main.ts'),
+      '/Users/hunter/proj/src/main.ts'
+    )
+    assert.equal(
+      PanelState.pathFromFileUri('file:///C:/Users/hunter/proj/main.ts'),
+      'C:/Users/hunter/proj/main.ts'
+    )
+    assert.equal(
+      PanelState.pathFromFileUri('file:///proj/file%20name.ts'),
+      '/proj/file name.ts'
+    )
+    assert.equal(
+      PanelState.pathFromFileUri('/already/a/path.ts'),
+      '/already/a/path.ts'
+    )
+    assert.equal(PanelState.pathFromFileUri(''), '')
+    assert.equal(PanelState.pathFromFileUri(null), '')
+  })
+
+  it('finishedClickAction returns send when confirmation not needed', () => {
+    assert.equal(PanelState.finishedClickAction(false, false), 'send')
+    assert.equal(PanelState.finishedClickAction(false, true), 'send')
+  })
+
+  it('finishedClickAction returns confirm-first on initial click when confirmation enabled', () => {
+    assert.equal(PanelState.finishedClickAction(true, false), 'confirm-first')
+  })
+
+  it('finishedClickAction returns send when pending confirm token is set', () => {
+    assert.equal(PanelState.finishedClickAction(true, true), 'send')
+  })
+})
+
+describe("PanelState path LRU", () => {
+  it("addPathsToLru adds new paths to front", () => {
+    assert.deepEqual(PanelState.addPathsToLru([], ["src/foo.ts"], 20), ["src/foo.ts"])
+  })
+
+  it("addPathsToLru moves existing path to front (dedupe)", () => {
+    var list = ["a.ts", "b.ts", "c.ts"]
+    var result = PanelState.addPathsToLru(list, ["a.ts"], 20)
+    assert.deepEqual(result, ["a.ts", "b.ts", "c.ts"])
+  })
+
+  it("addPathsToLru adds multiple paths keeping newest first", () => {
+    var result = PanelState.addPathsToLru([], ["a.ts", "b.ts", "c.ts"], 20)
+    assert.deepEqual(result, ["c.ts", "b.ts", "a.ts"])
+  })
+
+  it("addPathsToLru caps at max and evicts oldest", () => {
+    var list = ["1", "2", "3"]
+    var result = PanelState.addPathsToLru(list, ["4", "5"], 4)
+    assert.deepEqual(result, ["5", "4", "1", "2"])
+    assert.equal(result.length, 4)
+  })
+
+  it("addPathsToLru ignores empty strings", () => {
+    assert.deepEqual(PanelState.addPathsToLru([], ["", "x.ts"], 20), ["x.ts"])
+  })
+
+  it("addPathsToLru handles dedupe across batch", () => {
+    var result = PanelState.addPathsToLru(["x.ts"], ["x.ts", "y.ts"], 20)
+    assert.deepEqual(result, ["y.ts", "x.ts"])
+  })
+
+  it("removeFromPathLru removes matching path", () => {
+    assert.deepEqual(PanelState.removeFromPathLru(["a", "b", "c"], "b"), ["a", "c"])
+  })
+
+  it("removeFromPathLru returns same list if path not found", () => {
+    assert.deepEqual(PanelState.removeFromPathLru(["a", "b"], "z"), ["a", "b"])
+  })
+
+  it("removeFromPathLru handles empty list", () => {
+    assert.deepEqual(PanelState.removeFromPathLru([], "x"), [])
+  })
+})
+
+describe("panelApp.js LRU wiring regression", () => {
+  it("declares lruPaths and browseBtn before their first usage (no hoisting bug)", () => {
+    const fs = require('fs')
+    const path = require('path')
+    const src = fs.readFileSync(
+      path.join(__dirname, '..', 'static', 'panelApp.js'), 'utf8'
+    )
+    var declIdx = src.indexOf("var lruPaths = document.getElementById('lruPaths')")
+    var useIdx = src.indexOf("renderLruInline()")
+    assert.ok(declIdx > 0, 'lruPaths declaration must exist')
+    assert.ok(useIdx > 0, 'renderLruInline usage must exist')
+    assert.ok(declIdx < useIdx,
+      'lruPaths must be declared before renderLruInline usage')
+
+    declIdx = src.indexOf("var browseBtn = document.getElementById('browseBtn')")
+    useIdx = src.indexOf("if (browseBtn)")
+    assert.ok(declIdx > 0, 'browseBtn declaration must exist')
+    assert.ok(useIdx > 0, 'browseBtn usage must exist')
+    assert.ok(declIdx < useIdx,
+      'browseBtn must be declared before first usage')
   })
 })

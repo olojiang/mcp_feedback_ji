@@ -5,6 +5,7 @@ export type SessionLifecycleEvent =
     | 'mcp_connect'
     | 'transport_reuse'
     | 'transport_skip'
+    | 'same_transport_duplicate_blocked'
     | 'trace_reuse'
     | 'trace_steal'
     | 'trace_duplicate_blocked'

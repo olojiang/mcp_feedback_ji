@@ -445,10 +445,12 @@ class FeedbackViewProvider {
         try {
             const filePattern = `**/*${query}*`;
             const excludePattern = '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}';
-            const files = await vscode.workspace.findFiles(filePattern, excludePattern, 15);
+            const files = await vscode.workspace.findFiles(filePattern, excludePattern, 30);
             if (seq !== this._atSearchSeq)
                 return;
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+            const lowerQuery = query.toLowerCase();
+            const dirSet = new Set();
             for (const file of files) {
                 const rel = workspaceRoot ? vscode.workspace.asRelativePath(file, false) : file.fsPath;
                 items.push({
@@ -457,9 +459,47 @@ class FeedbackViewProvider {
                     detail: rel,
                     insertText: rel,
                 });
+                // Extract ancestor directories whose name matches the query
+                const parts = rel.split('/');
+                for (let i = 0; i < parts.length - 1; i++) {
+                    if (parts[i].toLowerCase().includes(lowerQuery)) {
+                        dirSet.add(parts.slice(0, i + 1).join('/') + '/');
+                    }
+                }
             }
+            (0, webviewLog_1.appendWebviewLog)(`at-search query="${query}" files=${files.length} dirs_from_files=${dirSet.size}`);
+            // Also search for directories matching the query using a file glob
+            // trick: find files whose path contains a matching directory segment,
+            // even if the file name itself doesn't match.
+            try {
+                const dirFilePattern = `**/*${query}*/*`;
+                const dirFiles = await vscode.workspace.findFiles(dirFilePattern, excludePattern, 20);
+                if (seq !== this._atSearchSeq)
+                    return;
+                for (const file of dirFiles) {
+                    const rel = workspaceRoot ? vscode.workspace.asRelativePath(file, false) : file.fsPath;
+                    const parts = rel.split('/');
+                    for (let i = 0; i < parts.length - 1; i++) {
+                        if (parts[i].toLowerCase().includes(lowerQuery)) {
+                            dirSet.add(parts.slice(0, i + 1).join('/') + '/');
+                        }
+                    }
+                }
+                (0, webviewLog_1.appendWebviewLog)(`at-search dir_glob files=${dirFiles.length} dirs_total=${dirSet.size}`);
+            }
+            catch { }
+            // Add directory items (folders first, before files)
+            const dirItems = Array.from(dirSet).slice(0, 8).map(d => ({
+                kind: 'folder',
+                label: d,
+                detail: 'directory',
+                insertText: d,
+            }));
+            items.unshift(...dirItems);
         }
-        catch { }
+        catch (err) {
+            (0, webviewLog_1.appendWebviewLog)(`at-search error: ${err instanceof Error ? err.message : String(err)}`);
+        }
         if (seq !== this._atSearchSeq)
             return;
         try {

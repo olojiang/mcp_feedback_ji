@@ -461,6 +461,21 @@ body{
 }
 .at-dropdown-item .at-label{color:var(--fg);font-weight:500}
 .at-dropdown-item .at-detail{color:var(--fg-dim);font-size:10px;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:50%}
+.lru-paths{display:flex;gap:5px;padding:4px 12px;flex-wrap:wrap;align-items:center}
+.lru-chip{
+  display:inline-flex;align-items:center;gap:4px;
+  background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.18);
+  color:var(--fg-dim);border-radius:14px;padding:3px 4px 3px 8px;
+  cursor:pointer;font-size:11px;transition:all .2s;max-width:280px;
+}
+.lru-chip:hover{border-color:var(--btn-bg);color:var(--fg);box-shadow:0 1px 6px rgba(124,58,237,0.15)}
+.lru-chip .lru-chip-icon{flex-shrink:0;font-size:11px}
+.lru-chip .lru-chip-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;font-size:10px}
+.lru-chip .lru-chip-del{
+  flex-shrink:0;color:var(--fg-dim);font-size:13px;font-weight:bold;
+  padding:0 5px;border-radius:10px;line-height:1;cursor:pointer;
+}
+.lru-chip .lru-chip-del:hover{color:#ef4444;background:rgba(239,68,68,0.12)}
 .ws-info{display:flex;align-items:center;gap:6px}
 .ws-status{
   display:flex;align-items:center;gap:5px;cursor:pointer;
@@ -674,12 +689,14 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 <div class="quick-replies" id="quickReplies"></div>
 
 <div class="image-previews" id="imagePreviews"></div>
+<div class="lru-paths" id="lruPaths"></div>
 <div class="input-area" style="position:relative">
   <div class="at-dropdown" id="atDropdown"></div>
   <div class="input-row">
     <textarea id="input" placeholder="Type your feedback... (paste image with Cmd-V, @ to reference files; Shift+click quick reply to fill)" rows="2"></textarea>
     <div class="input-actions">
       <button class="attach-btn" id="attachBtn" title="Attach image file">&#128206;</button>
+      <button class="attach-btn" id="browseBtn" title="Insert file/folder path">&#128193;</button>
       <button class="send-btn" id="sendBtn" disabled>Queue</button>
     </div>
   </div>

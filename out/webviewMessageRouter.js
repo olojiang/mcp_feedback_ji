@@ -63,6 +63,32 @@ function buildDefaultWebviewHandlers(vscodeApi) {
         'at-search': (msg, view, ctx) => {
             ctx.handleAtSearch(String(msg.query || ''), view);
         },
+        'browse-paths': async (msg, view) => {
+            const canSelectFiles = msg.canSelectFiles !== false;
+            const canSelectFolders = msg.canSelectFolders === true;
+            try {
+                const uris = await vscodeApi.window.showOpenDialog({
+                    canSelectFiles,
+                    canSelectFolders,
+                    canSelectMany: true,
+                    openLabel: 'Insert path',
+                });
+                const paths = [];
+                if (uris && uris.length) {
+                    const workspaceRoot = vscodeApi.workspace.workspaceFolders?.[0]?.uri;
+                    for (const uri of uris) {
+                        const rel = workspaceRoot
+                            ? vscodeApi.workspace.asRelativePath(uri, false)
+                            : uri.fsPath;
+                        paths.push(rel);
+                    }
+                }
+                view.webview.postMessage({ type: 'browse-paths-result', paths });
+            }
+            catch {
+                view.webview.postMessage({ type: 'browse-paths-result', paths: [] });
+            }
+        },
         'open-log': (msg, _view, ctx) => {
             void ctx.openLog(String(msg.target || ''));
         },

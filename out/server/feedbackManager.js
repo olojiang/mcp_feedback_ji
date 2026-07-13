@@ -138,6 +138,29 @@ class FeedbackManager {
         }
         return { action: 'none' };
     }
+    duplicateByTransport(mcpWs) {
+        for (const entry of this.queue) {
+            if (entry.mcpDetached)
+                continue;
+            if (!isMcpTransportOpen(entry.mcpClient))
+                continue;
+            if (entry.mcpClient === mcpWs) {
+                return {
+                    duplicate: true,
+                    sessionId: entry.sessionId,
+                    enqueuedAt: entry.enqueuedAt,
+                };
+            }
+            if (entry.subscriberClients?.has(mcpWs)) {
+                return {
+                    duplicate: true,
+                    sessionId: entry.sessionId,
+                    enqueuedAt: entry.enqueuedAt,
+                };
+            }
+        }
+        return { duplicate: false };
+    }
     explainNewSession(mcpWs, projectDir) {
         if (!projectDir)
             return 'no_project_directory';

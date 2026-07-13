@@ -1,6 +1,16 @@
 (function () {
     'use strict';
 
+    window.addEventListener('error', function (e) {
+        try {
+            var err = e.error || e.message || String(e);
+            var msg = 'JS_ERROR: ' + (err && err.stack ? err.stack : String(err))
+                + ' at ' + (e.filename || '?') + ':' + (e.lineno || '?') + ':' + (e.colno || '?');
+            if (window.__mcpVscode) window.__mcpVscode.postMessage({ type: 'log', msg: msg });
+            console.error(msg);
+        } catch (_) {}
+    });
+
     var PS = window.PanelStateModule || (typeof PanelState !== 'undefined' ? { PanelState: PanelState } : null);
     var EP = window.ErudaPanelModule || {
         loadHeight: function (_storage, viewportHeight) {
@@ -121,6 +131,8 @@
     var imagePreviews = document.getElementById('imagePreviews');
     var attachBtn = document.getElementById('attachBtn');
     var fileInput = document.getElementById('fileInput');
+    var browseBtn = document.getElementById('browseBtn');
+    var lruPaths = document.getElementById('lruPaths');
     var bottomPane = document.getElementById('bottomPane');
     var paneSplitter = document.getElementById('paneSplitter');
     var scrollBottomBtn = document.getElementById('scrollBottomBtn');
@@ -982,6 +994,9 @@
         exec(state.clearPending());
     });
 
+    var finishedPendingConfirm = false;
+    var finishedConfirmTimer = null;
+
     quickReplies.addEventListener('click', function (e) {
         var btn = e.target.closest('.quick-reply-btn');
         if (!btn) return;
@@ -992,7 +1007,21 @@
             return;
         }
         if (PS.PanelState.shouldConfirmFinished(text, state.confirmFinished !== false)) {
-            if (!window.confirm('Send Finished and end the agent session loop?')) return;
+            var action = PS.PanelState.finishedClickAction(
+                state.confirmFinished !== false,
+                finishedPendingConfirm
+            );
+            if (action === 'confirm-first') {
+                finishedPendingConfirm = true;
+                showToast('Click Finished again to confirm and end session');
+                clearTimeout(finishedConfirmTimer);
+                finishedConfirmTimer = setTimeout(function () {
+                    finishedPendingConfirm = false;
+                }, 3000);
+                return;
+            }
+            finishedPendingConfirm = false;
+            clearTimeout(finishedConfirmTimer);
         }
         exec(state.smartSend(text, []));
     });
@@ -1044,6 +1073,75 @@
         var pos = start + text.length;
         inputEl.selectionStart = inputEl.selectionEnd = pos;
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // ── LRU path list (per-workspace, persisted in localStorage) ──────
+    var PATH_LRU_MAX = 20;
+    function pathLruKey() { return STORAGE_KEY + '-path-lru'; }
+    function loadPathLru() {
+        try {
+            var raw = localStorage.getItem(pathLruKey());
+            var arr = raw ? JSON.parse(raw) : [];
+            return Array.isArray(arr) ? arr : [];
+        } catch (e) {
+            debugLog('loadPathLru error: ' + (e && e.message ? e.message : String(e)));
+            return [];
+        }
+    }
+    function savePathLru(list) {
+        try {
+            localStorage.setItem(pathLruKey(), JSON.stringify(list));
+            debugLog('savePathLru key=' + pathLruKey() + ' n=' + list.length);
+        } catch (e) {
+            debugLog('savePathLru error: ' + (e && e.message ? e.message : String(e)));
+        }
+    }
+    function addPathsToLru(paths) {
+        if (!paths || !paths.length) return;
+        try {
+            var before = loadPathLru();
+            var list = PS.PanelState.addPathsToLru(before, paths, PATH_LRU_MAX);
+            savePathLru(list);
+            renderLruInline();
+            debugLog('addPathsToLru in=' + JSON.stringify(paths) + ' before_n=' + before.length + ' after_n=' + list.length);
+        } catch (e) {
+            debugLog('addPathsToLru error: ' + (e && e.message ? e.message : String(e)));
+        }
+    }
+    function removePathFromLru(p) {
+        savePathLru(PS.PanelState.removeFromPathLru(loadPathLru(), p));
+        renderLruInline();
+    }
+    function renderLruInline() {
+        if (!lruPaths) return;
+        var list = loadPathLru();
+        lruPaths.innerHTML = '';
+        list.forEach(function (p) {
+            var chip = document.createElement('span');
+            chip.className = 'lru-chip';
+            chip.title = p;
+            var icon = document.createElement('span');
+            icon.className = 'lru-chip-icon';
+            icon.textContent = p.charAt(p.length - 1) === '/' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
+            var pathEl = document.createElement('span');
+            pathEl.className = 'lru-chip-path';
+            pathEl.textContent = p;
+            var del = document.createElement('span');
+            del.className = 'lru-chip-del';
+            del.textContent = '\u00D7';
+            del.title = 'Remove';
+            del.addEventListener('click', function (e) {
+                e.stopPropagation();
+                removePathFromLru(p);
+            });
+            chip.addEventListener('click', function () {
+                insertAtCursor(p);
+            });
+            chip.appendChild(icon);
+            chip.appendChild(pathEl);
+            chip.appendChild(del);
+            lruPaths.appendChild(chip);
+        });
     }
 
     function getCopyPlainFromSelection() {
@@ -1243,16 +1341,129 @@
         });
     }, true);
 
-    var inputArea = inputEl.parentElement.parentElement;
-    inputArea.addEventListener('dragover', function (e) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
-    inputArea.addEventListener('drop', async function (e) {
-        e.preventDefault();
-        for (var i = 0; i < e.dataTransfer.files.length; i++) {
-            if (e.dataTransfer.files[i].type.startsWith('image/')) {
-                addImage(await fileToBase64(e.dataTransfer.files[i]));
+    function logDropEvent(stage, e) {
+        var dt = e.dataTransfer;
+        var types = dt ? dt.types : [];
+        var files = dt && dt.files ? dt.files.length : 0;
+        var tgt = e.target && e.target.tagName ? e.target.tagName : '?';
+        // Sample data from each type for diagnostics
+        var samples = {};
+        if (dt) {
+            for (var i = 0; i < types.length; i++) {
+                try { samples[types[i]] = (dt.getData(types[i]) || '').slice(0, 200); } catch (err) {}
             }
         }
-    });
+        debugLog('drag ' + stage + ' target=' + tgt
+            + ' types=' + JSON.stringify(types) + ' files=' + files
+            + ' samples=' + JSON.stringify(samples));
+    }
+
+    var dropProcessed = false;
+    function processFileDrop(e) {
+        if (dropProcessed) return;
+        dropProcessed = true;
+        setTimeout(function () { dropProcessed = false; }, 500);
+        var dt = e.dataTransfer;
+        if (!dt) { debugLog('drop no_dataTransfer'); return; }
+        var paths = [];
+        var types = dt.types || [];
+        debugLog('drop process types=' + JSON.stringify(types)
+            + ' files=' + (dt.files ? dt.files.length : 0));
+
+        // 1. Try text/uri-list (VSCode explorer drag)
+        var uriList = '';
+        try { uriList = dt.getData('text/uri-list') || ''; } catch (err) {}
+        // 1b. Fallback: some VSCode versions put file:// URIs in text/plain
+        if (!uriList) {
+            try { uriList = dt.getData('text/plain') || ''; } catch (err) {}
+            if (uriList && uriList.indexOf('file://') === -1) uriList = '';
+        }
+        if (uriList) {
+            var uris = uriList.split('\n');
+            for (var i = 0; i < uris.length; i++) {
+                var u = uris[i].trim();
+                if (!u || u.charAt(0) === '#') continue;
+                var fp = PS.PanelState.pathFromFileUri(u);
+                if (fp) {
+                    var rel = PS.PanelState.relativeFilePath(fp, PROJECT_PATH);
+                    if (rel) paths.push(rel);
+                }
+            }
+        }
+
+        // 2. Process File objects (OS file manager drag)
+        var files = dt.files;
+        var imagePromises = [];
+        for (var j = 0; j < files.length; j++) {
+            var f = files[j];
+            if (f.type.startsWith('image/')) {
+                imagePromises.push(fileToBase64(f).then(addImage));
+            } else {
+                var fpath = f.path || '';
+                if (!fpath && f.name) fpath = f.name;
+                if (fpath) {
+                    var rel2 = PS.PanelState.relativeFilePath(fpath, PROJECT_PATH);
+                    if (rel2) paths.push(rel2);
+                }
+            }
+        }
+
+        if (paths.length) insertAtCursor(paths.join('\n'));
+        debugLog('drop result paths=' + JSON.stringify(paths) + ' images=' + imagePromises.length);
+        hideDragOverlay();
+    }
+
+    // ── Drag overlay: visual feedback so the user can see if the webview
+    //    receives DnD events at all, even before checking logs.
+    var dragOverlay = null;
+    var dragDepth = 0;
+    function showDragOverlay() {
+        if (!dragOverlay) {
+            dragOverlay = document.createElement('div');
+            dragOverlay.id = 'dragOverlay';
+            dragOverlay.style.cssText = 'position:fixed;inset:0;z-index:9999;'
+                + 'background:rgba(124,58,237,0.15);border:3px dashed #7c3aed;'
+                + 'display:flex;align-items:center;justify-content:center;'
+                + 'font-size:18px;color:#7c3aed;pointer-events:none;'
+                + 'font-family:monospace;';
+            dragOverlay.textContent = 'Drop files/folders here';
+            document.body.appendChild(dragOverlay);
+        }
+        dragOverlay.style.display = 'flex';
+    }
+    function hideDragOverlay() {
+        if (dragOverlay) dragOverlay.style.display = 'none';
+    }
+
+    // Instrument ALL drag events on both window and document (capture phase).
+    // window capture fires before document capture — if the webview host
+    // blocks events, neither fires and the logs confirm it.
+    function bindDragLogger(target, label) {
+        target.addEventListener('dragenter', function (e) {
+            debugLog('dragenter@' + label);
+            logDropEvent('enter@' + label, e);
+            dragDepth++;
+            showDragOverlay();
+        }, true);
+        target.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        }, true);
+        target.addEventListener('dragleave', function (e) {
+            debugLog('dragleave@' + label);
+            dragDepth--;
+            if (dragDepth <= 0) { dragDepth = 0; hideDragOverlay(); }
+        }, true);
+        target.addEventListener('drop', function (e) {
+            debugLog('drop@' + label);
+            logDropEvent('drop@' + label, e);
+            e.preventDefault();
+            e.stopPropagation();
+            processFileDrop(e);
+        }, true);
+    }
+    bindDragLogger(window, 'win');
+    bindDragLogger(document, 'doc');
 
     document.addEventListener('copy', function (e) {
         var plain = getCopyPlainFromSelection();
@@ -1263,6 +1474,28 @@
     }, true);
 
     attachBtn.addEventListener('click', function () { fileInput.click(); });
+
+    if (browseBtn) {
+        browseBtn.addEventListener('click', function () {
+            if (vscode) {
+                vscode.postMessage({ type: 'browse-paths', canSelectFiles: true, canSelectFolders: true });
+            }
+        });
+    }
+
+    renderLruInline();
+
+    window.addEventListener('message', function (event) {
+        var msg = event && event.data;
+        if (!msg || msg.type !== 'browse-paths-result') return;
+        var paths = Array.isArray(msg.paths) ? msg.paths : [];
+        if (paths.length) {
+            addPathsToLru(paths);
+            insertAtCursor(paths.join('\n'));
+        }
+        debugLog('browse-paths-result paths=' + JSON.stringify(paths));
+    });
+
     fileInput.addEventListener('change', async function () {
         for (var i = 0; i < fileInput.files.length; i++) {
             if (fileInput.files[i].type.startsWith('image/')) {
@@ -1434,7 +1667,7 @@
             row.dataset.index = i;
             var icon = document.createElement('span');
             icon.className = 'kind-icon';
-            icon.textContent = item.kind === 'file' ? '\uD83D\uDCC4' : '\uD83D\uDD23';
+            icon.textContent = item.kind === 'file' ? '\uD83D\uDCC4' : (item.kind === 'folder' ? '\uD83D\uDCC1' : '\uD83D\uDD23');
             var label = document.createElement('span');
             label.className = 'at-label';
             label.textContent = item.label;
@@ -1481,6 +1714,9 @@
         inputEl.selectionStart = inputEl.selectionEnd = newPos;
         inputEl.focus();
         hideAtDropdown();
+        if (item.kind === 'file' || item.kind === 'folder') {
+            addPathsToLru([item.insertText]);
+        }
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 500);
     }
