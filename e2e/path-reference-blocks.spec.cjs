@@ -26,12 +26,14 @@ test.describe('path reference blocks (browser E2E)', () => {
     for (const script of [
       'panelStateMarkdown.js',
       'panelStateUx.js',
+      'panelStateSessionsView.js',
       'panelStateTransport.js',
       'panelAgentResumeWatch.js',
       'panelState.js',
       'erudaPanel.js',
       'themeContrast.js',
       'panelConnection.js',
+      'panelPathReferences.js',
       'panelApp.js',
     ]) {
       await page.addScriptTag({ path: path.join(root, 'static', script) })

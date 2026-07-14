@@ -21757,6 +21757,101 @@ function sanitizeUnreplacedWebviewPlaceholders(html) {
   return html.replace(/<script\b[^>]*\{\{[A-Z0-9_]+\}\}[^>]*>\s*<\/script>\s*/gi, "");
 }
 
+// src/atSearchService.ts
+var EXCLUDE_PATTERN = "{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}";
+function normalizePath(value) {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/{2,}/g, "/");
+}
+function compareItems(left, right) {
+  return left.label.localeCompare(right.label, void 0, { sensitivity: "base", numeric: true }) || left.detail.localeCompare(right.detail, void 0, { sensitivity: "base", numeric: true });
+}
+function matchingDirectories(relativePath, lowerQuery) {
+  const parts = relativePath.split("/");
+  const directories = [];
+  for (let index = 0; index < parts.length - 1; index++) {
+    if (parts[index].toLowerCase().includes(lowerQuery)) {
+      directories.push(`${parts.slice(0, index + 1).join("/")}/`);
+    }
+  }
+  return directories;
+}
+var AtSearchService = class {
+  constructor(dependencies) {
+    this.dependencies = dependencies;
+    this.sequence = 0;
+  }
+  async search(query, postResults) {
+    const sequence = ++this.sequence;
+    if (!query) {
+      postResults([]);
+      return;
+    }
+    const [fileResult, directoryResult, symbolResult] = await Promise.allSettled([
+      this.dependencies.findFiles(`**/*${query}*`, EXCLUDE_PATTERN, 30),
+      this.dependencies.findFiles(`**/*${query}*/*`, EXCLUDE_PATTERN, 20),
+      this.dependencies.findSymbols(query)
+    ]);
+    if (sequence !== this.sequence) return;
+    const lowerQuery = query.toLowerCase();
+    const directories = /* @__PURE__ */ new Set();
+    const files = [];
+    const symbols = [];
+    if (fileResult.status === "fulfilled") {
+      for (const resource of fileResult.value) {
+        const relativePath = normalizePath(resource.path);
+        files.push({
+          kind: "file",
+          label: relativePath.split("/").pop() ?? relativePath,
+          detail: relativePath,
+          insertText: relativePath
+        });
+        for (const directory of matchingDirectories(relativePath, lowerQuery)) {
+          directories.add(directory);
+        }
+      }
+    } else {
+      this.dependencies.log?.(`at-search file error: ${String(fileResult.reason)}`);
+    }
+    if (directoryResult.status === "fulfilled") {
+      for (const resource of directoryResult.value) {
+        const relativePath = normalizePath(resource.path);
+        for (const directory of matchingDirectories(relativePath, lowerQuery)) {
+          directories.add(directory);
+        }
+      }
+    } else {
+      this.dependencies.log?.(`at-search directory error: ${String(directoryResult.reason)}`);
+    }
+    if (symbolResult.status === "fulfilled") {
+      for (const symbol2 of symbolResult.value ?? []) {
+        const relativePath = normalizePath(symbol2.resource.path);
+        const line = symbol2.line + 1;
+        symbols.push({
+          kind: "symbol",
+          label: symbol2.name,
+          detail: `${relativePath}:${line}`,
+          insertText: `${symbol2.name} (${relativePath}:${line})`
+        });
+      }
+    } else {
+      this.dependencies.log?.(`at-search symbol error: ${String(symbolResult.reason)}`);
+    }
+    const folders = Array.from(directories, (directory) => ({
+      kind: "folder",
+      label: directory,
+      detail: "directory",
+      insertText: directory
+    })).sort(compareItems).slice(0, 8);
+    const seen = /* @__PURE__ */ new Set();
+    const unique = [...folders, ...files.sort(compareItems), ...symbols.sort(compareItems).slice(0, 10)].filter((item) => {
+      if (seen.has(item.insertText)) return false;
+      seen.add(item.insertText);
+      return true;
+    }).slice(0, 20);
+    postResults(unique);
+  }
+};
+
 // src/feedbackViewProvider.ts
 var FeedbackViewProvider = class {
   constructor(getHtml, getPort, getVersion, getHub, extensionUri, getMemoryVersion) {
@@ -21764,13 +21859,33 @@ var FeedbackViewProvider = class {
     this._bridge = null;
     this._lastSyncedPort = 0;
     this._webviewReadyAcked = false;
-    this._atSearchSeq = 0;
     this._getHtml = getHtml;
     this._getPort = getPort;
     this._getVersion = getVersion;
     this._getMemoryVersion = getMemoryVersion ?? getVersion;
     this._getHub = getHub;
     this._extensionUri = extensionUri;
+    const toSearchResource = (uri) => ({
+      path: vscode.workspace.workspaceFolders?.[0] ? vscode.workspace.asRelativePath(uri, false) : uri.fsPath
+    });
+    this._atSearchService = new AtSearchService({
+      findFiles: async (pattern, excludePattern, maxResults) => {
+        const files = await vscode.workspace.findFiles(pattern, excludePattern, maxResults);
+        return files.map(toSearchResource);
+      },
+      findSymbols: async (query) => {
+        const symbols = await vscode.commands.executeCommand(
+          "vscode.executeWorkspaceSymbolProvider",
+          query
+        );
+        return symbols?.map((symbol2) => ({
+          name: symbol2.name,
+          resource: toSearchResource(symbol2.location.uri),
+          line: symbol2.location.range.start.line
+        }));
+      },
+      log: appendWebviewLog
+    });
   }
   updateHtmlGetter(getHtml) {
     this._getHtml = getHtml;
@@ -21891,6 +22006,9 @@ var FeedbackViewProvider = class {
     const panelConnectionUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelConnection.js").with({ query: `v=${cacheKey}` })
     );
+    const panelPathReferencesUri = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelPathReferences.js").with({ query: `v=${cacheKey}` })
+    );
     const panelAppUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelApp.js").with({ query: `v=${cacheKey}` })
     );
@@ -21907,6 +22025,7 @@ var FeedbackViewProvider = class {
     html = html.replace(/\{\{PANEL_AGENT_RESUME_WATCH_URI\}\}/g, panelAgentResumeWatchUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
     html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
+    html = html.replace(/\{\{PANEL_PATH_REFERENCES_URI\}\}/g, panelPathReferencesUri.toString());
     html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
     html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
     html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
@@ -22147,92 +22266,9 @@ var FeedbackViewProvider = class {
     });
   }
   async _handleAtSearch(query, view) {
-    if (!query) {
-      view.webview.postMessage({ type: "at-results", items: [] });
-      return;
-    }
-    const seq = ++this._atSearchSeq;
-    const items = [];
-    try {
-      const filePattern = `**/*${query}*`;
-      const excludePattern = "{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}";
-      const files = await vscode.workspace.findFiles(filePattern, excludePattern, 30);
-      if (seq !== this._atSearchSeq) return;
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-      const lowerQuery = query.toLowerCase();
-      const dirSet = /* @__PURE__ */ new Set();
-      for (const file2 of files) {
-        const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
-        items.push({
-          kind: "file",
-          label: path10.basename(file2.fsPath),
-          detail: rel,
-          insertText: rel
-        });
-        const parts = rel.split("/");
-        for (let i = 0; i < parts.length - 1; i++) {
-          if (parts[i].toLowerCase().includes(lowerQuery)) {
-            dirSet.add(parts.slice(0, i + 1).join("/") + "/");
-          }
-        }
-      }
-      appendWebviewLog(`at-search query="${query}" files=${files.length} dirs_from_files=${dirSet.size}`);
-      try {
-        const dirFilePattern = `**/*${query}*/*`;
-        const dirFiles = await vscode.workspace.findFiles(dirFilePattern, excludePattern, 20);
-        if (seq !== this._atSearchSeq) return;
-        for (const file2 of dirFiles) {
-          const rel = workspaceRoot ? vscode.workspace.asRelativePath(file2, false) : file2.fsPath;
-          const parts = rel.split("/");
-          for (let i = 0; i < parts.length - 1; i++) {
-            if (parts[i].toLowerCase().includes(lowerQuery)) {
-              dirSet.add(parts.slice(0, i + 1).join("/") + "/");
-            }
-          }
-        }
-        appendWebviewLog(`at-search dir_glob files=${dirFiles.length} dirs_total=${dirSet.size}`);
-      } catch {
-      }
-      const dirItems = Array.from(dirSet).slice(0, 8).map((d) => ({
-        kind: "folder",
-        label: d,
-        detail: "directory",
-        insertText: d
-      }));
-      items.unshift(...dirItems);
-    } catch (err) {
-      appendWebviewLog(`at-search error: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (seq !== this._atSearchSeq) return;
-    try {
-      const symbols = await vscode.commands.executeCommand(
-        "vscode.executeWorkspaceSymbolProvider",
-        query
-      );
-      if (seq !== this._atSearchSeq) return;
-      if (symbols) {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-        for (const sym of symbols.slice(0, 10)) {
-          const rel = workspaceRoot ? vscode.workspace.asRelativePath(sym.location.uri, false) : sym.location.uri.fsPath;
-          const line = sym.location.range.start.line + 1;
-          items.push({
-            kind: "symbol",
-            label: sym.name,
-            detail: `${rel}:${line}`,
-            insertText: `${sym.name} (${rel}:${line})`
-          });
-        }
-      }
-    } catch {
-    }
-    if (seq !== this._atSearchSeq) return;
-    const seen = /* @__PURE__ */ new Set();
-    const unique = items.filter((it) => {
-      if (seen.has(it.insertText)) return false;
-      seen.add(it.insertText);
-      return true;
-    }).slice(0, 20);
-    view.webview.postMessage({ type: "at-results", items: unique });
+    await this._atSearchService.search(query, (items) => {
+      view.webview.postMessage({ type: "at-results", items });
+    });
   }
   _focusPanel() {
     vscode.commands.executeCommand("mcp-feedback-enhanced.feedbackPanelBottom.focus");
@@ -22442,7 +22478,7 @@ function planHooksConfigUpdate(nodeBin, preToolUseHookPath, hooksConfig) {
 function applyHooksConfigPlan(hooksConfig, plan) {
   return { ...hooksConfig, hooks: plan.existingHooks };
 }
-var HOOK_FILES = ["hook-utils.js", "consume-pending.js"];
+var HOOK_FILES = ["hook-utils.js", "feedback-guard.js", "consume-pending.js"];
 var RETIRED_HOOK_FILES = [
   "check-pending.js",
   "agent-stop.js",

@@ -65,7 +65,7 @@ export function applyHooksConfigPlan(
     return { ...hooksConfig, hooks: plan.existingHooks };
 }
 
-export const HOOK_FILES = ['hook-utils.js', 'consume-pending.js'];
+export const HOOK_FILES = ['hook-utils.js', 'feedback-guard.js', 'consume-pending.js'];
 export const RETIRED_HOOK_FILES = [
     'check-pending.js', 'agent-stop.js', 'session-start.js',
     'enforce-feedback.js', 'track-feedback.js', 'compact-flag.js',

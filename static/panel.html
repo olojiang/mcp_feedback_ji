@@ -736,7 +736,7 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 
 <!-- eruda + helpers loaded as external webview resources (early bootstrap) -->
 <script>
-window.__mcpScriptLoad = { eruda: false, erudaPanel: false, panelState: false, panelConnection: false, panelApp: false, errors: [] };
+window.__mcpScriptLoad = { eruda: false, erudaPanel: false, panelState: false, panelConnection: false, panelPathReferences: false, panelApp: false, errors: [] };
 function __mcpScriptOk(name) { window.__mcpScriptLoad[name] = true; }
 function __mcpScriptFail(name) {
     window.__mcpScriptLoad.errors.push(name);
@@ -775,6 +775,7 @@ function __mcpSendWebviewReady(phase) {
 <script src="{{PANEL_AGENT_RESUME_WATCH_URI}}" onload="__mcpScriptOk('panelAgentResumeWatch')" onerror="__mcpScriptFail('panelAgentResumeWatch')"></script>
 <script src="{{PANELSTATE_URI}}" onload="__mcpScriptOk('panelState')" onerror="__mcpScriptFail('panelState')"></script>
 <script src="{{PANELCONNECTION_URI}}" onload="__mcpScriptOk('panelConnection')" onerror="__mcpScriptFail('panelConnection')"></script>
+<script src="{{PANEL_PATH_REFERENCES_URI}}" onload="__mcpScriptOk('panelPathReferences')" onerror="__mcpScriptFail('panelPathReferences')"></script>
 
 <script>
 const SERVER_URL = '{{SERVER_URL}}';

@@ -9,7 +9,12 @@ const require = createRequire(import.meta.url)
 const { createToolCallHandler } = require('../mcp-server/dist/toolHandlers.js')
 const { FeedbackFlow } = require('../out/server/feedbackFlow.js')
 const { FeedbackManager } = require('../out/server/feedbackManager.js')
-const { planHooksConfigUpdate, applyHooksConfigPlan, SOURCE_TAG } = require('../out/deploy/hooks.js')
+const {
+  planHooksConfigUpdate,
+  applyHooksConfigPlan,
+  SOURCE_TAG,
+  HOOK_FILES,
+} = require('../out/deploy/hooks.js')
 
 describe('toolHandlers — non-normal status handling', () => {
   it('returns informational text for timeout status (not user feedback)', async () => {
@@ -158,6 +163,29 @@ describe('hook-utils — workspaceKey', () => {
 })
 
 describe('deploy/hooks — stop hook retired to prevent loop', () => {
+  it('deploys every local dependency required by an active hook', () => {
+    const hooksDir = path.join(import.meta.dirname, '..', 'scripts', 'hooks')
+    const pending = [...HOOK_FILES]
+    const checked = new Set()
+
+    while (pending.length > 0) {
+      const file = pending.pop()
+      if (checked.has(file)) continue
+      checked.add(file)
+
+      const source = fs.readFileSync(path.join(hooksDir, file), 'utf8')
+      const dependencies = source.matchAll(/require\(['"]\.\/([^'"]+)['"]\)/g)
+      for (const match of dependencies) {
+        const dependency = match[1].endsWith('.js') ? match[1] : `${match[1]}.js`
+        assert.ok(
+          HOOK_FILES.includes(dependency),
+          `${file} requires ${dependency}, but it is missing from HOOK_FILES`,
+        )
+        pending.push(dependency)
+      }
+    }
+  })
+
   it('planHooksConfigUpdate registers preToolUse only, not stop', () => {
     const input = { version: 1, hooks: {} }
     const plan = planHooksConfigUpdate('/node', '/hook/consume-pending.js', input)

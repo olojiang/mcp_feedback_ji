@@ -13,7 +13,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { exec, execSync } from 'child_process';
+import { exec } from 'child_process';
 import { FeedbackWSServer } from './wsServer';
 import { FeedbackViewProvider } from './feedbackViewProvider';
 import { readExtensionVersion, readMemoryExtensionVersion } from './extensionVersion';
@@ -32,25 +32,12 @@ import { RULES_CONTENT, planRulesDeploy } from './deploy/rules';
 import { planPendingMigration } from './deploy/pendingMigration';
 import { createVscodeClipboard } from './vscodeClipboard';
 import { workspacesFromFolders, substituteWebviewPlaceholders } from './extensionHelpers';
-import { resolveRetainContextWhenHidden } from './webviewOptions';
 import { buildPostDeployReloadSteps } from './postDeployReload';
 import {
     DEFAULT_REMINDER_DELAYS_MS,
     scheduleReminderDelays,
     clearScheduledTimers,
 } from './feedbackReminders';
-
-function retainContextWhenHidden(): boolean {
-    try {
-        const getConfiguration = vscode.workspace?.getConfiguration;
-        if (typeof getConfiguration !== 'function') return false;
-        return resolveRetainContextWhenHidden(
-            getConfiguration.call(vscode.workspace, 'mcpFeedback').get('retainContextWhenHidden'),
-        );
-    } catch {
-        return false;
-    }
-}
 
 let wsServer: FeedbackWSServer;
 let bottomProvider: FeedbackViewProvider;
@@ -419,4 +406,3 @@ function checkPowerNap(): void {
         }
     });
 }
-

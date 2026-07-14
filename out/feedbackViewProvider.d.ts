@@ -26,7 +26,7 @@ export declare class FeedbackViewProvider implements vscode.WebviewViewProvider 
     private _forceResetCallback?;
     private _fileWatcher?;
     private _webviewReadyAcked;
-    private _atSearchSeq;
+    private readonly _atSearchService;
     constructor(getHtml: HtmlGetter, getPort: PortGetter, getVersion: VersionGetter, getHub: HubGetter, extensionUri: vscode.Uri, getMemoryVersion?: VersionGetter);
     updateHtmlGetter(getHtml: HtmlGetter): void;
     onForceReset(callback: () => Promise<number>): void;

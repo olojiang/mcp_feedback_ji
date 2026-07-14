@@ -46,7 +46,7 @@ function planHooksConfigUpdate(nodeBin, preToolUseHookPath, hooksConfig) {
 function applyHooksConfigPlan(hooksConfig, plan) {
     return { ...hooksConfig, hooks: plan.existingHooks };
 }
-exports.HOOK_FILES = ['hook-utils.js', 'consume-pending.js'];
+exports.HOOK_FILES = ['hook-utils.js', 'feedback-guard.js', 'consume-pending.js'];
 exports.RETIRED_HOOK_FILES = [
     'check-pending.js', 'agent-stop.js', 'session-start.js',
     'enforce-feedback.js', 'track-feedback.js', 'compact-flag.js',

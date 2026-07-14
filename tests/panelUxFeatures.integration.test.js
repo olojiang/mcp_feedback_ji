@@ -8,6 +8,7 @@ const root = join(import.meta.dirname, '..')
 describe('panel UX feature wiring (static integration)', () => {
   const html = readFileSync(join(root, 'static/panel.html'), 'utf8')
   const panelApp = readFileSync(join(root, 'static/panelApp.js'), 'utf8')
+  const pathReferences = readFileSync(join(root, 'static/panelPathReferences.js'), 'utf8')
 
   it('panel.html includes version skew banner, scroll button, and DBG trace map', () => {
     assert.match(html, /id="versionSkewBanner"/)
@@ -35,7 +36,8 @@ describe('panel UX feature wiring (static integration)', () => {
     assert.match(html, /class="composer-shell"/)
     assert.match(html, /\.path-reference-remove:focus-visible/)
     assert.match(panelApp, /function renderPathReferences/)
-    assert.match(panelApp, /aria-label.*Remove/)
-    assert.match(panelApp, /state\.removePathReference/)
+    assert.match(pathReferences, /aria-label.*Remove/)
+    assert.match(pathReferences, /state\.removePathReference/)
+    assert.match(panelApp, /createPathReferenceController/)
   })
 })

@@ -7,9 +7,6 @@
  */
 
 import * as http from 'node:http';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import { WebSocket, WebSocketServer } from 'ws';
 import type {
     ConversationMessage,
@@ -49,7 +46,6 @@ import {
 import { readClipboardImageBase64 } from '../utils/clipboardImage';
 import type { ClipboardPort } from '../clipboardPort.js';
 import { createClipboardHandlers } from './clipboardHandlers.js';
-import { getLogsDir } from '../configPaths.js';
 import { hubLog, hubStructuredLog } from '../extensionFileLog.js';
 import { buildStateSyncPayload, hubFingerprint, pendingSessionsFingerprint } from '../stateSyncPayload.js';
 import { formatSessionLifecycleLine } from '../sessionLifecycleLog.js';

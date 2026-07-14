@@ -29,6 +29,7 @@ const html = fs.readFileSync(target, 'utf-8')
     .replace(/\{\{PANEL_AGENT_RESUME_WATCH_URI\}\}/g, 'https://mock/panelAgentResumeWatch.js')
     .replace(/\{\{PANELSTATE_URI\}\}/g, 'https://mock/panelState.js')
     .replace(/\{\{PANELCONNECTION_URI\}\}/g, 'https://mock/panelConnection.js')
+    .replace(/\{\{PANEL_PATH_REFERENCES_URI\}\}/g, 'https://mock/panelPathReferences.js')
     .replace(/\{\{PANELAPP_URI\}\}/g, 'https://mock/panelApp.js')
     .replace(/\{\{THEMECONTRAST_URI\}\}/g, 'https://mock/themeContrast.js')
     .replace(/\{\{CSP_SOURCE\}\}/g, 'https://mock');
@@ -42,6 +43,7 @@ const panelStateFile = path.join(__dirname, '..', 'out', 'webview', 'panelState.
 const erudaPanelFile = path.join(__dirname, '..', 'out', 'webview', 'erudaPanel.js');
 const themeContrastFile = path.join(__dirname, '..', 'out', 'webview', 'themeContrast.js');
 const panelConnectionFile = path.join(__dirname, '..', 'out', 'webview', 'panelConnection.js');
+const panelPathReferencesFile = path.join(__dirname, '..', 'out', 'webview', 'panelPathReferences.js');
 const panelAppFile = path.join(__dirname, '..', 'out', 'webview', 'panelApp.js');
 const panelStateMarkdownCode = fs.existsSync(panelStateMarkdownFile)
     ? fs.readFileSync(panelStateMarkdownFile, 'utf-8')
@@ -69,6 +71,9 @@ const themeContrastCode = fs.existsSync(themeContrastFile)
     : null;
 const panelConnectionCode = fs.existsSync(panelConnectionFile)
     ? fs.readFileSync(panelConnectionFile, 'utf-8')
+    : null;
+const panelPathReferencesCode = fs.existsSync(panelPathReferencesFile)
+    ? fs.readFileSync(panelPathReferencesFile, 'utf-8')
     : null;
 const panelAppCode = fs.existsSync(panelAppFile)
     ? fs.readFileSync(panelAppFile, 'utf-8')
@@ -256,6 +261,7 @@ for (const [label, code] of [
     ['panelStateMarkdown', panelStateMarkdownCode],
     ['panelStateUx', panelStateUxCode],
     ['panelStateSessionsView', panelStateSessionsViewCode],
+    ['panelPathReferences', panelPathReferencesCode],
     ['panelStateTransport', panelStateTransportCode],
     ['panelAgentResumeWatch', panelAgentResumeWatchCode],
 ]) {

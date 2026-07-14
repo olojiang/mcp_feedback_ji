@@ -15,7 +15,7 @@ import * as os from 'os';
 
 import type { FeedbackWSServer } from './wsServer';
 import type { WebviewBridge } from './server/webviewBridge';
-import { appendWebviewLog, truncateWebviewLog, webviewLogPath } from './webviewLog';
+import { appendWebviewLog, truncateWebviewLog } from './webviewLog';
 import { resolveFeedbackLogPath } from './logPaths';
 import { listAllServers, readAgentContext, pruneTestRegistryEntries } from './fileStore';
 import {
@@ -31,6 +31,7 @@ import { quickRepliesFromConfig } from './quickReplySettings';
 import { shouldReloadWebview, shouldReconnectWebview } from './webviewSyncPolicy';
 import { buildDefaultWebviewHandlers, createWebviewMessageRouter } from './webviewMessageRouter';
 import { sanitizeUnreplacedWebviewPlaceholders } from './extensionHelpers';
+import { AtSearchService } from './atSearchService';
 
 type HtmlGetter = () => string;
 type PortGetter = () => number;
@@ -50,7 +51,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     private _forceResetCallback?: () => Promise<number>;
     private _fileWatcher?: fs.FSWatcher;
     private _webviewReadyAcked = false;
-    private _atSearchSeq = 0;
+    private readonly _atSearchService: AtSearchService;
 
     constructor(
         getHtml: HtmlGetter,
@@ -66,6 +67,28 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         this._getMemoryVersion = getMemoryVersion ?? getVersion;
         this._getHub = getHub;
         this._extensionUri = extensionUri;
+        const toSearchResource = (uri: vscode.Uri) => ({
+            path: vscode.workspace.workspaceFolders?.[0]
+                ? vscode.workspace.asRelativePath(uri, false)
+                : uri.fsPath,
+        });
+        this._atSearchService = new AtSearchService({
+            findFiles: async (pattern, excludePattern, maxResults) => {
+                const files = await vscode.workspace.findFiles(pattern, excludePattern, maxResults);
+                return files.map(toSearchResource);
+            },
+            findSymbols: async (query) => {
+                const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+                    'vscode.executeWorkspaceSymbolProvider', query
+                );
+                return symbols?.map(symbol => ({
+                    name: symbol.name,
+                    resource: toSearchResource(symbol.location.uri),
+                    line: symbol.location.range.start.line,
+                }));
+            },
+            log: appendWebviewLog,
+        });
     }
 
     updateHtmlGetter(getHtml: HtmlGetter): void {
@@ -213,6 +236,10 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelConnection.js')
                 .with({ query: `v=${cacheKey}` })
         );
+        const panelPathReferencesUri = view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelPathReferences.js')
+                .with({ query: `v=${cacheKey}` })
+        );
         const panelAppUri = view.webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'panelApp.js')
                 .with({ query: `v=${cacheKey}` })
@@ -231,6 +258,7 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
         html = html.replace(/\{\{PANEL_AGENT_RESUME_WATCH_URI\}\}/g, panelAgentResumeWatchUri.toString());
         html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());
         html = html.replace(/\{\{PANELCONNECTION_URI\}\}/g, panelConnectionUri.toString());
+        html = html.replace(/\{\{PANEL_PATH_REFERENCES_URI\}\}/g, panelPathReferencesUri.toString());
         html = html.replace(/\{\{PANELAPP_URI\}\}/g, panelAppUri.toString());
         html = html.replace(/\{\{THEMECONTRAST_URI\}\}/g, themeContrastUri.toString());
         html = html.replace(/\{\{CSP_SOURCE\}\}/g, cspSource);
@@ -485,106 +513,9 @@ export class FeedbackViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleAtSearch(query: string, view: vscode.WebviewView): Promise<void> {
-        if (!query) {
-            view.webview.postMessage({ type: 'at-results', items: [] });
-            return;
-        }
-
-        const seq = ++this._atSearchSeq;
-        const items: Array<{ kind: string; label: string; detail: string; insertText: string }> = [];
-
-        try {
-            const filePattern = `**/*${query}*`;
-            const excludePattern = '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.next/**,**/build/**}';
-            const files = await vscode.workspace.findFiles(filePattern, excludePattern, 30);
-            if (seq !== this._atSearchSeq) return;
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-            const lowerQuery = query.toLowerCase();
-            const dirSet = new Set<string>();
-
-            for (const file of files) {
-                const rel = workspaceRoot ? vscode.workspace.asRelativePath(file, false) : file.fsPath;
-                items.push({
-                    kind: 'file',
-                    label: path.basename(file.fsPath),
-                    detail: rel,
-                    insertText: rel,
-                });
-                // Extract ancestor directories whose name matches the query
-                const parts = rel.split('/');
-                for (let i = 0; i < parts.length - 1; i++) {
-                    if (parts[i].toLowerCase().includes(lowerQuery)) {
-                        dirSet.add(parts.slice(0, i + 1).join('/') + '/');
-                    }
-                }
-            }
-            appendWebviewLog(`at-search query="${query}" files=${files.length} dirs_from_files=${dirSet.size}`);
-
-            // Also search for directories matching the query using a file glob
-            // trick: find files whose path contains a matching directory segment,
-            // even if the file name itself doesn't match.
-            try {
-                const dirFilePattern = `**/*${query}*/*`;
-                const dirFiles = await vscode.workspace.findFiles(dirFilePattern, excludePattern, 20);
-                if (seq !== this._atSearchSeq) return;
-                for (const file of dirFiles) {
-                    const rel = workspaceRoot ? vscode.workspace.asRelativePath(file, false) : file.fsPath;
-                    const parts = rel.split('/');
-                    for (let i = 0; i < parts.length - 1; i++) {
-                        if (parts[i].toLowerCase().includes(lowerQuery)) {
-                            dirSet.add(parts.slice(0, i + 1).join('/') + '/');
-                        }
-                    }
-                }
-                appendWebviewLog(`at-search dir_glob files=${dirFiles.length} dirs_total=${dirSet.size}`);
-            } catch {}
-
-            // Add directory items (folders first, before files)
-            const dirItems = Array.from(dirSet).slice(0, 8).map(d => ({
-                kind: 'folder' as string,
-                label: d,
-                detail: 'directory',
-                insertText: d,
-            }));
-            items.unshift(...dirItems);
-        } catch (err) {
-            appendWebviewLog(`at-search error: ${err instanceof Error ? err.message : String(err)}`);
-        }
-
-        if (seq !== this._atSearchSeq) return;
-
-        try {
-            const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
-                'vscode.executeWorkspaceSymbolProvider', query
-            );
-            if (seq !== this._atSearchSeq) return;
-            if (symbols) {
-                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-                for (const sym of symbols.slice(0, 10)) {
-                    const rel = workspaceRoot
-                        ? vscode.workspace.asRelativePath(sym.location.uri, false)
-                        : sym.location.uri.fsPath;
-                    const line = sym.location.range.start.line + 1;
-                    items.push({
-                        kind: 'symbol',
-                        label: sym.name,
-                        detail: `${rel}:${line}`,
-                        insertText: `${sym.name} (${rel}:${line})`,
-                    });
-                }
-            }
-        } catch {}
-
-        if (seq !== this._atSearchSeq) return;
-
-        const seen = new Set<string>();
-        const unique = items.filter(it => {
-            if (seen.has(it.insertText)) return false;
-            seen.add(it.insertText);
-            return true;
-        }).slice(0, 20);
-
-        view.webview.postMessage({ type: 'at-results', items: unique });
+        await this._atSearchService.search(query, (items) => {
+            view.webview.postMessage({ type: 'at-results', items });
+        });
     }
 
     private _focusPanel(): void {

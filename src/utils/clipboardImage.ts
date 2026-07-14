@@ -1,14 +1,13 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { appendDailyRotatingLog, localDateKey, localTimestamp } from '../dailyRotatingLog.js'
+import { appendDailyRotatingLog, localTimestamp } from '../dailyRotatingLog.js'
 
 const execFileAsync = promisify(execFile)
 const LOG_DIR = path.join(os.homedir(), '.config', 'mcp-feedback-enhanced', 'logs')
 
-export let clipboardLogVerbose = false;
+export const clipboardLogVerbose = false;
 
 function clipLog(msg: string): void {
   try {

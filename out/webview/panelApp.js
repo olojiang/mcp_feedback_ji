@@ -12,17 +12,18 @@
     });
 
     var PS = window.PanelStateModule || (typeof PanelState !== 'undefined' ? { PanelState: PanelState } : null);
+    var PathReferences = window.PanelPathReferencesModule || null;
     var EP = window.ErudaPanelModule || {
         loadHeight: function (_storage, viewportHeight) {
             return Math.round((viewportHeight || 600) * 0.33);
         },
     };
-    if (!PS) {
-        console.error('PanelState not loaded');
+    if (!PS || !PathReferences) {
+        console.error(!PS ? 'PanelState not loaded' : 'PanelPathReferences not loaded');
         if (window.__mcpVscode) {
             window.__mcpVscode.postMessage({
                 type: 'log',
-                msg: 'panelApp abort: PanelState missing scripts=' + JSON.stringify(window.__mcpScriptLoad || {}),
+                msg: 'panelApp abort: required module missing scripts=' + JSON.stringify(window.__mcpScriptLoad || {}),
             });
         }
         return;
@@ -158,12 +159,8 @@
 
     var debugEvents = [];
     var lastExtensionDebugReport = null;
-    var lastHealthSig = '';
     var userPingPending = false;
     var userPingTimer = null;
-    var lastPongAt = 0;
-    var lastHubActivityAt = 0;
-    var connectedHubPid = null;
     var agentResumeWatchTimer = null;
 
     var agentResumeWatch = window.PanelAgentResumeWatchModule || null;
@@ -510,62 +507,30 @@
         } catch (_e) { return 0; }
     }
 
-    (function showPort() {
-        var port = getWsPort();
-        if (port) wsPortEl.textContent = ':' + port;
-    })();
-
-    function setWsStatus(s, detail) {
-        wsStatusEl.dataset.state = s;
-        var defaults = {
-            connected: 'Connected',
-            degraded: 'Degraded',
-            connecting: 'Connecting...',
-            disconnected: 'Disconnected — click ↻ or Reload Window',
-        };
-        wsStatusLabel.textContent = detail || defaults[s] || s;
-    }
-
-    function applyHubSnapshot(hub) {
-        if (!hub || typeof hub !== 'object') return;
-        state.hubSnapshot = hub;
-        if (hub.pid) connectedHubPid = hub.pid;
-    }
-
-    var connectionRenderer = null;
-    function ensureConnectionRenderer() {
-        if (connectionRenderer || !window.PanelConnectionModule) return connectionRenderer;
-        connectionRenderer = window.PanelConnectionModule.createConnectionRenderer({
-            PS: PS,
-            state: state,
-            bridgeGate: bridgeGate,
-            elements: {
-                connectionDetailEl: connectionDetailEl,
-                wsPortEl: wsPortEl,
-            },
-            helpers: {
-                PING_STALE_MS: PING_STALE_MS,
-                getLastPongAt: function () { return lastPongAt; },
-                getLastHubActivityAt: function () { return lastHubActivityAt; },
-                getConnectedHubPid: function () { return connectedHubPid; },
-                getLastExtensionDebugReport: function () { return lastExtensionDebugReport; },
-                getWsPort: getWsPort,
-                setWsStatus: setWsStatus,
-                showVersionSkewBanner: showVersionSkewBanner,
-                updateWaitingBadge: updateWaitingBadge,
-                showRoutingBanner: showRoutingBanner,
-            },
-        });
-        return connectionRenderer;
-    }
+    var connectionController = window.PanelConnectionModule.createConnectionController({
+        PS: PS,
+        state: state,
+        bridgeGate: bridgeGate,
+        elements: {
+            connectionDetailEl: connectionDetailEl,
+            wsPortEl: wsPortEl,
+            wsStatusEl: wsStatusEl,
+            wsStatusLabel: wsStatusLabel,
+        },
+        helpers: {
+            PING_STALE_MS: PING_STALE_MS,
+            getLastExtensionDebugReport: function () { return lastExtensionDebugReport; },
+            getWsPort: getWsPort,
+            showVersionSkewBanner: showVersionSkewBanner,
+            updateWaitingBadge: updateWaitingBadge,
+            showRoutingBanner: showRoutingBanner,
+        },
+    });
 
     function renderConnectionHealth() {
-        var r = ensureConnectionRenderer();
-        if (r) {
-            var result = r.render();
-            if (result && result.health && result.health.issues && result.health.issues.length) {
-                debugLog('connection_health issues=' + result.health.issues.join('; '));
-            }
+        var result = connectionController.render();
+        if (result && result.health && result.health.issues && result.health.issues.length) {
+            debugLog('connection_health issues=' + result.health.issues.join('; '));
         }
     }
 
@@ -578,9 +543,10 @@
             forceReconnect();
             return;
         }
-        wsPortEl.textContent = ':' + msg.port;
-        wsPortEl.textContent = ':' + msg.port;
-        setWsStatus('connected', PS.PanelState.formatConnectionStatusLabel('ok', msg.pid));
+        connectionController.onConnected(
+            msg,
+            PS.PanelState.formatConnectionStatusLabel('ok', msg.pid)
+        );
     }
 
     function forceReconnect() {
@@ -593,13 +559,13 @@
         debugLog('forceReconnect');
         bridgeGate.resetForReconnect();
         if (useBridge) {
-            setWsStatus('connecting', 'Reconnecting...');
+            connectionController.onConnecting('Reconnecting...');
             vscode.postMessage({ type: 'hub-connect' });
             return;
         }
         if (ws) { try { ws.close(); } catch (_e) { /* ignore */ } }
         ws = null; reconnectAttempts = 0;
-        setWsStatus('connecting', 'Reconnecting...');
+        connectionController.onConnecting('Reconnecting...');
         connect();
     }
 
@@ -951,44 +917,7 @@
         }
     }
 
-    function renderPathReferences() {
-        if (!pathReferencesEl) return;
-        var references = state.getPathReferences();
-        pathReferencesEl.innerHTML = '';
-        for (var i = 0; i < references.length; i++) {
-            (function (reference) {
-                var block = document.createElement('div');
-                block.className = 'path-reference';
-                block.setAttribute('role', 'listitem');
-                block.title = reference.path;
-
-                var kind = document.createElement('span');
-                kind.className = 'path-reference-kind';
-                kind.textContent = reference.kind === 'folder' ? 'DIR' : 'FILE';
-                kind.setAttribute('aria-hidden', 'true');
-
-                var label = document.createElement('span');
-                label.className = 'path-reference-path';
-                label.textContent = reference.path;
-
-                var remove = document.createElement('button');
-                remove.type = 'button';
-                remove.className = 'path-reference-remove';
-                remove.textContent = '\u00D7';
-                remove.title = 'Remove reference';
-                remove.setAttribute('aria-label', 'Remove ' + reference.kind + ' reference ' + reference.path);
-                remove.addEventListener('click', function () {
-                    exec(state.removePathReference(reference.path));
-                    inputEl.focus();
-                });
-
-                block.appendChild(kind);
-                block.appendChild(label);
-                block.appendChild(remove);
-                pathReferencesEl.appendChild(block);
-            })(references[i]);
-        }
-    }
+    function renderPathReferences() { pathReferenceController.renderPathReferences(); }
 
     function updateSendButton() {
         var ui = state.getUIState();
@@ -1025,6 +954,27 @@
     sendBtn.addEventListener('click', smartSend);
 
     var saveTimer = null;
+    var pathReferenceController = PathReferences.createPathReferenceController({
+        PanelState: PS.PanelState,
+        state: state,
+        exec: exec,
+        input: inputEl,
+        atDropdown: atDropdown,
+        lruPaths: lruPaths,
+        pathReferences: pathReferencesEl,
+        document: document,
+        storage: localStorage,
+        storageKey: STORAGE_KEY,
+        postMessage: function (message) { if (vscode) vscode.postMessage(message); },
+        debugLog: debugLog,
+        dispatchInput: function () {
+            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        },
+        onSelectionSaved: function () {
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(saveState, 500);
+        },
+    });
     inputEl.addEventListener('input', function () {
         var active = state.getActiveSession();
         if (active) active.inputDraft = inputEl.value;
@@ -1119,78 +1069,9 @@
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    // ── LRU path list (per-workspace, persisted in localStorage) ──────
-    var PATH_LRU_MAX = 20;
-    function pathLruKey() { return STORAGE_KEY + '-path-lru'; }
-    function loadPathLru() {
-        try {
-            var raw = localStorage.getItem(pathLruKey());
-            var arr = raw ? JSON.parse(raw) : [];
-            return Array.isArray(arr) ? arr : [];
-        } catch (e) {
-            debugLog('loadPathLru error: ' + (e && e.message ? e.message : String(e)));
-            return [];
-        }
-    }
-    function savePathLru(list) {
-        try {
-            localStorage.setItem(pathLruKey(), JSON.stringify(list));
-            debugLog('savePathLru key=' + pathLruKey() + ' n=' + list.length);
-        } catch (e) {
-            debugLog('savePathLru error: ' + (e && e.message ? e.message : String(e)));
-        }
-    }
-    function addPathsToLru(paths) {
-        if (!paths || !paths.length) return;
-        try {
-            var before = loadPathLru();
-            var list = PS.PanelState.addPathsToLru(before, paths, PATH_LRU_MAX);
-            savePathLru(list);
-            renderLruInline();
-            debugLog('addPathsToLru in=' + JSON.stringify(paths) + ' before_n=' + before.length + ' after_n=' + list.length);
-        } catch (e) {
-            debugLog('addPathsToLru error: ' + (e && e.message ? e.message : String(e)));
-        }
-    }
-    function removePathFromLru(p) {
-        savePathLru(PS.PanelState.removeFromPathLru(loadPathLru(), p));
-        renderLruInline();
-    }
-    function renderLruInline() {
-        if (!lruPaths) return;
-        var list = loadPathLru();
-        lruPaths.innerHTML = '';
-        list.forEach(function (p) {
-            var chip = document.createElement('span');
-            chip.className = 'lru-chip';
-            chip.title = p;
-            var icon = document.createElement('span');
-            icon.className = 'lru-chip-icon';
-            icon.textContent = p.charAt(p.length - 1) === '/' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
-            var pathEl = document.createElement('span');
-            pathEl.className = 'lru-chip-path';
-            pathEl.textContent = p;
-            var del = document.createElement('span');
-            del.className = 'lru-chip-del';
-            del.textContent = '\u00D7';
-            del.title = 'Remove';
-            del.addEventListener('click', function (e) {
-                e.stopPropagation();
-                removePathFromLru(p);
-            });
-            chip.addEventListener('click', function () {
-                exec(state.addPathReferences([{
-                    path: p,
-                    kind: p.charAt(p.length - 1) === '/' ? 'folder' : 'file',
-                }]));
-                inputEl.focus();
-            });
-            chip.appendChild(icon);
-            chip.appendChild(pathEl);
-            chip.appendChild(del);
-            lruPaths.appendChild(chip);
-        });
-    }
+    // ── Path reference controller ───────────────────────
+    function addPathsToLru(paths) { pathReferenceController.addPathsToLru(paths); }
+    function renderLruInline() { pathReferenceController.renderLruInline(); }
 
     function getCopyPlainFromSelection() {
         var sel = window.getSelection();
@@ -1541,18 +1422,7 @@
     window.addEventListener('message', function (event) {
         var msg = event && event.data;
         if (!msg || msg.type !== 'browse-paths-result') return;
-        var references = Array.isArray(msg.references)
-            ? msg.references
-            : (Array.isArray(msg.paths) ? msg.paths.map(function (p) {
-                return { path: p, kind: p.charAt(p.length - 1) === '/' ? 'folder' : 'file' };
-            }) : []);
-        var paths = references.map(function (reference) { return reference.path; });
-        if (references.length) {
-            addPathsToLru(paths);
-            exec(state.addPathReferences(references));
-            inputEl.focus();
-        }
-        debugLog('browse-paths-result paths=' + JSON.stringify(paths));
+        pathReferenceController.handleBrowseResult(msg);
     });
 
     fileInput.addEventListener('change', async function () {
@@ -1700,100 +1570,8 @@
 
     // ── @ Reference Autocomplete ────────────────────────
 
-    var atSearchTimer = null;
-    var atActiveIndex = -1;
-    var atItems = [];
-    var atVisible = false;
-
-    function getAtQuery() {
-        return PS.PanelState.getAtQuery(inputEl.value, inputEl.selectionStart);
-    }
-
-    function triggerAtSearch() {
-        var result = getAtQuery();
-        if (!result || result.query.length === 0) { hideAtDropdown(); return; }
-        if (vscode) vscode.postMessage({ type: 'at-search', query: result.query });
-    }
-
-    function showAtDropdown(items) {
-        atItems = items;
-        atActiveIndex = -1;
-        if (!items || items.length === 0) { hideAtDropdown(); return; }
-        atDropdown.innerHTML = '';
-        items.forEach(function (item, i) {
-            var row = document.createElement('div');
-            row.className = 'at-dropdown-item';
-            row.dataset.index = i;
-            var icon = document.createElement('span');
-            icon.className = 'kind-icon';
-            icon.textContent = item.kind === 'file' ? '\uD83D\uDCC4' : (item.kind === 'folder' ? '\uD83D\uDCC1' : '\uD83D\uDD23');
-            var label = document.createElement('span');
-            label.className = 'at-label';
-            label.textContent = item.label;
-            var detail = document.createElement('span');
-            detail.className = 'at-detail';
-            detail.textContent = item.detail;
-            row.appendChild(icon);
-            row.appendChild(label);
-            row.appendChild(detail);
-            row.addEventListener('click', function () { selectAtItem(i); });
-            atDropdown.appendChild(row);
-        });
-        atDropdown.classList.add('visible');
-        atVisible = true;
-    }
-
-    function hideAtDropdown() {
-        atDropdown.classList.remove('visible');
-        atVisible = false;
-        atItems = [];
-        atActiveIndex = -1;
-    }
-
-    function setAtActive(index) {
-        var items = atDropdown.querySelectorAll('.at-dropdown-item');
-        items.forEach(function (el) { el.classList.remove('active'); });
-        if (index >= 0 && index < items.length) {
-            atActiveIndex = index;
-            items[index].classList.add('active');
-            items[index].scrollIntoView({ block: 'nearest' });
-        }
-    }
-
-    function selectAtItem(index) {
-        var item = atItems[index];
-        if (!item) return;
-        var result = getAtQuery();
-        if (!result) { hideAtDropdown(); return; }
-        var before = inputEl.value.substring(0, result.start);
-        var after = inputEl.value.substring(inputEl.selectionStart);
-        var isPath = item.kind === 'file' || item.kind === 'folder';
-        var insert = isPath ? '' : ('@' + item.insertText + ' ');
-        inputEl.value = before + insert + after;
-        var newPos = before.length + insert.length;
-        inputEl.selectionStart = inputEl.selectionEnd = newPos;
-        inputEl.focus();
-        hideAtDropdown();
-        if (isPath) {
-            addPathsToLru([item.insertText]);
-            exec(state.addPathReferences([{
-                path: item.insertText,
-                kind: item.kind,
-            }]));
-        }
-        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(saveState, 500);
-    }
-
     inputEl.addEventListener('input', function () {
-        clearTimeout(atSearchTimer);
-        var result = getAtQuery();
-        if (result && result.query.length > 0) {
-            atSearchTimer = setTimeout(triggerAtSearch, 150);
-        } else {
-            hideAtDropdown();
-        }
+        pathReferenceController.handleInput();
     });
 
     inputEl.addEventListener('keydown', function (e) {
@@ -1803,28 +1581,7 @@
             requestClipboardPaste();
             return;
         }
-        if (atVisible) {
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                setAtActive(atActiveIndex < atItems.length - 1 ? atActiveIndex + 1 : 0);
-                return;
-            }
-            if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                setAtActive(atActiveIndex > 0 ? atActiveIndex - 1 : atItems.length - 1);
-                return;
-            }
-            if ((e.key === 'Enter' || e.key === 'Tab') && atActiveIndex >= 0) {
-                e.preventDefault();
-                selectAtItem(atActiveIndex);
-                return;
-            }
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                hideAtDropdown();
-                return;
-            }
-        }
+        if (pathReferenceController.handleKeydown(e)) return;
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
             e.preventDefault();
             smartSend();
@@ -1835,10 +1592,8 @@
 
     function handleProtocolMessage(msg) {
         if (!msg || !msg.type) return;
-        lastHubActivityAt = Date.now();
+        connectionController.onProtocolActivity(msg);
         if (msg.type === 'pong') {
-            lastPongAt = lastHubActivityAt;
-            if (msg.hub) applyHubSnapshot(msg.hub);
             finishUserPing(msg.body);
             exec(state.handleMessage(msg));
             renderConnectionHealth();
@@ -1860,12 +1615,13 @@
         exec(state.handleMessage(msg));
         if (msg.type === 'state_sync') {
             var hubPid = msg.hub && msg.hub.pid;
-            if (hubPid && connectedHubPid && hubPid !== connectedHubPid) {
-                debugLog('hub_pid_changed old=' + connectedHubPid + ' new=' + hubPid + ' re-hydrate');
+            var previousHubPid = connectionController.getConnectedHubPid();
+            if (hubPid && previousHubPid && hubPid !== previousHubPid) {
+                debugLog('hub_pid_changed old=' + previousHubPid + ' new=' + hubPid + ' re-hydrate');
                 bootHydratedFromServer = false;
             }
             tryHydrateAfterStateSync();
-            if (msg.hub) applyHubSnapshot(msg.hub);
+            if (msg.hub) connectionController.applyHubSnapshot(msg.hub);
             renderConnectionHealth();
         }
         if (msg.type === 'session_updated') {
@@ -1950,12 +1706,8 @@
         showDeployReloadBanner(msg);
         applyQuickRepliesFromHost(msg);
         if (msg.port) {
-            connectedHubPid = msg.pid || connectedHubPid;
             wsUrl = PS.PanelState.resolveWsUrl(wsUrl, msg.port);
-            wsPortEl.textContent = ':' + msg.port;
-            var label = 'Connected :' + msg.port;
-            if (msg.pid) label += ' pid=' + msg.pid;
-            setWsStatus('connected', label);
+            connectionController.onConnected(msg);
         }
     }
 
@@ -1998,22 +1750,22 @@
         if (useBridge) {
             if (bridgeGate.isReady()) return;
             debugLog('connect hub-connect');
-            setWsStatus('connecting');
+            connectionController.onConnecting();
             vscode.postMessage({ type: 'hub-connect' });
             return;
         }
         if (ws && ws.readyState === WebSocket.OPEN) return;
         if (!PS.PanelState.isValidWsUrl(wsUrl)) {
-            setWsStatus('connecting', 'Waiting for server port...');
+            connectionController.onConnecting('Waiting for server port...');
             return;
         }
-        setWsStatus('connecting');
+        connectionController.onConnecting();
         try {
             ws = new WebSocket(wsUrl);
             ws.onopen = function () {
                 reconnectAttempts = 0;
                 var port = getWsPort();
-                setWsStatus('connected', port ? 'Connected :' + port : 'Connected');
+                connectionController.onConnected({ port: port });
                 transportSend({ type: 'register', clientType: 'webview' });
                 flushOutboundQueue();
             };
@@ -2024,16 +1776,16 @@
             };
             ws.onclose = function () {
                 bridgeGate.resetForReconnect();
-                setWsStatus('disconnected');
+                connectionController.onDisconnected();
                 scheduleReconnect();
             };
             ws.onerror = function () {
                 console.warn('mcp-feedback ws error url=' + wsUrl);
-                setWsStatus('disconnected');
+                connectionController.onDisconnected();
             };
         } catch (err) {
             console.warn('mcp-feedback ws connect failed url=' + wsUrl, err);
-            setWsStatus('disconnected');
+            connectionController.onDisconnected();
             scheduleReconnect();
         }
     }
@@ -2047,7 +1799,9 @@
         }
         var delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
         reconnectAttempts++;
-        setWsStatus('connecting', 'Retry #' + reconnectAttempts + ' (' + (delay / 1000).toFixed(0) + 's)');
+        connectionController.onConnecting(
+            'Retry #' + reconnectAttempts + ' (' + (delay / 1000).toFixed(0) + 's)'
+        );
         _reconnectTimerId = setTimeout(function () { _reconnectTimerId = null; connect(); }, delay);
     }
 
@@ -2111,7 +1865,7 @@
                 else if (msg.text) insertAtCursor(msg.text);
             }
         } else if (msg.type === 'at-results') {
-            showAtDropdown(msg.items || []);
+            pathReferenceController.showDropdown(msg.items || []);
         }
     });
 

@@ -12,6 +12,7 @@ test-results/**
 local_docs/**
 upstream/**
 scripts/**
+!scripts/hooks/**
 playwright.config.cjs
 tsconfig.json
 node_modules/**
