@@ -99,7 +99,6 @@
 | **`stop` hook + followup_message** | Agent 结束前零成本提醒调用 `interactive_feedback`，不使用 `deny`（deny 会消耗 1 request） |
 | **No-op End turn (ji.116+)** | `[keepalive]` / `[released_duplicate]` / `[superseded]` 完成工具后禁止 Agent 再调 feedback |
 | **超时 resolve** | MCP 等待超时返回结果而非抛错，避免 Agent 进入错误处理循环 |
-| **高阈值 enforcement** | 安全网阈值 50 次工具调用 / 15 分钟，正常使用不触发 |
 | **per-workspace 计数** | 多窗口独立计数，互不干扰 |
 | **Supersede 防护** | 断网重连时旧 MCP 进程检测到 `superseded` 立即退出，不触发重试级联 |
 | **Detached session 防抢占** | 断线后恢复的旧 tab 标记为 detached，不会覆盖当前 live waiting tab |

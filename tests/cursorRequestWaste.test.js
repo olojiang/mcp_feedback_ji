@@ -154,12 +154,6 @@ describe('hook-utils — workspaceKey', () => {
     const hookUtils = require('../scripts/hooks/hook-utils.js')
     assert.equal(hookUtils.workspaceKey(['/a', '/b']), '/a')
   })
-
-  it('DEFAULT_ENFORCEMENT has high thresholds', () => {
-    const hookUtils = require('../scripts/hooks/hook-utils.js')
-    assert.ok(hookUtils.DEFAULT_ENFORCEMENT.maxToolCalls >= 50)
-    assert.ok(hookUtils.DEFAULT_ENFORCEMENT.maxMinutes >= 15)
-  })
 })
 
 describe('deploy/hooks — stop hook retired to prevent loop', () => {

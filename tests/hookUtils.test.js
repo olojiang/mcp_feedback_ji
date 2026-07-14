@@ -90,14 +90,6 @@ describe('hook-utils', () => {
     })
   })
 
-  describe('readEnforcementConfig', () => {
-    it('returns defaults when no config file', () => {
-      const cfg = hookUtils.readEnforcementConfig()
-      assert.equal(cfg.maxToolCalls, hookUtils.DEFAULT_ENFORCEMENT.maxToolCalls)
-      assert.equal(cfg.maxMinutes, hookUtils.DEFAULT_ENFORCEMENT.maxMinutes)
-    })
-  })
-
   describe('findServer', () => {
     it('returns null when servers dir does not exist', () => {
       const origServersDir = hookUtils.SERVERS_DIR

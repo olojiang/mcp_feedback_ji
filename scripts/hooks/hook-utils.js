@@ -181,12 +181,6 @@ function findServer(workspaceRoots) {
 }
 
 var FEEDBACK_STATE_FILE = path.join(CONFIG_DIR, 'feedback-state.json');
-var ENFORCEMENT_CONFIG_FILE = path.join(CONFIG_DIR, 'enforcement-config.json');
-
-var DEFAULT_ENFORCEMENT = {
-    maxToolCalls: 50,
-    maxMinutes: 15,
-};
 
 function workspaceKey(workspaceRoots) {
     if (!workspaceRoots || !workspaceRoots.length) return '_global';
@@ -222,15 +216,6 @@ function writeFeedbackState(state, wsKey) {
     }
 }
 
-function readEnforcementConfig() {
-    var cfg = readJSON(ENFORCEMENT_CONFIG_FILE);
-    if (!cfg) return DEFAULT_ENFORCEMENT;
-    return {
-        maxToolCalls: cfg.maxToolCalls || DEFAULT_ENFORCEMENT.maxToolCalls,
-        maxMinutes: cfg.maxMinutes || DEFAULT_ENFORCEMENT.maxMinutes,
-    };
-}
-
 function writeAgentContext(workspaceRoots, meta) {
     try {
         var roots = (workspaceRoots || []).map(function (r) { return r.replace(/\/+$/, ''); }).filter(Boolean);
@@ -253,8 +238,6 @@ module.exports = {
     AGENT_CONTEXT_FILE,
     AGENT_CONTEXT_TTL_MS,
     FEEDBACK_STATE_FILE,
-    ENFORCEMENT_CONFIG_FILE,
-    DEFAULT_ENFORCEMENT,
     log,
     output,
     readJSON,
@@ -264,6 +247,5 @@ module.exports = {
     workspaceKey,
     readFeedbackState,
     writeFeedbackState,
-    readEnforcementConfig,
     writeAgentContext,
 };

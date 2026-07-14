@@ -132,11 +132,8 @@ flowchart TD
     Server -- yes --> Pending[GET /pending?consume=1]
     Pending --> HasPending{pending comments/images?}
     HasPending -- yes --> FollowPending[followup_message<br/>deliver pending]
-    HasPending -- no --> Enforce[check rules refresh]
-    Server -- no --> Enforce
-    Enforce --> NeedRefresh{count/time threshold?}
-    NeedRefresh -- yes --> FollowRefresh[followup_message<br/>ask to call feedback]
-    NeedRefresh -- no --> Empty[return {}]
+    HasPending -- no --> Empty[return {}]
+    Server -- no --> Empty
 ```
 
 Hook 输出约束：
@@ -223,7 +220,7 @@ flowchart LR
 
 | 文件 | 主要内容 | 关键事件 |
 | --- | --- | --- |
-| `hooks-YYYY-MM-DD.log` | Cursor Hook 决策 | `action=skip_duplicate_active_wait`, `rules refresh followup`, `delivering pending via followup_message` |
+| `hooks-YYYY-MM-DD.log` | Cursor Hook 决策 | `action=deny_duplicate_active_wait`, `delivering pending via followup_message` |
 | `mcp-server-YYYY-MM-DD.log` | MCP Server 与 Hub 通信 | MCP request/result、连接状态 |
 | `extension-YYYY-MM-DD.log` | VS Code extension/Hub | `feedbackRequest`, `feedbackDeliver`, `stale_sweep`, `pending_persist` |
 | `webview-YYYY-MM-DD.log` | Panel 端状态 | bridge/tcp 连接、submit、state sync |
@@ -233,7 +230,7 @@ flowchart LR
 
 ```bash
 rg "skip_duplicate_active_wait|trace steal|feedbackDeliver|released_duplicate|request_waste_guard|request_billing_risk" ~/.config/mcp-feedback-enhanced/logs
-rg "permission.: deny|rules refresh followup|delivering pending via followup_message" ~/.config/mcp-feedback-enhanced/logs/hooks-*.log
+rg "permission.: deny|delivering pending via followup_message" ~/.config/mcp-feedback-enhanced/logs/hooks-*.log
 rg "stale_sweep|zombie_wait|active_wait|mcp_reattach_detached" ~/.config/mcp-feedback-enhanced/logs/extension-*.log
 ```
 
@@ -241,7 +238,7 @@ rg "stale_sweep|zombie_wait|active_wait|mcp_reattach_detached" ~/.config/mcp-fee
 
 - 同 trace 重复调用只看到 `skip_duplicate_active_wait` 或 `trace steal subscribed prior mcp`。
 - 不再出现新生成的 `released_duplicate`。
-- 不再出现 Hook 对 feedback/rules refresh 输出 `permission: deny`。
+- 不再出现 Hook 对 feedback 输出 `permission: deny`（除重复 active wait 阻断外）。
 - 用户提交后看到 `feedbackDeliver: session=... transports=N`，其中 `N` 可以是 1 或 2。
 - `event=panel_submit_delivered` / `event=panel_submit_no_effect` 应保留同一个 `trace=...`，不能因为 session 已 resolve 而退化成 `trace=-`。
 

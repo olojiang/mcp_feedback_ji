@@ -134,13 +134,10 @@ async function runHook(input) {
     hookUtils.log('  state: sinceF=' + (state.toolsSinceFeedback || 0) + ' lastTool=' + (state.lastTool || ''));
     var server = hookUtils.findServer(workspaceRoots);
     var port = server ? server.port : null;
-    var activeWaitForEnforcement = null;
-    if (port && traceId) {
-        activeWaitForEnforcement = await checkActiveFeedbackWait(port, traceId);
-    }
     if (!port) {
-        hookUtils.log('  no server found, checking enforcement');
-        return checkEnforcement(state, { activeWait: activeWaitForEnforcement });
+        hookUtils.log('  no server found');
+        hookUtils.output({});
+        return {};
     }
 
     var pending = await consumePending(port);
@@ -150,36 +147,6 @@ async function runHook(input) {
         hookUtils.output(pendingFollowup);
         return pendingFollowup;
     }
-    return checkEnforcement(state, { activeWait: activeWaitForEnforcement });
-}
-
-function checkEnforcement(state, opts) {
-    opts = opts || {};
-    if (shouldSkipRulesRefresh(opts.activeWait)) {
-        hookUtils.log('  skip rules refresh: live feedback wait active');
-        hookUtils.output({});
-        return {};
-    }
-    var cfg = hookUtils.readEnforcementConfig();
-    var count = state.toolsSinceFeedback || 0;
-    var lastFeedback = state.lastFeedbackAt || 0;
-    var minutesSince = lastFeedback ? (Date.now() - lastFeedback) / 60000 : Infinity;
-
-    var needsRefresh = (count > 0 && count >= cfg.maxToolCalls)
-        || (lastFeedback && minutesSince >= cfg.maxMinutes);
-
-    if (needsRefresh) {
-        hookUtils.log('  preToolUse: rules refresh followup (count=' + count + ', minutes=' + Math.round(minutesSince) + ')');
-        state.toolsSinceFeedback = 0;
-        state.lastFeedbackAt = Date.now();
-        hookUtils.writeFeedbackState(state, _wsKey);
-        var refreshFollowup = buildFollowupMessage(
-            'Long task checkpoint: call interactive_feedback to check in with the user, then continue.',
-        );
-        hookUtils.output(refreshFollowup);
-        return refreshFollowup;
-    }
-
     hookUtils.output({});
     return {};
 }

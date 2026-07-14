@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.168] - 2026-07-14
+
+### Fix — 移除 enforcement 自动触发，停止浪费 cursor request
+
+- **根因** — `checkEnforcement` 在工具调用计数（≥50）或时间（≥15 分钟）超阈值时，注入 `followup_message: "Long task checkpoint: call interactive_feedback..."`。该指令驱动 Agent 调用 `interactive_feedback` MCP 工具，而 MCP 工具调用本身消耗 1 个 cursor request。叠加 `minutesSince` 的 `Infinity` bug（新 workspace 冷启动 `lastFeedbackAt` 为 falsy → 立即触发），长任务里反复注入，7月14日 agent 项目对话产生 34 次 feedback_request，大部分非用户主动发起
+- **移除自动触发** — `consume-pending.js` 的 `checkEnforcement` 函数整体删除；`runHook` 在无 pending 评论时直接返回空 `{}`，不再注入 "call interactive_feedback" 指令
+- **清理死代码** — `hook-utils.js` 移除 `ENFORCEMENT_CONFIG_FILE`、`DEFAULT_ENFORCEMENT`、`readEnforcementConfig` 及导出
+- **保留的能力** — pending 用户评论投递（`buildFollowupMessage` + `fmtAgent`）仍工作；重复 active wait 阻断（`shouldSkipRulesRefresh` + `buildDuplicateActiveWaitDeny`）仍工作
+- **测试** — 删除验证 enforcement 触发的 3 个测试用例；549 个测试全过
+
 ## [2.5.1-ji.155] - 2026-07-08
 
 ### Fix — 阻断重复 feedback live wait

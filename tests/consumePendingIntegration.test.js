@@ -122,26 +122,4 @@ describe('consume-pending integration', () => {
     assert.equal(out.user_message, undefined)
     assert.equal(out.followup_message, undefined)
   })
-
-  it('rules refresh uses followup_message instead of deny', async () => {
-    const stateFile = path.join(tmpDir, 'feedback-state.json')
-    fs.writeFileSync(stateFile, JSON.stringify({
-      [workspace]: {
-        toolsSinceFeedback: 50,
-        lastFeedbackAt: Date.now() - 20 * 60 * 1000,
-        lastTool: 'write',
-      },
-    }))
-
-    const out = await runHook({
-      hook_event_name: 'preToolUse',
-      tool_name: 'Write',
-      trace_id: '99999999-aaaa-bbbb-cccc-dddddddddddd',
-      conversation_id: '99999999',
-      workspace_roots: [workspace],
-    })
-
-    assert.equal(out.permission, undefined)
-    assert.match(out.followup_message, /interactive_feedback/)
-  })
 })
