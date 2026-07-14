@@ -48,6 +48,19 @@ export function parseDailyLogDateKey(fileName: string, baseName: string): string
     return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
 }
 
+function latestDailyLogDate(logDir: string, baseName: string, fallback: Date): Date {
+    try {
+        const keys = fs.readdirSync(logDir)
+            .map((name) => parseDailyLogDateKey(name, baseName))
+            .filter((key): key is string => key !== null)
+            .sort();
+        const latest = keys[keys.length - 1];
+        return latest ? new Date(`${latest}T12:00:00`) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 export function pruneOldDailyLogs(
     logDir: string,
     baseName: string,
@@ -125,7 +138,8 @@ export function appendDailyRotatingLog(
     migrateLegacyLogFile(logDir, baseName, todayPath);
     fs.appendFileSync(todayPath, line + '\n');
     updateLegacySymlink(logDir, baseName, todayPath);
-    pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, new Date());
+    const retentionNow = latestDailyLogDate(logDir, baseName, now);
+    pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, retentionNow);
     return todayPath;
 }
 

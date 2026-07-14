@@ -29,4 +29,13 @@ describe('panel UX feature wiring (static integration)', () => {
     assert.match(panelApp, /function applyInputPaneHeight/)
     assert.match(panelApp, /setupPaneSplitter/)
   })
+
+  it('renders removable file and folder blocks inside the composer', () => {
+    assert.match(html, /id="pathReferences"/)
+    assert.match(html, /class="composer-shell"/)
+    assert.match(html, /\.path-reference-remove:focus-visible/)
+    assert.match(panelApp, /function renderPathReferences/)
+    assert.match(panelApp, /aria-label.*Remove/)
+    assert.match(panelApp, /state\.removePathReference/)
+  })
 })

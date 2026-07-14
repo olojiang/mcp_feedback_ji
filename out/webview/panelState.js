@@ -93,6 +93,7 @@
 
   var uxModule = loadModule('panelStateUx', 'PanelStateUxModule')
   var markdownModule = loadModule('panelStateMarkdown', 'PanelStateMarkdownModule')
+  var sessionsViewModule = loadModule('panelStateSessionsView', 'PanelStateSessionsViewModule')
   if (!uxModule || !uxModule.DEFAULT_QUICK_REPLIES || !uxModule.DEFAULT_QUICK_REPLIES.length) {
     uxModule = {
       DEFAULT_QUICK_REPLIES: [
@@ -104,6 +105,9 @@
   }
   if (!markdownModule) {
     markdownModule = { attachPanelStateMarkdown: function () {} }
+  }
+  if (!sessionsViewModule) {
+    sessionsViewModule = { attachPanelStateSessionsView: function () {} }
   }
 
   function wsSend(message) {
@@ -135,6 +139,7 @@
       pendingQueue: [],
       pendingImages: [],
       inputDraft: '',
+      pathReferences: [],
       stagedImages: [],
       waiting: true,
       mcpDetached: false,
@@ -161,6 +166,7 @@
       this.globalPendingQueue = []
       this.globalPendingImages = []
       this.globalStagedImages = []
+      this.globalPathReferences = []
       this.hubSnapshot = null
       this.hubTimeline = []
       this.lastPendingSessionIds = []
@@ -177,6 +183,37 @@
     getActiveSession() {
       if (!this.activeSessionId) return null
       return this.sessions[this.activeSessionId] || null
+    }
+
+    getPathReferences() {
+      var active = this.getActiveSession()
+      var refs = active ? active.pathReferences : this.globalPathReferences
+      return PanelState.normalizePathReferences(refs)
+    }
+
+    addPathReferences(references) {
+      var active = this.getActiveSession()
+      var current = active ? active.pathReferences : this.globalPathReferences
+      var next = PanelState.normalizePathReferences((current || []).concat(references || []))
+      if (active) active.pathReferences = next
+      else this.globalPathReferences = next
+      return [render('path_references', 'input'), dom('save_state')]
+    }
+
+    removePathReference(referencePath) {
+      var active = this.getActiveSession()
+      var current = active ? active.pathReferences : this.globalPathReferences
+      var next = PanelState.normalizePathReferences(current).filter(function (ref) {
+        return ref.path !== referencePath
+      })
+      if (active) active.pathReferences = next
+      else this.globalPathReferences = next
+      return [render('path_references', 'input'), dom('save_state')]
+    }
+
+    _clearPathReferencesForOwner(sessionId) {
+      if (sessionId && this.sessions[sessionId]) this.sessions[sessionId].pathReferences = []
+      else if (!sessionId) this.globalPathReferences = []
     }
 
     ensureSession(id, label, summary, traceId, opts) {
@@ -749,35 +786,46 @@
       return [render('pending'), dom('save_state')]
     }
 
-    smartSend(text, images) {
+    smartSend(text, images, pathReferences) {
+      var sourceSessionId = this.activeSessionId
+      var references = PanelState.normalizePathReferences(
+        pathReferences === undefined ? this.getPathReferences() : pathReferences
+      )
+      var composedText = PanelState.composeFeedbackWithPathReferences(text, references)
       var hasImages = images && images.length > 0
-      if (!hasImages && PanelState.isPingCommand(text)) {
+      if (!hasImages && references.length === 0 && PanelState.isPingCommand(composedText)) {
         return [
           wsSend({ type: 'ping' }),
           dom('user_ping'),
           dom('clear_input'),
         ]
       }
+      var result
       var active = this.getActiveSession()
-      if (this._canSubmitToSession(active)) return this.submitFeedback(text, images)
+      if (this._canSubmitToSession(active)) result = this.submitFeedback(composedText, images)
       var live = this._latestSubmittableWaitingSessionId()
-      if (live) {
+      if (!result && live) {
         this.activeSessionId = live
-        return [
+        result = [
           render('tabs', 'messages', 'pending', 'input', 'staged_images'),
           notify({ type: 'retarget-live-session', session_id: live }),
-        ].concat(this.submitFeedback(text, images, { session_id: live }))
+        ].concat(this.submitFeedback(composedText, images, { session_id: live }))
       }
-      if (this.waitingCount > 0) {
+      if (!result && this.waitingCount > 0) {
         var latest = this._latestWaitingSessionId()
         if (latest) {
           this.activeSessionId = latest
-          return [
+          result = [
             render('tabs', 'messages', 'pending', 'input', 'staged_images'),
-          ].concat(this.submitFeedback(text, images, { session_id: latest }))
+          ].concat(this.submitFeedback(composedText, images, { session_id: latest }))
         }
       }
-      return this.addToPending(text, images)
+      if (!result) result = this.addToPending(composedText, images)
+      if (references.length > 0 && result && result.length > 0) {
+        this._clearPathReferencesForOwner(sourceSessionId)
+        result.push(render('path_references', 'input'))
+      }
+      return result
     }
 
     submitFeedback(text, images, opts) {
@@ -1012,6 +1060,7 @@
         globalPendingQueue: this.globalPendingQueue,
         globalPendingImages: this.globalPendingImages,
         globalStagedImages: this.globalStagedImages,
+        globalPathReferences: this.globalPathReferences,
         autoReply: this.autoReply,
         autoReplyText: this.autoReplyText,
         quickReplies: this.quickReplies,
@@ -1029,6 +1078,7 @@
       this.globalPendingQueue = data.globalPendingQueue || []
       this.globalPendingImages = data.globalPendingImages || []
       this.globalStagedImages = data.globalStagedImages || []
+      this.globalPathReferences = PanelState.normalizePathReferences(data.globalPathReferences)
       this.autoReply = data.autoReply || false
       this.autoReplyText = data.autoReplyText || 'Continue'
       if (data.quickReplies) {
@@ -1043,7 +1093,10 @@
       for (var i = 0; i < this.sessionOrder.length; i++) {
         var sid = this.sessionOrder[i]
         var sess = this.sessions[sid]
-        if (sess) sess.waiting = false
+        if (sess) {
+          sess.waiting = false
+          sess.pathReferences = PanelState.normalizePathReferences(sess.pathReferences)
+        }
       }
     }
 
@@ -1236,6 +1289,33 @@
       return match ? { query: match[1], start: match.index, end: cursorPos } : null
     }
 
+    static normalizePathReferences(references) {
+      var result = []
+      var seen = {}
+      var list = Array.isArray(references) ? references : []
+      for (var i = 0; i < list.length; i++) {
+        var item = list[i]
+        var rawPath = typeof item === 'string' ? item : (item && item.path)
+        var referencePath = String(rawPath || '').trim()
+        if (!referencePath || seen[referencePath]) continue
+        seen[referencePath] = true
+        var requestedKind = item && typeof item === 'object' ? item.kind : ''
+        result.push({
+          path: referencePath,
+          kind: requestedKind === 'folder' || /\/$/.test(referencePath) ? 'folder' : 'file',
+        })
+      }
+      return result
+    }
+
+    static composeFeedbackWithPathReferences(text, references) {
+      var body = String(text || '').trim()
+      var refs = PanelState.normalizePathReferences(references).map(function (reference) {
+        return '@' + reference.path
+      })
+      return [body, refs.join('\n')].filter(Boolean).join('\n\n')
+    }
+
     static isPingCommand(text) {
       return typeof text === 'string' && text.trim().toLowerCase() === PING_COMMAND
     }
@@ -1245,6 +1325,7 @@
 
   markdownModule.attachPanelStateMarkdown(PanelState)
   uxModule.attachPanelStateUx(PanelState)
+  sessionsViewModule.attachPanelStateSessionsView(PanelState)
 
   PanelState.PING_COMMAND = PING_COMMAND
   PanelState.PONG_REPLY = PONG_REPLY
@@ -1271,160 +1352,6 @@
   PanelState.shouldDebounceReconnect = function (lastAt, now, windowMs) {
     windowMs = windowMs || 1200
     return lastAt > 0 && (now - lastAt) < windowMs
-  }
-  PanelState.tabProjectBadge = function (session) {
-    if (!session || !session.projectDirectory) return ''
-    var parts = String(session.projectDirectory).replace(/[\\/]+$/, '').split(/[/\\]/)
-    return parts[parts.length - 1] || ''
-  }
-  PanelState.exportSessionsSnapshot = function (state) {
-    return {
-      exportedAt: new Date().toISOString(),
-      panelWorkspace: state.panelWorkspace || '',
-      sessions: state.sessionOrder.map(function (id) {
-        var s = state.sessions[id]
-        return {
-          id: id,
-          label: s.label,
-          summary: s.summary,
-          waiting: s.waiting,
-          project_directory: s.projectDirectory || '',
-          traceId: s.traceId || '',
-          messages: s.messages,
-        }
-      }),
-    }
-  }
-  PanelState.filterSessionsByQuery = function (state, query) {
-    var q = String(query || '').trim().toLowerCase()
-    if (!q) return state.sessionOrder.slice()
-    return state.sessionOrder.filter(function (id) {
-      var s = state.sessions[id]
-      if (!s) return false
-      var hay = [
-        id, s.label, s.summary, s.projectDirectory,
-      ].join(' ').toLowerCase()
-      return hay.indexOf(q) >= 0
-    })
-  }
-  PanelState.DEFAULT_QUICK_REPLIES = [
-    { id: 'continue', label: 'Continue', text: 'Continue', icon: '\u25B6' },
-    { id: 'looks-good', label: 'Looks Good', text: 'Looks good, proceed', icon: '\u2713' },
-    { id: 'fix', label: 'Fix', text: 'Please fix the issues', icon: '\u26A1' },
-    { id: 'pause', label: 'Pause', text: 'Stop, let me review first', icon: '\u25A0' },
-    {
-      id: 'test-verify',
-      label: 'Test Verify',
-      text: 'TDD 充分了吗，测试覆盖全了吗，单测，集成测试，覆盖测试，性能测试，etc？',
-      icon: '\u2699',
-    },
-    { id: 'finished', label: 'Finished', text: 'Finished', icon: '', finished: true },
-  ]
-  PanelState.normalizeQuickReplies = function (custom) {
-    var base = PanelState.DEFAULT_QUICK_REPLIES
-    if (!custom || !custom.length) return base.map(function (q) { return Object.assign({}, q) })
-    var byId = {}
-    for (var i = 0; i < custom.length; i++) {
-      var c = custom[i]
-      if (c && c.id) byId[c.id] = c
-    }
-    return base.map(function (q) {
-      var o = byId[q.id]
-      if (!o) return Object.assign({}, q)
-      return {
-        id: q.id,
-        label: o.label || q.label,
-        text: o.text || q.text,
-        icon: o.icon !== undefined ? o.icon : q.icon,
-        finished: o.finished !== undefined ? !!o.finished : !!q.finished,
-      }
-    })
-  }
-  PanelState.parseQuickRepliesConfig = function (raw) {
-    var lines = String(raw || '').split('\n')
-    var out = []
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim()
-      if (!line) continue
-      var parts = line.split('|')
-      if (parts.length < 2) continue
-      out.push({
-        id: 'custom-' + i,
-        label: parts[0].trim(),
-        text: parts.slice(1).join('|').trim(),
-        icon: '',
-        finished: parts[0].trim().toLowerCase() === 'finished'
-          || parts.slice(1).join('|').trim().toLowerCase() === 'finished',
-      })
-    }
-    return out.length ? out : null
-  }
-  PanelState.clampInputPaneHeight = function (h, viewportH) {
-    var minH = 120
-    var maxH = Math.max(minH, Math.floor((viewportH || 600) * 0.7))
-    var n = Number(h)
-    if (!Number.isFinite(n)) return 220
-    return Math.min(maxH, Math.max(minH, Math.round(n)))
-  }
-  PanelState.parseStoredInputPaneHeight = function (raw, viewportH) {
-    if (raw === null || raw === undefined || raw === '') return 220
-    return PanelState.clampInputPaneHeight(raw, viewportH)
-  }
-  PanelState.shouldConfirmFinished = function (text, enabled) {
-    if (!enabled) return false
-    return String(text || '').trim().toLowerCase() === 'finished'
-  }
-  PanelState.shouldSubmitOnCtrlEnter = function (event, enabled) {
-    if (!enabled || !event) return false
-    if (event.key !== 'Enter') return false
-    return !!(event.ctrlKey || event.metaKey)
-  }
-  PanelState.resolveQuickReplyMode = function (event) {
-    return event && event.shiftKey ? 'fill' : 'send'
-  }
-  PanelState.versionSkewBannerText = function (warnings) {
-    if (!warnings || !warnings.length) return ''
-    return String(warnings[0])
-  }
-  PanelState.deployReloadBannerText = function (memoryVersion, diskVersion, deployStamp) {
-    if (memoryVersion && diskVersion && memoryVersion !== diskVersion) {
-      return 'Running ' + memoryVersion + ' — Reload Window to load ' + diskVersion + ' from disk'
-    }
-    if (!deployStamp || !memoryVersion) return ''
-    if (deployStamp.version === memoryVersion) return ''
-    return 'Deploy ' + deployStamp.version + ' on disk — Reload Window (running ' + memoryVersion + ')'
-  }
-  PanelState.exportAgentContinuationJson = function (state) {
-    var snap = PanelState.exportSessionsSnapshot(state)
-    return {
-      purpose: 'agent_session_handoff',
-      exportedAt: snap.exportedAt,
-      panelWorkspace: snap.panelWorkspace,
-      activeSessionId: state.activeSessionId || '',
-      resumeHint: 'Feed sessions[].messages to the agent as prior context',
-      sessions: snap.sessions.map(function (s) {
-        return {
-          id: s.id,
-          label: s.label,
-          traceId: s.traceId,
-          project_directory: s.project_directory,
-          waiting: s.waiting,
-          summary: s.summary,
-          messages: s.messages,
-        }
-      }),
-    }
-  }
-  PanelState.debugSessionTraces = function (state) {
-    return (state.sessionOrder || []).map(function (id) {
-      var s = state.sessions[id]
-      return { id: id, traceId: (s && s.traceId) || '' }
-    }).filter(function (row) { return row.traceId })
-  }
-  PanelState.messagesScrolledUp = function (el, threshold) {
-    if (!el) return false
-    threshold = threshold || 40
-    return (el.scrollHeight - el.scrollTop - el.clientHeight) > threshold
   }
   PanelState.cmd = { wsSend, render, dom, notify }
   exports.PanelState = PanelState

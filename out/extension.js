@@ -4617,6 +4617,15 @@ function parseDailyLogDateKey(fileName, baseName) {
   const key = fileName.slice(prefix.length, -suffix.length);
   return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
 }
+function latestDailyLogDate(logDir, baseName, fallback) {
+  try {
+    const keys = fs2.readdirSync(logDir).map((name) => parseDailyLogDateKey(name, baseName)).filter((key) => key !== null).sort();
+    const latest = keys[keys.length - 1];
+    return latest ? /* @__PURE__ */ new Date(`${latest}T12:00:00`) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 function pruneOldDailyLogs(logDir, baseName, retentionDays = DAILY_LOG_RETENTION_DAYS, now = /* @__PURE__ */ new Date()) {
   const removed = [];
   let entries = [];
@@ -4681,7 +4690,8 @@ function appendDailyRotatingLog(logDir, baseName, line, now = /* @__PURE__ */ ne
   migrateLegacyLogFile(logDir, baseName, todayPath);
   fs2.appendFileSync(todayPath, line + "\n");
   updateLegacySymlink(logDir, baseName, todayPath);
-  pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, /* @__PURE__ */ new Date());
+  const retentionNow = latestDailyLogDate(logDir, baseName, now);
+  pruneOldDailyLogs(logDir, baseName, DAILY_LOG_RETENTION_DAYS, retentionNow);
   return todayPath;
 }
 function truncateDailyLog(logDir, baseName, now = /* @__PURE__ */ new Date()) {
@@ -21691,17 +21701,30 @@ function buildDefaultWebviewHandlers(vscodeApi) {
           canSelectMany: true,
           openLabel: "Insert path"
         });
-        const paths = [];
+        const references = [];
         if (uris && uris.length) {
           const workspaceRoot = vscodeApi.workspace.workspaceFolders?.[0]?.uri;
           for (const uri of uris) {
-            const rel = workspaceRoot ? vscodeApi.workspace.asRelativePath(uri, false) : uri.fsPath;
-            paths.push(rel);
+            let rel = workspaceRoot ? vscodeApi.workspace.asRelativePath(uri, false) : uri.fsPath;
+            let kind = "file";
+            try {
+              const stat = await vscodeApi.workspace.fs.stat(uri);
+              if ((stat.type & vscodeApi.FileType.Directory) !== 0) {
+                kind = "folder";
+                if (!rel.endsWith("/")) rel += "/";
+              }
+            } catch {
+            }
+            references.push({ path: rel, kind });
           }
         }
-        view.webview.postMessage({ type: "browse-paths-result", paths });
+        view.webview.postMessage({
+          type: "browse-paths-result",
+          paths: references.map((reference) => reference.path),
+          references
+        });
       } catch {
-        view.webview.postMessage({ type: "browse-paths-result", paths: [] });
+        view.webview.postMessage({ type: "browse-paths-result", paths: [], references: [] });
       }
     },
     "open-log": (msg, _view, ctx) => {
@@ -21850,6 +21873,9 @@ var FeedbackViewProvider = class {
     const panelStateUxUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateUx.js").with({ query: `v=${cacheKey}` })
     );
+    const panelStateSessionsViewUri = view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateSessionsView.js").with({ query: `v=${cacheKey}` })
+    );
     const panelStateTransportUri = view.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "out", "webview", "panelStateTransport.js").with({ query: `v=${cacheKey}` })
     );
@@ -21876,6 +21902,7 @@ var FeedbackViewProvider = class {
     html = html.replace(/\{\{ERUDA_PANEL_URI\}\}/g, erudaPanelUri.toString());
     html = html.replace(/\{\{PANELSTATE_MARKDOWN_URI\}\}/g, panelStateMarkdownUri.toString());
     html = html.replace(/\{\{PANELSTATE_UX_URI\}\}/g, panelStateUxUri.toString());
+    html = html.replace(/\{\{PANELSTATE_SESSIONS_VIEW_URI\}\}/g, panelStateSessionsViewUri.toString());
     html = html.replace(/\{\{PANELSTATE_TRANSPORT_URI\}\}/g, panelStateTransportUri.toString());
     html = html.replace(/\{\{PANEL_AGENT_RESUME_WATCH_URI\}\}/g, panelAgentResumeWatchUri.toString());
     html = html.replace(/\{\{PANELSTATE_URI\}\}/g, panelStateUri.toString());

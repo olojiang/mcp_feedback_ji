@@ -104,19 +104,33 @@ export function buildDefaultWebviewHandlers(
                     canSelectMany: true,
                     openLabel: 'Insert path',
                 });
-                const paths: string[] = [];
+                const references: Array<{ path: string; kind: 'file' | 'folder' }> = [];
                 if (uris && uris.length) {
                     const workspaceRoot = vscodeApi.workspace.workspaceFolders?.[0]?.uri;
                     for (const uri of uris) {
-                        const rel = workspaceRoot
+                        let rel = workspaceRoot
                             ? vscodeApi.workspace.asRelativePath(uri, false)
                             : uri.fsPath;
-                        paths.push(rel);
+                        let kind: 'file' | 'folder' = 'file';
+                        try {
+                            const stat = await vscodeApi.workspace.fs.stat(uri);
+                            if ((stat.type & vscodeApi.FileType.Directory) !== 0) {
+                                kind = 'folder';
+                                if (!rel.endsWith('/')) rel += '/';
+                            }
+                        } catch {
+                            // A stale or remote URI can disappear after selection; keep it as a file reference.
+                        }
+                        references.push({ path: rel, kind });
                     }
                 }
-                view.webview.postMessage({ type: 'browse-paths-result', paths });
+                view.webview.postMessage({
+                    type: 'browse-paths-result',
+                    paths: references.map((reference) => reference.path),
+                    references,
+                });
             } catch {
-                view.webview.postMessage({ type: 'browse-paths-result', paths: [] });
+                view.webview.postMessage({ type: 'browse-paths-result', paths: [], references: [] });
             }
         },
         'open-log': (msg, _view, ctx) => {

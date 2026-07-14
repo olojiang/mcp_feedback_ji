@@ -258,15 +258,40 @@ body{
 }
 .input-area{padding:8px 12px 10px;border-top:1px solid var(--border);background:var(--surface);flex:1;display:flex;flex-direction:column;min-height:0}
 .input-row{display:flex;gap:8px;align-items:stretch;flex:1;min-height:0}
-.input-row textarea{
-  flex:1;min-height:48px;max-height:100%;width:100%;resize:vertical;align-self:stretch;
-  background:var(--input-bg);color:var(--fg);
-  border:1px solid var(--border);border-radius:10px;
-  padding:10px 12px;font-family:inherit;font-size:13px;line-height:1.4;
-  transition:border-color .2s,box-shadow .2s;
+.composer-shell{
+  flex:1;min-width:0;min-height:48px;max-height:100%;display:flex;flex-direction:column;
+  background:var(--input-bg);border:1px solid var(--border);border-radius:10px;
+  transition:border-color .2s,box-shadow .2s;overflow:hidden;
 }
-.input-row textarea:focus{outline:none;border-color:var(--btn-bg);box-shadow:0 0 0 2px rgba(124,58,237,0.15)}
+.composer-shell:focus-within{border-color:var(--btn-bg);box-shadow:0 0 0 2px rgba(124,58,237,0.15)}
+.input-row textarea{
+  flex:1;min-height:32px;max-height:100%;width:100%;resize:vertical;align-self:stretch;
+  background:transparent;color:var(--fg);
+  border:0;border-radius:0;
+  padding:10px 12px;font-family:inherit;font-size:13px;line-height:1.4;
+}
+.input-row textarea:focus{outline:none}
 .input-row textarea::placeholder{color:var(--fg-dim)}
+.path-references{display:flex;gap:6px;padding:8px 8px 0;flex-wrap:wrap;align-items:center}
+.path-references:empty{display:none}
+.path-reference{
+  display:inline-flex;align-items:center;gap:6px;max-width:min(360px,100%);
+  min-height:28px;padding:3px 4px 3px 7px;border-radius:7px;
+  background:rgba(59,130,246,.10);border:1px solid rgba(59,130,246,.28);
+  color:var(--fg);font-size:11px;
+}
+.path-reference-kind{
+  flex-shrink:0;padding:1px 4px;border-radius:4px;background:rgba(59,130,246,.16);
+  color:#60a5fa;font-size:8px;font-weight:700;letter-spacing:.45px;
+}
+.path-reference-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--vscode-editor-font-family,monospace)}
+.path-reference-remove{
+  width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;
+  flex-shrink:0;border:0;border-radius:5px;background:transparent;color:var(--fg-dim);
+  cursor:pointer;font-size:16px;line-height:1;
+}
+.path-reference-remove:hover{background:rgba(239,68,68,.14);color:#f87171}
+.path-reference-remove:focus-visible{outline:2px solid var(--btn-bg);outline-offset:1px}
 .send-btn{
   background:linear-gradient(135deg,#7c3aed,#6d28d9);color:var(--btn-fg);
   border:none;border-radius:10px;padding:10px 18px;cursor:pointer;
@@ -693,7 +718,10 @@ if (window.McpThemeContrast) { window.McpThemeContrast.applyMcpTheme(); }
 <div class="input-area" style="position:relative">
   <div class="at-dropdown" id="atDropdown"></div>
   <div class="input-row">
-    <textarea id="input" placeholder="Type your feedback... (paste image with Cmd-V, @ to reference files; Shift+click quick reply to fill)" rows="2"></textarea>
+    <div class="composer-shell">
+      <div class="path-references" id="pathReferences" role="list" aria-label="Referenced files and folders"></div>
+      <textarea id="input" placeholder="Type feedback... (@ or folder button adds file references)" rows="2"></textarea>
+    </div>
     <div class="input-actions">
       <button class="attach-btn" id="attachBtn" title="Attach image file">&#128206;</button>
       <button class="attach-btn" id="browseBtn" title="Insert file/folder path">&#128193;</button>
@@ -742,6 +770,7 @@ function __mcpSendWebviewReady(phase) {
 <script src="{{ERUDA_PANEL_URI}}" onload="__mcpScriptOk('erudaPanel')" onerror="__mcpScriptFail('erudaPanel')"></script>
 <script src="{{PANELSTATE_MARKDOWN_URI}}" onload="__mcpScriptOk('panelStateMarkdown')" onerror="__mcpScriptFail('panelStateMarkdown')"></script>
 <script src="{{PANELSTATE_UX_URI}}" onload="__mcpScriptOk('panelStateUx')" onerror="__mcpScriptFail('panelStateUx')"></script>
+<script src="{{PANELSTATE_SESSIONS_VIEW_URI}}" onload="__mcpScriptOk('panelStateSessionsView')" onerror="__mcpScriptFail('panelStateSessionsView')"></script>
 <script src="{{PANELSTATE_TRANSPORT_URI}}" onload="__mcpScriptOk('panelStateTransport')" onerror="__mcpScriptFail('panelStateTransport')"></script>
 <script src="{{PANEL_AGENT_RESUME_WATCH_URI}}" onload="__mcpScriptOk('panelAgentResumeWatch')" onerror="__mcpScriptFail('panelAgentResumeWatch')"></script>
 <script src="{{PANELSTATE_URI}}" onload="__mcpScriptOk('panelState')" onerror="__mcpScriptFail('panelState')"></script>

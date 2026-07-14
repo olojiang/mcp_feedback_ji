@@ -133,6 +133,7 @@
     var fileInput = document.getElementById('fileInput');
     var browseBtn = document.getElementById('browseBtn');
     var lruPaths = document.getElementById('lruPaths');
+    var pathReferencesEl = document.getElementById('pathReferences');
     var bottomPane = document.getElementById('bottomPane');
     var paneSplitter = document.getElementById('paneSplitter');
     var scrollBottomBtn = document.getElementById('scrollBottomBtn');
@@ -628,13 +629,14 @@
                             case 'connection': renderConnectionHealth(); break;
                             case 'images': renderStagedImages(); break;
                             case 'staged_images': renderStagedImages(); break;
+                            case 'path_references': renderPathReferences(); break;
                         }
                     }
                     break;
                 case 'dom':
                     switch (cmd.action) {
-                        case 'set_input': inputEl.value = cmd.value || ''; break;
-                        case 'clear_input': inputEl.value = ''; break;
+                        case 'set_input': inputEl.value = cmd.value || ''; renderPathReferences(); break;
+                        case 'clear_input': inputEl.value = ''; renderPathReferences(); break;
                         case 'focus_input': inputEl.focus(); break;
                         case 'set_staged_images': renderStagedImages(); break;
                         case 'clear_staged_images': renderStagedImages(); break;
@@ -742,6 +744,7 @@
         renderMessages();
         renderPending();
         renderStagedImages();
+        renderPathReferences();
         updateSendButton();
         if (state.getActiveSession() && state.getActiveSession().inputDraft) {
             inputEl.value = state.getActiveSession().inputDraft;
@@ -948,10 +951,50 @@
         }
     }
 
+    function renderPathReferences() {
+        if (!pathReferencesEl) return;
+        var references = state.getPathReferences();
+        pathReferencesEl.innerHTML = '';
+        for (var i = 0; i < references.length; i++) {
+            (function (reference) {
+                var block = document.createElement('div');
+                block.className = 'path-reference';
+                block.setAttribute('role', 'listitem');
+                block.title = reference.path;
+
+                var kind = document.createElement('span');
+                kind.className = 'path-reference-kind';
+                kind.textContent = reference.kind === 'folder' ? 'DIR' : 'FILE';
+                kind.setAttribute('aria-hidden', 'true');
+
+                var label = document.createElement('span');
+                label.className = 'path-reference-path';
+                label.textContent = reference.path;
+
+                var remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'path-reference-remove';
+                remove.textContent = '\u00D7';
+                remove.title = 'Remove reference';
+                remove.setAttribute('aria-label', 'Remove ' + reference.kind + ' reference ' + reference.path);
+                remove.addEventListener('click', function () {
+                    exec(state.removePathReference(reference.path));
+                    inputEl.focus();
+                });
+
+                block.appendChild(kind);
+                block.appendChild(label);
+                block.appendChild(remove);
+                pathReferencesEl.appendChild(block);
+            })(references[i]);
+        }
+    }
+
     function updateSendButton() {
         var ui = state.getUIState();
         var staged = state.getStagedImages();
-        var hasContent = inputEl.value.trim().length > 0 || staged.length > 0;
+        var hasContent = inputEl.value.trim().length > 0 || staged.length > 0
+            || state.getPathReferences().length > 0;
         if (ui.buttonMode === 'send') {
             sendBtn.disabled = !hasContent || ui.submitInFlight;
             sendBtn.textContent = ui.submitInFlight
@@ -974,8 +1017,9 @@
     function smartSend() {
         var text = inputEl.value.trim();
         var staged = state.getStagedImages();
-        if (!text && staged.length === 0) return;
-        exec(state.smartSend(text, staged));
+        var pathReferences = state.getPathReferences();
+        if (!text && staged.length === 0 && pathReferences.length === 0) return;
+        exec(state.smartSend(text, staged, pathReferences));
     }
 
     sendBtn.addEventListener('click', smartSend);
@@ -1135,7 +1179,11 @@
                 removePathFromLru(p);
             });
             chip.addEventListener('click', function () {
-                insertAtCursor(p);
+                exec(state.addPathReferences([{
+                    path: p,
+                    kind: p.charAt(p.length - 1) === '/' ? 'folder' : 'file',
+                }]));
+                inputEl.focus();
             });
             chip.appendChild(icon);
             chip.appendChild(pathEl);
@@ -1408,7 +1456,12 @@
             }
         }
 
-        if (paths.length) insertAtCursor(paths.join('\n'));
+        if (paths.length) {
+            addPathsToLru(paths);
+            exec(state.addPathReferences(paths.map(function (p) {
+                return { path: p, kind: p.charAt(p.length - 1) === '/' ? 'folder' : 'file' };
+            })));
+        }
         debugLog('drop result paths=' + JSON.stringify(paths) + ' images=' + imagePromises.length);
         hideDragOverlay();
     }
@@ -1488,10 +1541,16 @@
     window.addEventListener('message', function (event) {
         var msg = event && event.data;
         if (!msg || msg.type !== 'browse-paths-result') return;
-        var paths = Array.isArray(msg.paths) ? msg.paths : [];
-        if (paths.length) {
+        var references = Array.isArray(msg.references)
+            ? msg.references
+            : (Array.isArray(msg.paths) ? msg.paths.map(function (p) {
+                return { path: p, kind: p.charAt(p.length - 1) === '/' ? 'folder' : 'file' };
+            }) : []);
+        var paths = references.map(function (reference) { return reference.path; });
+        if (references.length) {
             addPathsToLru(paths);
-            insertAtCursor(paths.join('\n'));
+            exec(state.addPathReferences(references));
+            inputEl.focus();
         }
         debugLog('browse-paths-result paths=' + JSON.stringify(paths));
     });
@@ -1708,15 +1767,21 @@
         if (!result) { hideAtDropdown(); return; }
         var before = inputEl.value.substring(0, result.start);
         var after = inputEl.value.substring(inputEl.selectionStart);
-        var insert = '@' + item.insertText + ' ';
+        var isPath = item.kind === 'file' || item.kind === 'folder';
+        var insert = isPath ? '' : ('@' + item.insertText + ' ');
         inputEl.value = before + insert + after;
         var newPos = before.length + insert.length;
         inputEl.selectionStart = inputEl.selectionEnd = newPos;
         inputEl.focus();
         hideAtDropdown();
-        if (item.kind === 'file' || item.kind === 'folder') {
+        if (isPath) {
             addPathsToLru([item.insertText]);
+            exec(state.addPathReferences([{
+                path: item.insertText,
+                kind: item.kind,
+            }]));
         }
+        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 500);
     }

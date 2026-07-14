@@ -40,7 +40,7 @@ if (fs.existsSync(agentResumeWatchSrc)) {
     console.log('[generate-webview] Copied panelAgentResumeWatch.js to out/webview/ (loaded as external resource)');
 }
 
-for (const split of ['panelStateMarkdown', 'panelStateUx']) {
+for (const split of ['panelStateMarkdown', 'panelStateUx', 'panelStateSessionsView']) {
     const splitSrc = path.join(__dirname, '..', 'static', split + '.js');
     if (fs.existsSync(splitSrc)) {
         fs.copyFileSync(splitSrc, path.join(outDir, split + '.js'));
