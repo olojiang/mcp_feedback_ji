@@ -41,6 +41,20 @@ describe('requestFeedback stdio keepalive', () => {
   })
 })
 
+describe('shouldLogStdioKeepalive', () => {
+  it('logs sparse 10s ticks and every 60 thereafter', async () => {
+    const { shouldLogStdioKeepalive } = await import('../mcp-server/dist/feedbackWait.js')
+    assert.equal(shouldLogStdioKeepalive(1), true)
+    assert.equal(shouldLogStdioKeepalive(2), true)
+    assert.equal(shouldLogStdioKeepalive(3), false)
+    assert.equal(shouldLogStdioKeepalive(6), true)
+    assert.equal(shouldLogStdioKeepalive(7), false)
+    assert.equal(shouldLogStdioKeepalive(12), true)
+    assert.equal(shouldLogStdioKeepalive(120), true)
+    assert.equal(shouldLogStdioKeepalive(121), false)
+  })
+})
+
 describe('createStdioKeepaliveTick', () => {
   it('sends logging notification with heartbeat line', async () => {
     const { createStdioKeepaliveTick } = await import('../mcp-server/dist/stdioKeepalive.js')
@@ -57,5 +71,27 @@ describe('createStdioKeepaliveTick', () => {
     assert.equal(sent.length, 1)
     assert.equal(sent[0].level, 'info')
     assert.match(sent[0].data, /event=feedback_wait_heartbeat trace=trace-1/)
+  })
+
+  it('always sends protocol keepalive but throttles file logs', async () => {
+    const { createStdioKeepaliveTick } = await import('../mcp-server/dist/stdioKeepalive.js')
+    const sent = []
+    const fileLogs = []
+    const tick = createStdioKeepaliveTick({
+      sendLoggingMessage: async (params) => {
+        sent.push(params)
+      },
+    }, {
+      log: (message) => fileLogs.push(message),
+    })
+
+    for (let i = 0; i < 7; i++) tick('trace-throttle', '/ws')
+    await Promise.resolve()
+
+    assert.equal(sent.length, 7)
+    assert.equal(fileLogs.length, 3)
+    assert.ok(fileLogs.every((line) => /event=stdio_keepalive tick=\d+/.test(line)))
+    assert.match(fileLogs[0], /tick=1/)
+    assert.match(fileLogs[2], /tick=6/)
   })
 })

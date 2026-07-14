@@ -1634,9 +1634,16 @@
             }
         }
         if (msg.type === 'feedback_submitted') {
+            var hubAfterSubmit = state.hubSnapshot || {}
             debugLog('event=feedback_submitted_received session=' + (msg.session_id || '(none)')
                 + ' feedback_len=' + ((msg.feedback && msg.feedback.length) || 0)
-                + ' waiting_cleared=true');
+                + ' waiting_cleared=true'
+                + ' waiting_count=' + state.waitingCount
+                + ' hub_live_pending=' + (typeof hubAfterSubmit.live_pending_count === 'number'
+                    ? hubAfterSubmit.live_pending_count : '-')
+                + ' hub_pending=' + (typeof hubAfterSubmit.pending_count === 'number'
+                    ? hubAfterSubmit.pending_count : '-'));
+            renderConnectionHealth();
             startAgentResumeWatch(msg.session_id);
         }
         if (msg.type === 'feedback_undelivered') {

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.1-ji.170] - 2026-07-14
+
+### Fix — 面板 UI missing 误报 / keepalive 日志噪音 / 测试污染 live logs
+
+- **UI missing 误报** — `feedback_submitted` 后递减本地 `hubSnapshot.live_pending_count`（及 `pending_count`），避免 resolve 与下一轮 `state_sync` 之间 ConnectionHealth 假阳性「UI missing N waiting tab(s)」
+- **stdio keepalive 降噪** — MCP `sendLoggingMessage` 仍每 10s 发送（防 Cursor idle drop）；文件日志 `event=stdio_keepalive` 按 tick `1,2,6,12,30,60` 再每 60 tick 写入
+- **测试隔离** — `installIsolatedConfig` 同时重定向 `MCP_FEEDBACK_CONFIG_DIR` 与 extension file log；`pendingRestore` 改用该 helper；`testIsolation` 强制 WsHub 测试必须调用 `installIsolatedConfig`
+- **可观测性** — `feedback_submitted` 日志增加 `waiting_count` / `hub_live_pending` / `hub_pending`，并立即 `renderConnectionHealth()`；stdio 文件日志增加 `tick=N`
+
 ## [2.5.1-ji.168] - 2026-07-14
 
 ### Fix — 移除 enforcement 自动触发，停止浪费 cursor request

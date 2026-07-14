@@ -40,4 +40,13 @@ describe('panel UX feature wiring (static integration)', () => {
     assert.match(pathReferences, /state\.removePathReference/)
     assert.match(panelApp, /createPathReferenceController/)
   })
+
+  it('refreshes connection health after feedback_submitted with hub pending observability', () => {
+    const submittedIdx = panelApp.indexOf("msg.type === 'feedback_submitted'")
+    assert.ok(submittedIdx > 0, 'feedback_submitted handler must exist')
+    const block = panelApp.slice(submittedIdx, submittedIdx + 900)
+    assert.match(block, /renderConnectionHealth\(\)/)
+    assert.match(block, /hub_live_pending=/)
+    assert.match(block, /waiting_count=/)
+  })
 })

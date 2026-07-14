@@ -1,18 +1,22 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
+import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
+import * as os from 'node:os'
 import { createRequire } from 'node:module'
 import { WebSocket } from 'ws'
+import { installIsolatedConfig } from './helpers/isolatedConfig.js'
 
 const require = createRequire(import.meta.url)
+const isolatedRoot = installIsolatedConfig('mcp-pending-restore-')
 const { WsHub } = require('../out/server/wsHub.js')
 const {
   pendingSessionsFilePath,
   readPersistedPendingSessions,
   isPersistedSessionExpired,
 } = require('../out/pendingSessionStore.js')
+const { flushHubLog } = require('../out/extensionFileLog.js')
+const { getLogsDir, getConfigDir } = require('../out/configPaths.js')
 
 function waitOpen(ws) {
   return new Promise((resolve, reject) => {
@@ -40,20 +44,33 @@ function waitFor(fn, timeoutMs = 3000) {
 }
 
 describe('pending restore integration', () => {
-  let tmpDir
+  it('writes hub logs under isolated config dir, not live ~/.config', async () => {
+    assert.equal(getConfigDir(), path.resolve(isolatedRoot))
+    const logsDir = getLogsDir()
+    assert.ok(logsDir.startsWith(path.resolve(isolatedRoot)))
+    assert.ok(!logsDir.includes(path.join(os.homedir(), '.config', 'mcp-feedback-enhanced')))
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-pending-restore-'))
-    process.env.MCP_FEEDBACK_CONFIG_DIR = tmpDir
-  })
+    const workspace = path.join(isolatedRoot, 'log-isolation-ws')
+    fs.mkdirSync(workspace, { recursive: true })
+    const hub = new WsHub('pending-restore-log-isolation')
+    hub.setWorkspaces([workspace])
+    const port = await hub.start()
+    flushHubLog()
 
-  afterEach(() => {
-    delete process.env.MCP_FEEDBACK_CONFIG_DIR
-    fs.rmSync(tmpDir, { recursive: true, force: true })
+    const today = new Date()
+    const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const logFile = path.join(logsDir, `extension-${key}.log`)
+    assert.ok(fs.existsSync(logFile), `expected isolated log at ${logFile}`)
+    const body = fs.readFileSync(logFile, 'utf8')
+    assert.match(body, /pending-restore-log-isolation/)
+    assert.match(body, new RegExp(`port=${port}`))
+
+    await hub.stop()
   })
 
   it('hub stop/start restores pending session and replays to webview', async () => {
-    const workspace = '/tmp/pending-restore-ws'
+    const workspace = path.join(isolatedRoot, 'pending-restore-ws')
+    fs.mkdirSync(workspace, { recursive: true })
     const hub1 = new WsHub('pending-restore-it')
     hub1.setWorkspaces([workspace])
     const port1 = await hub1.start()
@@ -78,7 +95,7 @@ describe('pending restore integration', () => {
 
     const hub2 = new WsHub('pending-restore-it')
     hub2.setWorkspaces([workspace])
-    const port2 = await hub2.start()
+    await hub2.start()
     assert.ok(hub2.hasPendingRequests(), 'hub should restore pending from disk')
 
     const webviewOut = []
@@ -96,7 +113,8 @@ describe('pending restore integration', () => {
   })
 
   it('webview dismiss of a restored detached session clears persisted pending', async () => {
-    const workspace = '/tmp/pending-restore-dismiss-ws'
+    const workspace = path.join(isolatedRoot, 'pending-restore-dismiss-ws')
+    fs.mkdirSync(workspace, { recursive: true })
     const hub1 = new WsHub('pending-restore-dismiss-it')
     hub1.setWorkspaces([workspace])
     const port1 = await hub1.start()
@@ -115,7 +133,7 @@ describe('pending restore integration', () => {
 
     const hub2 = new WsHub('pending-restore-dismiss-it')
     hub2.setWorkspaces([workspace])
-    const port2 = await hub2.start()
+    await hub2.start()
     assert.ok(hub2.hasPendingRequests(), 'hub should restore pending from disk')
 
     const webviewOut = []

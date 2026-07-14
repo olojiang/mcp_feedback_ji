@@ -12,13 +12,13 @@ function testFiles() {
 }
 
 describe('test isolation guardrails', () => {
-  it('requires WsHub integration tests to isolate MCP_FEEDBACK_CONFIG_DIR', () => {
+  it('requires WsHub integration tests to call installIsolatedConfig', () => {
     const offenders = []
     for (const name of testFiles()) {
       const filePath = path.join(TESTS_DIR, name)
       const source = fs.readFileSync(filePath, 'utf8')
       if (!source.includes('new WsHub') && !source.includes('hub.start')) continue
-      if (source.includes('installIsolatedConfig') || source.includes('MCP_FEEDBACK_CONFIG_DIR')) continue
+      if (source.includes('installIsolatedConfig')) continue
       offenders.push(name)
     }
 

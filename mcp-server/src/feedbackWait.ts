@@ -13,6 +13,15 @@ export function shouldLogHeartbeat(tick: number): boolean {
     return false;
 }
 
+/** Stdio keepalive ticks every 10s; throttle file logs to ticks 1,2,6,12,30,60 then every 60 (~10min). */
+const STDIO_KEEPALIVE_LOG_TICKS = new Set([1, 2, 6, 12, 30, 60]);
+
+export function shouldLogStdioKeepalive(tick: number): boolean {
+    if (STDIO_KEEPALIVE_LOG_TICKS.has(tick)) return true;
+    if (tick > 60 && tick % 60 === 0) return true;
+    return false;
+}
+
 export function feedbackWaitHeartbeatLine(
     traceId?: string,
     projectDirectory?: string,

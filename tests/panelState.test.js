@@ -6,7 +6,7 @@ import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const { PanelState, storageKeyForWorkspace } = require('../out/webview/panelState.js')
+const { PanelState, ConnectionHealth, storageKeyForWorkspace } = require('../out/webview/panelState.js')
 
 describe('PanelState multi-session', () => {
   it('uses collision-resistant storage keys for workspaces with the same suffix', () => {
@@ -931,5 +931,141 @@ describe("panelApp.js LRU wiring regression", () => {
     assert.ok(useIdx > 0, 'browseBtn usage must exist')
     assert.ok(declIdx < useIdx,
       'browseBtn must be declared before first usage')
+  })
+})
+
+describe('PanelState hubSnapshot reconcile on feedback_submitted', () => {
+  it('decrements live pending so ConnectionHealth stops reporting UI missing', () => {
+    const state = new PanelState()
+    state.handleMessage({
+      type: 'session_updated',
+      session_id: 'fb-live',
+      summary: 'waiting',
+    })
+    state.hubSnapshot = {
+      port: 48200,
+      pid: 1,
+      workspaces: ['/proj'],
+      mcp_servers: 1,
+      pending_count: 1,
+      live_pending_count: 1,
+      mcp_detached_count: 0,
+    }
+
+    state.handleMessage({
+      type: 'feedback_submitted',
+      session_id: 'fb-live',
+      feedback: 'done',
+    })
+
+    assert.equal(state.hubSnapshot.live_pending_count, 0)
+    assert.equal(state.hubSnapshot.pending_count, 0)
+    assert.equal(state.waitingCount, 0)
+
+    const health = ConnectionHealth.evaluate({
+      bridgeReady: true,
+      hub: state.hubSnapshot,
+      localWaitingCount: state.waitingCount,
+      staleLocalWaiting: 0,
+      pingStale: false,
+      hubPidMismatch: false,
+    })
+    assert.equal(health.issues.some((i) => i.includes('UI missing')), false)
+  })
+
+  it('decrements once per waiting session when multiple pending', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-a', summary: 'A' })
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-b', summary: 'B' })
+    state.hubSnapshot = {
+      port: 48200,
+      pid: 1,
+      workspaces: ['/proj'],
+      mcp_servers: 1,
+      pending_count: 2,
+      live_pending_count: 2,
+      mcp_detached_count: 0,
+    }
+
+    state.handleMessage({
+      type: 'feedback_submitted',
+      session_id: 'fb-a',
+      feedback: 'done a',
+    })
+
+    assert.equal(state.hubSnapshot.live_pending_count, 1)
+    assert.equal(state.hubSnapshot.pending_count, 1)
+    assert.equal(state.sessions['fb-b'].waiting, true)
+
+    const health = ConnectionHealth.evaluate({
+      bridgeReady: true,
+      hub: state.hubSnapshot,
+      localWaitingCount: state.waitingCount,
+      staleLocalWaiting: 0,
+      pingStale: false,
+      hubPidMismatch: false,
+    })
+    assert.equal(health.issues.some((i) => i.includes('UI missing')), false)
+  })
+
+  it('does not decrement twice for duplicate feedback_submitted on same session', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-x', summary: 'x' })
+    state.hubSnapshot = {
+      pending_count: 1,
+      live_pending_count: 1,
+      mcp_detached_count: 0,
+      mcp_servers: 1,
+    }
+
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-x', feedback: 'once' })
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-x', feedback: 'once' })
+
+    assert.equal(state.hubSnapshot.live_pending_count, 0)
+    assert.equal(state.hubSnapshot.pending_count, 0)
+  })
+
+  it('lets authoritative state_sync overwrite optimistic hubSnapshot decrement', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-z', summary: 'z' })
+    state.hubSnapshot = {
+      port: 48200,
+      pid: 9,
+      workspaces: ['/proj'],
+      mcp_servers: 1,
+      pending_count: 1,
+      live_pending_count: 1,
+      mcp_detached_count: 0,
+    }
+    state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-z', feedback: 'done' })
+    assert.equal(state.hubSnapshot.live_pending_count, 0)
+
+    state.handleMessage({
+      type: 'state_sync',
+      pending_sessions: [],
+      pending_comments: [],
+      pending_images: [],
+      feedback_queue_size: 0,
+      hub: {
+        port: 48200,
+        pid: 9,
+        workspaces: ['/proj'],
+        mcp_servers: 1,
+        pending_count: 0,
+        live_pending_count: 0,
+        mcp_detached_count: 0,
+      },
+    })
+    assert.equal(state.hubSnapshot.live_pending_count, 0)
+    assert.equal(state.hubSnapshot.port, 48200)
+  })
+
+  it('tolerates missing hubSnapshot', () => {
+    const state = new PanelState()
+    state.handleMessage({ type: 'session_updated', session_id: 'fb-y', summary: 'y' })
+    state.hubSnapshot = null
+    assert.doesNotThrow(() => {
+      state.handleMessage({ type: 'feedback_submitted', session_id: 'fb-y', feedback: 'ok' })
+    })
   })
 })

@@ -722,6 +722,17 @@
       })
     }
 
+    _decrementHubPendingSnapshot() {
+      var hub = this.hubSnapshot
+      if (!hub) return
+      if (typeof hub.live_pending_count === 'number') {
+        hub.live_pending_count = Math.max(0, hub.live_pending_count - 1)
+      }
+      if (typeof hub.pending_count === 'number') {
+        hub.pending_count = Math.max(0, hub.pending_count - 1)
+      }
+    }
+
     _onFeedbackSubmitted(msg) {
       var id = msg.session_id || this.activeSessionId
       if (!id || !this.sessions[id]) return [render('tabs', 'messages', 'input')]
@@ -738,8 +749,10 @@
           })
         }
       }
+      var wasWaiting = !!sess.waiting
       sess.waiting = false
       sess.submitInFlight = false
+      if (wasWaiting) this._decrementHubPendingSnapshot()
       if (msg.feedback) {
         this._removeFromGlobalPending(msg.feedback)
       }
